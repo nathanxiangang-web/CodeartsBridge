@@ -73,6 +73,8 @@ pwsh -File .\scripts\bridge.ps1 review-pass -TaskId <task-id>
 
 硬时限终止后若状态仍显示 `RUNNING`，但 `processId` 已为空且有退出码，表示 runner lease 已消失的孤儿状态。先执行 `cancel -TaskId <task-id>` 关闭状态，再检查该 Worker 的独立工作区、最后提交和 outbox；已有完整提交时先导入验收，不要直接重跑并覆盖现场。
 
+若任务在数秒内以退出码 `0` 结束，但缺少 `RESULT.md`、`DIFF.stat`、`TESTS.md` 或目标改动，仍按失败处理：这通常表示 CLI 没有真正进入实现阶段，不能把进程成功误判为任务成功。只允许用同一最小任务重试一次；再次出现时将该 Worker 标记为暂时不可用，保留现场并把任务转给其他空闲 Worker，或由架构师本地补位。恢复该 Worker 前先用一个只读或极小写入探针验证账号、会话和交付链路。
+
 远端 bashrc 注意：Ubuntu 顶部 `case $- in *i*) ;; *) return;;` 会挡住非交互 shell 读取后续 export，需把 `CODEARTS_CLI_AK/SK` export 移到 `case $-` 之前。
 
 ## 会话复用（v1.1）
