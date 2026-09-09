@@ -76,6 +76,8 @@ pwsh -File .\scripts\bridge.ps1 review-pass -TaskId <task-id>
 
 若任务在数秒内以退出码 `0` 结束，但缺少 `RESULT.md`、`DIFF.stat`、`TESTS.md` 或目标改动，仍按失败处理：这通常表示 CLI 没有真正进入实现阶段，不能把进程成功误判为任务成功。只允许用同一最小任务重试一次；再次出现时将该 Worker 标记为暂时不可用，保留现场并把任务转给其他空闲 Worker，或由架构师本地补位。恢复该 Worker 前先用一个只读或极小写入探针验证账号、会话和交付链路。
 
+四个 CodeArts 账号的额度和登录状态彼此独立。日志出现 `TM.00001050`、`积分已耗尽` 或同义的明确账号额度错误时，不要在原会话重试或切换其他 Worker 的凭据；先抢救该独立副本中已经通过聚焦测试的提交，把该 Worker 标记为额度暂停，再把未完成的最小任务派给其他空闲账号。额度恢复后先运行最小探针，成功后才重新加入四 Worker 调度。
+
 远端 bashrc 注意：Ubuntu 顶部 `case $- in *i*) ;; *) return;;` 会挡住非交互 shell 读取后续 export，需把 `CODEARTS_CLI_AK/SK` export 移到 `case $-` 之前。
 
 ## 会话复用（v1.1）
