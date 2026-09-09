@@ -8,7 +8,7 @@
   "workers": [
     {
       "id": "worker-01-remote",
-      "transport": "remote-worktree",
+      "transport": "ssh",
       "host": "nathan@192.168.178.52",
       "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
@@ -22,7 +22,7 @@
     },
     {
       "id": "worker-02-remote",
-      "transport": "remote-worktree",
+      "transport": "ssh",
       "host": "nathan@192.168.178.50",
       "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
@@ -36,7 +36,7 @@
     },
     {
       "id": "worker-03-remote",
-      "transport": "remote-worktree",
+      "transport": "ssh",
       "host": "root@192.168.5.15",
       "cliPath": "/root/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
@@ -50,7 +50,7 @@
     },
     {
       "id": "worker-04-remote",
-      "transport": "remote-worktree",
+      "transport": "ssh",
       "host": "nathan@192.168.178.51",
       "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",

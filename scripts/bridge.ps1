@@ -1381,7 +1381,7 @@ function Invoke-SshWorker {
         foreach ($ctrlFile in @('ASSISTANCE_REQUEST.md', 'CHECKPOINT.md')) {
             $localCtrl = Join-Path $localOutbox $ctrlFile
             if (-not (Test-Path -LiteralPath $localCtrl -PathType Leaf)) {
-                try { Invoke-BoundedFetch -FilePath $pollScp -Arguments @('-q', ($pollHostName + ':' + $pollRemoteOutbox + '/' + $ctrlFile), $localCtrl) -TimeoutSeconds 10 } catch {}
+                try { $null = Invoke-BoundedFetch -FilePath $pollScp -Arguments @('-q', ($pollHostName + ':' + $pollRemoteOutbox + '/' + $ctrlFile), $localCtrl) -TimeoutSeconds 10 } catch {}
             }
         }
     }
@@ -1640,6 +1640,13 @@ function Complete-WorkerRun {
         [string]$WorkerId,
         [string]$Baseline
     )
+
+    $exitCode = $null
+    if ($Result -and $Result.PSObject.Properties.Name -contains 'ExitCode') {
+        $rawExit = $Result.ExitCode
+        if ($rawExit -is [array]) { $exitCode = [int]$rawExit[0] }
+        elseif ($null -ne $rawExit) { $exitCode = [int]$rawExit }
+    }
     if ($Result.PSObject.Properties.Name -contains 'AssistanceRequested' -and $Result.AssistanceRequested) {
         if ($TaskId) { Remove-Lease -TaskId $TaskId }
         return
@@ -1657,7 +1664,7 @@ function Complete-WorkerRun {
         if ($telemetry.lastEventAt) { $telemetryParams.LastEventAt = $telemetry.lastEventAt }
         if ($null -ne $telemetry.tokens) { $telemetryParams.Tokens = $telemetry.tokens }
         $currentState = Get-State -Directory $TaskDirectory
-        Set-State -Directory $TaskDirectory -Status ([string]$currentState.status) -Message ([string]$currentState.message) -ExitCode $Result.ExitCode @telemetryParams | Out-Null
+        Set-State -Directory $TaskDirectory -Status ([string]$currentState.status) -Message ([string]$currentState.message) -ExitCode $exitCode @telemetryParams | Out-Null
         if ($TaskId) { Remove-Lease -TaskId $TaskId }
         return
     }
@@ -1678,16 +1685,16 @@ function Complete-WorkerRun {
     $required = @('RESULT.md', 'DIFF.stat', 'TESTS.md')
     $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $outbox $_) -PathType Leaf) })
     $stderrText = [string]$Result.StandardError
-    if ($Result.ExitCode -ne 0 -and $stderrText -match 'authentication failed|CODEARTS_CLI_AK|CODEARTS_CLI_SK|authentication failed|authorization failed|not authorized|not authorized') {
-        Set-State -Directory $TaskDirectory -Status 'AUTH_REQUIRED' -Message 'CodeArts CLI AK/SK authorization not completed' -ExitCode $Result.ExitCode @telemetryParams | Out-Null
+    if ($exitCode -ne 0 -and $stderrText -match 'authentication failed|CODEARTS_CLI_AK|CODEARTS_CLI_SK|authentication failed|authorization failed|not authorized|not authorized') {
+        Set-State -Directory $TaskDirectory -Status 'AUTH_REQUIRED' -Message 'CodeArts CLI AK/SK authorization not completed' -ExitCode $exitCode @telemetryParams | Out-Null
     } elseif ($hasBlocker) {
-        Set-State -Directory $TaskDirectory -Status 'BLOCKED' -Message 'Worker reported architectural block' -ExitCode $Result.ExitCode @telemetryParams | Out-Null
-    } elseif ($Result.ExitCode -ne 0) {
-        Set-State -Directory $TaskDirectory -Status 'FAILED' -Message "Worker exit code: $($Result.ExitCode)" -ExitCode $Result.ExitCode @telemetryParams | Out-Null
+        Set-State -Directory $TaskDirectory -Status 'BLOCKED' -Message 'Worker reported architectural block' -ExitCode $exitCode @telemetryParams | Out-Null
+    } elseif ($exitCode -ne 0) {
+        Set-State -Directory $TaskDirectory -Status 'FAILED' -Message "Worker exit code: $($exitCode)" -ExitCode $exitCode @telemetryParams | Out-Null
     } elseif ($missing.Count -gt 0) {
-        Set-State -Directory $TaskDirectory -Status 'FAILED' -Message ('Protocol deliverables incomplete: ' + ($missing -join ', ')) -ExitCode $Result.ExitCode @telemetryParams | Out-Null
+        Set-State -Directory $TaskDirectory -Status 'FAILED' -Message ('Protocol deliverables incomplete: ' + ($missing -join ', ')) -ExitCode $exitCode @telemetryParams | Out-Null
     } else {
-        Set-State -Directory $TaskDirectory -Status 'REVIEW_REQUIRED' -Message 'Worker deliverables complete, awaiting review' -ExitCode $Result.ExitCode @telemetryParams | Out-Null
+        Set-State -Directory $TaskDirectory -Status 'REVIEW_REQUIRED' -Message 'Worker deliverables complete, awaiting review' -ExitCode $exitCode @telemetryParams | Out-Null
     }
     if (-not [string]::IsNullOrWhiteSpace($WorktreePath)) {
         $evState = ConvertTo-OrderedState (Get-State -Directory $TaskDirectory)
