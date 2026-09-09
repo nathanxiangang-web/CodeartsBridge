@@ -2067,7 +2067,14 @@ if (-not $BridgeTest) {
             $taskDirectory = Get-TaskDirectory -Id $TaskId
             if (-not (Test-Path -LiteralPath $taskDirectory -PathType Container)) { throw "Task not found: $TaskId" }
             Write-AtomicText -Path (Join-Path $taskDirectory 'CANCEL_REQUESTED') -Content ([DateTimeOffset]::Now.ToString('o') + [Environment]::NewLine)
-            Write-Output "Cancel requested: $TaskId"
+            $state = Get-State -Directory $taskDirectory
+            $lease = Read-Lease -TaskId $TaskId
+            if ([string]$state.status -in @('QUEUED','STARTING','RUNNING') -and -not $lease) {
+                Set-State -Directory $taskDirectory -Status 'CANCELLED' -Message 'Cancel closed orphaned task with no active runner lease' | Out-Null
+                Write-Output "Cancelled orphaned task: $TaskId"
+            } else {
+                Write-Output "Cancel requested: $TaskId"
+            }
         }
 
         'review-pass' {
