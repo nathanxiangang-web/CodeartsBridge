@@ -1418,11 +1418,9 @@ function Export-WorkerBundle {
 }
 
 function Get-RemoteWorkerGuardrailPrefix {
-    $gitSshValue = Quote-Posix 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes'
     $exports = @(
         'export GIT_TERMINAL_PROMPT=0',
         'export GIT_ASKPASS=',
-        'export GIT_SSH_COMMAND=' + $gitSshValue,
         'export GIT_CONFIG_NOSYSTEM=1',
         'export GIT_CONFIG_SYSTEM=/dev/null',
         'export GIT_CONFIG_GLOBAL=/dev/null',
@@ -1445,6 +1443,7 @@ function Get-RemoteWorkerGuardrailPrefix {
     $unsets = @(
         'GIT_USERNAME','GIT_PASSWORD','GIT_TOKEN','GH_TOKEN','GITHUB_TOKEN','GITLAB_TOKEN',
         'SSH_AUTH_SOCK','SSH_AGENT_PID','SSH_KEY_PATH','GIT_SSH_KEYPATH','GIT_SSH_KEY',
+        'GIT_SSH_COMMAND','GIT_SSH_VARIANT',
         'GIT_CREDENTIAL_HELPER','GIT_CREDENTIAL_MANAGER','GIT_CREDENTIAL_MANAGER_HELPER',
         'GIT_CREDENTIAL_STORE','GCM_INTERACTIVE','GCM_PROVIDER','GCM_PLUGINS'
     )
