@@ -1594,15 +1594,16 @@ function Remove-RemoteWorkspace {
 }
 
 function Invoke-RemoteWorktreeWorker {
-    param($Project, $Worker, [string]$WorkingDir, [string]$TaskDirectory, [string]$Mode, [int]$TimeoutSeconds, [string]$LogPrefix, [string]$SessionId, [string]$TaskId, [int]$Attempt = 0, [int]$SoftTimeoutSeconds = 0)
+    param($Project, $Worker, [string]$WorkingDir, [string]$TaskDirectory, [string]$Mode, [int]$TimeoutSeconds, [string]$LogPrefix, [string]$SessionId, [string]$TaskId, [string]$Baseline, [int]$Attempt = 0, [int]$SoftTimeoutSeconds = 0)
     if ([string]::IsNullOrWhiteSpace([string]$Project.sshHost)) { throw 'remote-worktree project missing sshHost' }
     if ([string]::IsNullOrWhiteSpace([string]$Project.remoteWorkspaceRoot)) { throw 'remote-worktree project missing remoteWorkspaceRoot' }
     if ([string]$Project.sshHost -notmatch '^[A-Za-z0-9_.@:-]+$') { throw 'sshHost contains unsafe characters' }
     $hostName = [string]$Project.sshHost
     $projectRoot = if ($WorkingDir) { $WorkingDir } else { [string]$Project.projectRoot }
     if (-not (Test-GitRepo -Path $projectRoot)) { throw 'Not a git repo: ' + $projectRoot }
-    $baselineSha = (& git -C $projectRoot rev-parse HEAD 2>$null | Out-String).Trim()
-    if ([string]::IsNullOrWhiteSpace($baselineSha)) { throw 'Cannot resolve HEAD in ' + $projectRoot }
+    $baselineRef = if (-not [string]::IsNullOrWhiteSpace($Baseline)) { $Baseline } else { 'HEAD' }
+    $baselineSha = (& git -C $projectRoot rev-parse -q --verify ($baselineRef + '^{commit}') 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($baselineSha)) { throw 'Cannot resolve remote-worktree baseline ' + $baselineRef + ' in ' + $projectRoot }
     $remoteWorkspaceRoot = [string]$Project.remoteWorkspaceRoot
     $remoteCli = if ($Worker -and $Worker.PSObject.Properties.Name -contains 'cliPath' -and -not [string]::IsNullOrWhiteSpace([string]$Worker.cliPath)) { [string]$Worker.cliPath } elseif ($Project.PSObject.Properties.Name -contains 'remoteCliPath' -and -not [string]::IsNullOrWhiteSpace([string]$Project.remoteCliPath)) { [string]$Project.remoteCliPath } else { 'codearts' }
     if ($remoteCli -ne 'codearts' -and -not $remoteCli.StartsWith('/')) { throw 'remoteCliPath must be absolute or codearts: ' + $remoteCli }
@@ -1968,7 +1969,7 @@ if (-not $BridgeTest) {
                 } elseif ($transport -eq 'ssh') {
                     $result = Invoke-SshWorker -Project $project -Worker $worker -WorkingDir $workingDir -TaskDirectory $taskDirectory -Mode $mode -TimeoutSeconds ($minutes * 60) -SoftTimeoutSeconds $softTimeoutSeconds -LogPrefix $logPrefix -SessionId $existingSessionId -TaskId $TaskId -Attempt $attempt
                 } elseif ($transport -eq 'remote-worktree') {
-                    $result = Invoke-RemoteWorktreeWorker -Project $project -Worker $worker -WorkingDir $workingDir -TaskDirectory $taskDirectory -Mode $mode -TimeoutSeconds ($minutes * 60) -SoftTimeoutSeconds $softTimeoutSeconds -LogPrefix $logPrefix -SessionId $existingSessionId -TaskId $TaskId -Attempt $attempt
+                    $result = Invoke-RemoteWorktreeWorker -Project $project -Worker $worker -WorkingDir $workingDir -TaskDirectory $taskDirectory -Mode $mode -TimeoutSeconds ($minutes * 60) -SoftTimeoutSeconds $softTimeoutSeconds -LogPrefix $logPrefix -SessionId $existingSessionId -TaskId $TaskId -Baseline ([string]$meta.baseline) -Attempt $attempt
                 } else {
                     throw "Unsupported transport: $transport"
                 }

@@ -69,6 +69,8 @@ pwsh -File .\scripts\bridge.ps1 review-pass -TaskId <task-id>
 
 这里的项目 transport 已经是 `remote-worktree`；`-WorkspaceMode existing` 表示 Worker 写它本次临时复制出来的独立仓库，不是让四个 Worker 写同一个源目录。账号授权和远端登录只保存在各自 Worker 主机，桥不会复制或打印凭据。
 
+`remote-worktree` 会先把 `-Baseline` 解析为规范提交 ID，再只导出该提交；可传提交 ID、分支或 namespaced ref。未提供时才使用集成仓库当前 `HEAD`。续作或整改若基于未合入主线的现场提交，应先把现场导入独立 ref，再把该 ref 作为新任务基线。
+
 远端 bashrc 注意：Ubuntu 顶部 `case $- in *i*) ;; *) return;;` 会挡住非交互 shell 读取后续 export，需把 `CODEARTS_CLI_AK/SK` export 移到 `case $-` 之前。
 
 ## 会话复用（v1.1）
