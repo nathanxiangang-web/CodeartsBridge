@@ -46,6 +46,29 @@
 
 CloudSite 使用 `cloudsite-rc1-w01` 到 `cloudsite-rc1-w04` 四个项目配置，分别绑定四台 Worker 主机。四个任务可以同时开发不同模块；可能修改同一文件或同一迁移版本的任务仍应由架构师串行合入并处理冲突。
 
+### CloudSite 四副本实用流程
+
+1. 先在桥接机的集成仓库确认主线干净并记录 `HEAD`。任务文件只写英文 ASCII，并把模型、业务逻辑、API、前端等边界拆开。
+2. 分别用四个项目和四个 Worker 创建任务；`-Baseline` 固定为派发时记录的提交，避免后来的主线变化悄悄进入运行中的任务。
+3. 使用 `dispatch -MaxWorkers 4` 并行启动。每个任务会在自己的远端目录和 Git 分支中运行，不共享可写工作区。
+4. 任务进入 `REVIEW_REQUIRED` 后，只读 `RESULT.md`、`DIFF.stat`、`TESTS.md` 和必要 diff。通过后执行 `review-pass`，再按模型/迁移、业务逻辑、API、前端的依赖顺序整合 `refs/worker/<task-id>/result`。
+5. 每合入一个结果就更新集成主线；给空闲 Worker 创建后继写任务时使用新的 `HEAD`。不要把仍基于旧模型的后继任务直接并发到共享边界。
+
+```powershell
+$baseline = git -C <integration-repo> rev-parse HEAD
+
+pwsh -File .\scripts\bridge.ps1 create -ProjectId cloudsite-rc1-w01 -WorkerId cloud-worker-01 -Role implement -WorkspaceMode existing -TaskId <model-task> -TaskFile <task-file> -Baseline $baseline -TargetMinutes 10 -SoftTimeoutMinutes 12 -TimeoutMinutes 15
+pwsh -File .\scripts\bridge.ps1 create -ProjectId cloudsite-rc1-w02 -WorkerId cloud-worker-02 -Role implement -WorkspaceMode existing -TaskId <logic-task> -TaskFile <task-file> -Baseline $baseline -TargetMinutes 10 -SoftTimeoutMinutes 12 -TimeoutMinutes 15
+pwsh -File .\scripts\bridge.ps1 create -ProjectId cloudsite-rc1-w03 -WorkerId cloud-worker-03 -Role implement -WorkspaceMode existing -TaskId <api-task> -TaskFile <task-file> -Baseline $baseline -TargetMinutes 10 -SoftTimeoutMinutes 12 -TimeoutMinutes 15
+pwsh -File .\scripts\bridge.ps1 create -ProjectId cloudsite-rc1-w04 -WorkerId cloud-worker-04 -Role implement -WorkspaceMode existing -TaskId <web-task> -TaskFile <task-file> -Baseline $baseline -TargetMinutes 10 -SoftTimeoutMinutes 12 -TimeoutMinutes 15
+
+pwsh -File .\scripts\bridge.ps1 dispatch -MaxWorkers 4
+pwsh -File .\scripts\show-progress.ps1 -TaskId <task-id>
+pwsh -File .\scripts\bridge.ps1 review-pass -TaskId <task-id>
+```
+
+这里的项目 transport 已经是 `remote-worktree`；`-WorkspaceMode existing` 表示 Worker 写它本次临时复制出来的独立仓库，不是让四个 Worker 写同一个源目录。账号授权和远端登录只保存在各自 Worker 主机，桥不会复制或打印凭据。
+
 远端 bashrc 注意：Ubuntu 顶部 `case $- in *i*) ;; *) return;;` 会挡住非交互 shell 读取后续 export，需把 `CODEARTS_CLI_AK/SK` export 移到 `case $-` 之前。
 
 ## 会话复用（v1.1）
