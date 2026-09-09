@@ -48,7 +48,7 @@ CloudSite 使用 `cloudsite-rc1-w01` 到 `cloudsite-rc1-w04` 四个项目配置�
 
 ### CloudSite 四副本实用流程
 
-1. 先在桥接机的集成仓库确认主线干净并记录 `HEAD`。任务文件只写英文 ASCII，并把模型、业务逻辑、API、前端等边界拆开。
+1. 先在桥接机的集成仓库确认主线干净并记录 `HEAD`。任务文件只写英文 ASCII，并把模型、业务逻辑、API、前端等边界拆开。实现任务的 `Required Changes` 最多 5 项；超过时拆成后继任务，否则创建阶段会拒绝。
 2. 分别用四个项目和四个 Worker 创建任务；`-Baseline` 固定为派发时记录的提交，避免后来的主线变化悄悄进入运行中的任务。
 3. 使用 `dispatch -MaxWorkers 4` 并行启动。每个任务会在自己的远端目录和 Git 分支中运行，不共享可写工作区。
 4. 任务进入 `REVIEW_REQUIRED` 后，只读 `RESULT.md`、`DIFF.stat`、`TESTS.md` 和必要 diff。通过后执行 `review-pass`，再按模型/迁移、业务逻辑、API、前端的依赖顺序整合 `refs/worker/<task-id>/result`。
@@ -70,6 +70,8 @@ pwsh -File .\scripts\bridge.ps1 review-pass -TaskId <task-id>
 这里的项目 transport 已经是 `remote-worktree`；`-WorkspaceMode existing` 表示 Worker 写它本次临时复制出来的独立仓库，不是让四个 Worker 写同一个源目录。账号授权和远端登录只保存在各自 Worker 主机，桥不会复制或打印凭据。
 
 `remote-worktree` 会先把 `-Baseline` 解析为规范提交 ID，再只导出该提交；可传提交 ID、分支或 namespaced ref。未提供时才使用集成仓库当前 `HEAD`。续作或整改若基于未合入主线的现场提交，应先把现场导入独立 ref，再把该 ref 作为新任务基线。
+
+硬时限终止后若状态仍显示 `RUNNING`，但 `processId` 已为空且有退出码，表示 runner lease 已消失的孤儿状态。先执行 `cancel -TaskId <task-id>` 关闭状态，再检查该 Worker 的独立工作区、最后提交和 outbox；已有完整提交时先导入验收，不要直接重跑并覆盖现场。
 
 远端 bashrc 注意：Ubuntu 顶部 `case $- in *i*) ;; *) return;;` 会挡住非交互 shell 读取后续 export，需把 `CODEARTS_CLI_AK/SK` export 移到 `case $-` 之前。
 
