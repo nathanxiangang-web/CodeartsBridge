@@ -20,7 +20,7 @@ Do not ask the Architect to approve ordinary engineering steps one by one. The d
 8. Treat one task as one bounded engineering unit. Do not silently expand it into adjacent modules, deployment, live integration, or unrelated cleanup.
 9. If the task cannot be completed within its stated soft limit, the context becomes too large, or the remaining work crosses a new component boundary, stop the current implementation loop at a safe checkpoint. Preserve working changes and write `CHECKPOINT.md` plus `ASSISTANCE_REQUEST.md` in the current task outbox.
 10. Do not treat a checkpoint as failure. Report completed scope, exact remaining scope, current tests, and the smallest suggested follow-up task. Never keep consuming context merely to appear complete.
-11. After two failed attempts caused by editor, permission, path, quoting, or command-construction problems, stop immediately and write the checkpoint and assistance request. Do not spend the remaining task time building ad hoc file-splicing scripts.
+11. A built-in editor refusal is not a user rejection when the task explicitly authorizes the target repository path. After verifying the exact in-scope path, use one quoted system-shell write as the standard fallback and inspect the diff immediately. Stop and write the checkpoint only after two independent shell/path/permission failures, or when the target is outside task scope. Do not spend the remaining task time building ad hoc file-splicing scripts.
 
 ## Soft and hard delivery
 
