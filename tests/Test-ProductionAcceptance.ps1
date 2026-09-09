@@ -65,7 +65,7 @@ $workers = @(Get-PropertyValue -Object $workerRegistry -Name 'workers')
 Assert-True 'exactly three Workers registered' ($workers.Count -eq 3)
 Assert-True 'all Workers use exact GLM-5.2 model' (@($workers | Where-Object { [string]$_.model -ne $requiredModel }).Count -eq 0)
 Assert-True 'all Worker concurrency limits are positive' (@($workers | Where-Object { [int]$_.concurrencyLimit -lt 1 }).Count -eq 0)
-$remoteWorkers = @($workers | Where-Object { [string]$_.transport -in @('ssh', 'ssh-shell') })
+$remoteWorkers = @($workers | Where-Object { [string]$_.transport -in @('ssh', 'ssh-shell', 'remote-worktree') })
 Assert-True 'two SSH Workers registered' ($remoteWorkers.Count -eq 2)
 foreach ($worker in $remoteWorkers) {
     Assert-True ("remote Worker host is non-empty: " + [string]$worker.id) (-not [string]::IsNullOrWhiteSpace([string]$worker.host))

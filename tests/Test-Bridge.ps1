@@ -40,7 +40,7 @@ if ([int]$registry.defaults.timeoutMinutes -lt 1) { throw '默认超时必须大
 
 foreach ($project in @($registry.projects)) {
     if ($project.id -notmatch '^[a-z0-9][a-z0-9._-]*$') { throw "无效项目 ID：$($project.id)" }
-    if ($project.transport -notin @('local', 'ssh', 'ssh-shell')) { throw "无效 transport：$($project.transport)" }
+    if ($project.transport -notin @('local', 'ssh', 'ssh-shell', 'remote-worktree')) { throw "无效 transport：$($project.transport)" }
     if ($project.runMode -notin @('auto', 'manual', 'sandbox')) { throw "无效 runMode：$($project.runMode)" }
     if ($project.transport -eq 'local' -and -not (Test-Path -LiteralPath $project.projectRoot -PathType Container)) {
         throw "本地项目不存在：$($project.projectRoot)"
@@ -50,6 +50,9 @@ foreach ($project in @($registry.projects)) {
     }
     if ($project.transport -eq 'ssh-shell' -and [string]::IsNullOrWhiteSpace($project.sshHost)) {
         throw "ssh-shell 项目配置不完整：$($project.id)"
+    }
+    if ($project.transport -eq 'remote-worktree' -and ([string]::IsNullOrWhiteSpace($project.sshHost) -or [string]::IsNullOrWhiteSpace($project.remoteWorkspaceRoot))) {
+        throw "remote-worktree 项目配置不完整：$($project.id)"
     }
 }
 

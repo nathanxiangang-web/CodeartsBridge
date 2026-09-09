@@ -16,6 +16,7 @@ credentials*.csv
 **/.opencode/
 tests/remote.md
 tests/remote-account*.md
+tests/CodeartsAccount/
 tests/rocky1043.csv
 tests/ubuntu8080.csv
 tests/win1649.csv

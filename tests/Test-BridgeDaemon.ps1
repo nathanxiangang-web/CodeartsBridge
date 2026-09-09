@@ -496,9 +496,12 @@ Test-Pass -Name 'T22 inherited pipe: descendant retains pipe 30s, drain incomple
         $fixtureContent = [System.Text.Encoding]::ASCII.GetString([Convert]::FromBase64String($fixtureB64))
         [System.IO.File]::WriteAllText($fixturePath, $fixtureContent, [System.Text.UTF8Encoding]::new($false))
         $startTime = [DateTimeOffset]::UtcNow
-        & $testHostExe -NoProfile -File $daemonScript once -StateDir $stateDir -FakeRunner $fixturePath -LoopTimeoutSeconds 30 2>&1 | Out-Null
+        $daemonOut = Join-Path $tmp 'daemon-stdout.txt'
+        $daemonErr = Join-Path $tmp 'daemon-stderr.txt'
+        $dproc = Start-Process $testHostExe -ArgumentList @('-NoProfile', '-File', $daemonScript, 'once', '-StateDir', $stateDir, '-FakeRunner', $fixturePath, '-LoopTimeoutSeconds', '30') -NoNewWindow -PassThru -RedirectStandardOutput $daemonOut -RedirectStandardError $daemonErr
+        $dproc.WaitForExit()
         $elapsed = ([DateTimeOffset]::UtcNow - $startTime).TotalSeconds
-        Assert-True 'once completed' ($LASTEXITCODE -eq 0)
+        Assert-True 'once completed' ($dproc.ExitCode -eq 0)
         Assert-True 'completed well before 30s' ($elapsed -lt 15)
         $health = Get-Content (Join-Path $stateDir 'health.json') -Raw | ConvertFrom-Json
         Assert-True 'drain incomplete recorded' ($health.drainIncomplete -eq $true)

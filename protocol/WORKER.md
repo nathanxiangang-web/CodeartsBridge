@@ -22,6 +22,33 @@ Do not ask the Architect to approve ordinary engineering steps one by one. The d
 10. Do not treat a checkpoint as failure. Report completed scope, exact remaining scope, current tests, and the smallest suggested follow-up task. Never keep consuming context merely to appear complete.
 11. After two failed attempts caused by editor, permission, path, quoting, or command-construction problems, stop immediately and write the checkpoint and assistance request. Do not spend the remaining task time building ad hoc file-splicing scripts.
 
+## Soft and hard delivery
+
+Every task has two time limits. The Architect sets them per task complexity but the ratio is fixed at 3:4 (soft:hard).
+
+### Soft delivery (soft timeout, default 15 minutes)
+
+When the soft timeout fires the worker MUST stop the current implementation loop immediately and perform a soft delivery:
+
+1. Save all completed work to the task `outbox` (partial test files, partial results, any valid artifacts).
+2. Write `CHECKPOINT.md` to `outbox` with: completed scope, exact remaining scope, current test status, and the smallest suggested follow-up task.
+3. Write `ASSISTANCE_REQUEST.md` to `outbox` with the same information in the assistance request format.
+4. Do not continue coding past the soft timeout. The grace period (default 5 minutes) exists only to finish writing the checkpoint files, not to attempt more work.
+
+### Hard cutoff (hard timeout, default 20 minutes)
+
+When the hard timeout fires the bridge force-kills the worker process. No further output is captured. The task is marked FAILED. The Architect salvages any artifacts already in the outbox and decides whether to re-dispatch with a smaller scope.
+
+### Scaling rule
+
+The 15/20 minute defaults scale with task complexity but the 3:4 ratio is invariant. Examples:
+
+- Read and write a test file: soft=4 min, hard=5 min
+- Implement a small function: soft=7 min, hard=10 min
+- Full test module with run and deliverables: soft=15 min, hard=20 min
+
+The Architect sets `softTimeoutMinutes` and `hardTimeoutMinutes` in `META.json` for each task. Workers must not assume the defaults; read `META.json` first.
+
 ## Normal completion
 
 Generate:

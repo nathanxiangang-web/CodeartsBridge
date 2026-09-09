@@ -7,34 +7,60 @@
   },
   "workers": [
     {
-      "id": "worker-01-local",
-      "transport": "local",
-      "host": "localhost",
-      "cliPath": "C:\\Users\\Nathan\\.codeartsdoer\\installers\\bin\\codearts.exe",
+      "id": "worker-01-remote",
+      "transport": "remote-worktree",
+      "host": "nathan@192.168.178.52",
+      "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
       "concurrencyLimit": 1,
       "enabled": true,
-      "capabilities": ["implement", "review", "test"]
+      "capabilities": [
+        "implement",
+        "review",
+        "test"
+      ]
     },
     {
       "id": "worker-02-remote",
-      "transport": "ssh",
+      "transport": "remote-worktree",
       "host": "nathan@192.168.178.50",
       "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
       "concurrencyLimit": 1,
       "enabled": true,
-      "capabilities": ["implement", "review", "test"]
+      "capabilities": [
+        "implement",
+        "review",
+        "test"
+      ]
     },
     {
       "id": "worker-03-remote",
-      "transport": "ssh",
+      "transport": "remote-worktree",
       "host": "root@192.168.5.15",
       "cliPath": "/root/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
       "concurrencyLimit": 1,
       "enabled": true,
-      "capabilities": ["implement", "review", "test"]
+      "capabilities": [
+        "implement",
+        "review",
+        "test"
+      ]
+    },
+    {
+      "id": "worker-04-remote",
+      "transport": "remote-worktree",
+      "host": "nathan@192.168.178.51",
+      "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "concurrencyLimit": 1,
+      "enabled": true,
+      "capabilities": [
+        "implement",
+        "review",
+        "test"
+      ]
     }
   ]
 }

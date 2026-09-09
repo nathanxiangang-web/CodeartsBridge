@@ -7,7 +7,7 @@ param(
     [string]$BridgeScript,
     [string]$StateDir,
     [int]$IntervalSeconds = 30,
-    [int]$MaxWorkers = 3,
+    [int]$MaxWorkers = 4,
     [int]$MaxBackoffSeconds = 300,
     [int]$BaseBackoffSeconds = 2,
     [int]$ShutdownTimeoutSeconds = 60,

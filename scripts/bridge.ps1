@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
     [ValidateSet('bootstrap', 'doctor', 'register', 'worker-register', 'worker-list', 'worker-health', 'create', 'create-multi', 'run', 'status', 'pause', 'resume', 'cancel', 'review-pass', 'review-fix', 'dispatch', 'capture', 'integration-check', 'cleanup')]
@@ -6,11 +6,12 @@ param(
 
     [string]$ProjectId,
     [string]$ProjectRoot,
-    [ValidateSet('local', 'ssh', 'ssh-shell')]
+    [ValidateSet('local', 'ssh', 'ssh-shell', 'remote-worktree')]
     [string]$Transport = 'local',
     [string]$RunMode,
     [string]$SshHost,
     [string]$RemoteBridgeRoot = '~/.codex-glm',
+    [string]$RemoteWorkspaceRoot,
     [string]$Model,
     [string]$TaskFile,
     [string]$TaskId,
@@ -23,7 +24,7 @@ param(
     [string]$TaskKind = 'implementation',
     [string]$ParentTaskId,
     [string]$TargetRef,
-    [int]$MaxWorkers = 3,
+    [int]$MaxWorkers = 4,
     [switch]$DryRun,
     [switch]$BridgeTest,
     [switch]$Quiet,
@@ -213,49 +214,14 @@ function Set-State {
     Write-AtomicJson -Path $path -Value $state
     return [pscustomobject]$state
 }
-function Resolve-CodeArtsShim {
-    param([string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
-    $ext = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
-    if ($ext -eq '.exe') { return $Path }
-    if ($ext -eq '.cmd' -or $ext -eq '.bat') {
-        try {
-            $text = [System.IO.File]::ReadAllText($Path)
-            $baseDir = Split-Path -Parent $Path
-            $patterns = @('"([^"]*codearts[^"]*\.exe)"', "'([^']*codearts[^']*\.exe)'")
-            foreach ($pattern in $patterns) {
-                foreach ($m in [regex]::Matches($text, $pattern)) {
-                    $candidate = $m.Groups[1].Value
-                    $candidate = $candidate -replace '%~dp0\\', ($baseDir + '\')
-                    $candidate = $candidate -replace '%~dp0', ($baseDir + '\')
-                    $candidate = $candidate -replace '\$basedir', $baseDir
-                    try {
-                        $full = [System.IO.Path]::GetFullPath($candidate)
-                        if (Test-Path -LiteralPath $full -PathType Leaf) { return $full }
-                    } catch {}
-                }
-            }
-        } catch {}
-    }
-    return $null
-}
-
 function Find-CodeArtsCli {
-    $exeCommand = Get-Command codearts.exe -ErrorAction SilentlyContinue
-    if ($exeCommand -and $exeCommand.Path -and (Test-Path -LiteralPath $exeCommand.Path -PathType Leaf)) {
-        return $exeCommand.Path
+    $cmd = Get-Command codearts -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Path -and (Test-Path -LiteralPath $cmd.Path -PathType Leaf)) {
+        return $cmd.Path
     }
-
-    $genericCommand = Get-Command codearts -ErrorAction SilentlyContinue
-    if ($genericCommand -and $genericCommand.Path) {
-        $resolved = Resolve-CodeArtsShim -Path $genericCommand.Path
-        if ($resolved) { return $resolved }
-    }
-
     $candidates = @(
-        (Join-Path $env:USERPROFILE '.codeartsdoer\installers\bin\codearts.exe'),
-        (Join-Path $env:USERPROFILE '.codeartsdoer\installers\codearts.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\CodeArts CLI\codearts.exe')
+        (Join-Path $env:HOME '.codeartsdoer/installers/bin/codearts'),
+        '/usr/local/bin/codearts'
     )
     foreach ($candidate in $candidates) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) {
@@ -264,6 +230,7 @@ function Find-CodeArtsCli {
     }
     return $null
 }
+
 
 function Import-CodeArtsUserEnvironment {
     foreach ($name in @('CODEARTS_CLI_AK', 'CODEARTS_CLI_SK')) {
@@ -382,7 +349,7 @@ function Parse-CodeArtsJsonLines {
 function Get-DispatchCandidates {
     param(
         [Parameter(Mandatory)][string]$TasksRoot,
-        [int]$MaxWorkers = 2
+        [int]$MaxWorkers = 4
     )
 
     $candidateStatuses = @('READY', 'FIX_REQUIRED', 'RETRYABLE')
@@ -793,7 +760,7 @@ function Build-WorkerCorePrompt {
 }
 
 function Select-DispatchPlan {
-    param([Parameter(Mandatory)][string]$TasksRoot, [int]$MaxWorkers = 3)
+    param([Parameter(Mandatory)][string]$TasksRoot, [int]$MaxWorkers = 4)
 
     $candidateStatuses = @('READY','FIX_REQUIRED','RETRYABLE')
     $activeStatuses = @('QUEUED','STARTING','RUNNING')
@@ -889,7 +856,8 @@ function Select-DispatchPlan {
 
         $mode = if ($meta.PSObject.Properties.Name -contains 'workspaceMode' -and -not [string]::IsNullOrWhiteSpace([string]$meta.workspaceMode)) { [string]$meta.workspaceMode } else { $null }
         if (-not $mode) { if ($role -in @('review','test')) { $mode = 'shared-readonly' } else { $mode = 'worktree' } }
-        $projectRoot = [System.IO.Path]::GetFullPath([string]$project.projectRoot)
+        $projectRoot = if ([string]$project.transport -eq 'local') { [System.IO.Path]::GetFullPath([string]$project.projectRoot) } else { [string]$project.projectRoot }
+        $idleKey = if ($project.PSObject.Properties.Name -contains 'sshHost' -and -not [string]::IsNullOrWhiteSpace([string]$project.sshHost)) { "$([string]$project.sshHost)::$projectRoot" } else { $projectRoot }
         $workingDir = $null
         $worktreePath = $null
         $skipReason = $null
@@ -905,10 +873,10 @@ function Select-DispatchPlan {
                 }
             }
             'existing' {
-                if ([int]$activeAny[$projectRoot] -gt 0) { $skipReason = "existing mode requires idle project: $projectRoot" } else { $workingDir = $projectRoot }
+                if ([int]$activeAny[$idleKey] -gt 0) { $skipReason = "existing mode requires idle project: $idleKey" } else { $workingDir = $projectRoot }
             }
             'shared-readonly' {
-                if ([int]$activeWrites[$projectRoot] -gt 0) { $skipReason = "shared-readonly refused: active write on $projectRoot" } else { $workingDir = $projectRoot }
+                if ([int]$activeWrites[$idleKey] -gt 0) { $skipReason = "shared-readonly refused: active write on $idleKey" } else { $workingDir = $projectRoot }
             }
             default { $skipReason = "unsupported workspaceMode: $mode" }
         }
@@ -916,8 +884,8 @@ function Select-DispatchPlan {
 
         $plan += [pscustomobject]@{ taskId=$c.taskId; directory=$c.directory; projectId=$c.projectId; workerId=$worker.id; workingDir=$workingDir; worktreePath=$worktreePath; workspaceMode=$mode; role=$role; status=$c.status }
         $workerUsage[$worker.id] = [int]$workerUsage[$worker.id] + 1
-        if ($mode -eq 'existing') { $activeAny[$workingDir] = [int]$activeAny[$workingDir] + 1 }
-        if ($role -eq 'implement' -and $mode -ne 'worktree') { $activeWrites[$workingDir] = [int]$activeWrites[$workingDir] + 1 }
+        if ($mode -eq 'existing') { $activeAny[$idleKey] = [int]$activeAny[$idleKey] + 1 }
+        if ($role -eq 'implement' -and $mode -ne 'worktree') { $activeWrites[$idleKey] = [int]$activeWrites[$idleKey] + 1 }
     }
     return [pscustomobject]@{ plan=$plan; skipped=$skipped; active=$active }
 }
@@ -1081,7 +1049,10 @@ function Complete-Drain {
             if ($StderrTask.IsCompleted) { $StderrTask = Drain-AsyncLines -Reader $Process.StandardError -Task $StderrTask -Buffer $StderrReadBuffer -Builder $StderrBuffer -LogWriter $StderrLog -LineBuffer $StderrLineBuffer -ShowProgress:$ShowProgress -IsError }
         }
     }
-    if ($StdoutTask -ne $null -or $StderrTask -ne $null) { $drainIncomplete = $true }
+    if ($StdoutTask -ne $null -or $StderrTask -ne $null) {
+        $drainIncomplete = $true
+        if ($StderrLog) { try { $StderrLog.WriteLine('[WARN] Drain incomplete: output pipe may not have closed within deadline') } catch {} }
+    }
     return $drainIncomplete
 }
 function Invoke-BoundedFetch {
@@ -1144,7 +1115,7 @@ function Invoke-CapturedProcess {
         [int]$Attempt = 0,
         [string]$SessionMode = "",
         [int]$SoftTimeoutSeconds = 0,
-        [int]$SoftGraceSeconds = 60,
+        [int]$SoftGraceSeconds = 0,
         [scriptblock]$PollAction,
         [switch]$ShowProgress
     )
@@ -1164,6 +1135,9 @@ function Invoke-CapturedProcess {
     $stderrLog = $null
     $started = [DateTimeOffset]::Now
     $deadline = $started.AddSeconds($TimeoutSeconds)
+    if ($SoftGraceSeconds -le 0 -and $SoftTimeoutSeconds -gt 0 -and $TimeoutSeconds -gt $SoftTimeoutSeconds) {
+        $SoftGraceSeconds = $TimeoutSeconds - $SoftTimeoutSeconds
+    }
     $cancelPath = Join-Path $TaskDirectory "CANCEL_REQUESTED"
     $lastProgressAt = $started
     $eventsCount = 0
@@ -1195,7 +1169,8 @@ function Invoke-CapturedProcess {
                 $lastProgressAt = [DateTimeOffset]::Now
                 $elapsed = ([DateTimeOffset]::Now - $started).ToString("hh\:mm\:ss")
                 $modeLabel = if ($SessionMode) { $SessionMode } else { "new" }
-                [Console]::WriteLine("[Worker] task=$TaskId proj=$ProjectId attempt=$Attempt mode=$modeLabel pid=$($process.Id) elapsed=$elapsed events=$eventsCount think=$thoughtCount tool=$toolCount")
+                $workerTag = if ($TaskId -match '-(w\d{2})-') { $matches[1] } else { '?' }
+                [Console]::WriteLine("[Worker $workerTag] task=$TaskId proj=$ProjectId attempt=$Attempt mode=$modeLabel pid=$($process.Id) elapsed=$elapsed events=$eventsCount think=$thoughtCount tool=$toolCount")
             }
             if (([DateTimeOffset]::Now - $lastHeartbeatUpdate).TotalSeconds -ge 30) {
                 $lastHeartbeatUpdate = [DateTimeOffset]::Now
@@ -1262,6 +1237,8 @@ function Invoke-CapturedProcess {
         }
         return [pscustomobject]@{ ExitCode = $process.ExitCode; Cancelled = $false; TimedOut = $false; StandardOutput = $stdoutBuilder.ToString(); StandardError = $stderrBuilder.ToString() }
     } finally {
+        if ($stdoutTask -and -not $stdoutTask.IsCompleted) { try { $null = $stdoutTask.Wait(2000) } catch {} }
+        if ($stderrTask -and -not $stderrTask.IsCompleted) { try { $null = $stderrTask.Wait(2000) } catch {} }
         if ($stdoutLog) { try { $stdoutLog.Dispose() } catch {} }
         if ($stderrLog) { try { $stderrLog.Dispose() } catch {} }
         if ($stdoutFs) { try { $stdoutFs.Dispose() } catch {} }
@@ -1319,7 +1296,7 @@ function Invoke-LocalWorker {
 }
 function Invoke-SshShellWorker {
     param($Project, $Worker, [string]$WorkingDir, [string]$TaskDirectory, [string]$Mode, [int]$TimeoutSeconds, [string]$LogPrefix, [string]$SessionId, [string]$TaskId, [int]$Attempt = 0, [int]$SoftTimeoutSeconds = 0)
-    $cli = if ($Worker -and $Worker.PSObject.Properties.Name -contains 'cliPath' -and -not [string]::IsNullOrWhiteSpace([string]$Worker.cliPath)) { [string]$Worker.cliPath } else { Find-CodeArtsCli }
+    $cli = Find-CodeArtsCli
     if (-not $cli -or -not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw 'codearts CLI not found. Run the official installer first, then rerun doctor.' }
     if ([string]::IsNullOrWhiteSpace([string]$Project.sshHost)) { throw 'ssh-shell project missing sshHost' }
     if ([string]$Project.sshHost -notmatch '^[A-Za-z0-9_.@:-]+$') { throw 'sshHost contains unsafe characters' }
@@ -1329,7 +1306,7 @@ function Invoke-SshShellWorker {
     $metaPath = Join-Path $TaskDirectory 'META.json'
     $outboxPath = Join-Path $TaskDirectory 'outbox'
     $hostName = [string]$Project.sshHost
-    $remoteProjectPath = if ($WorkingDir) { $WorkingDir } else { [string]$Project.projectRoot }
+    $remoteProjectPath = [string]$Project.projectRoot
     $directive = $script:ThinkLanguageDirective
     $remoteDirective = Get-RemoteAccessDirective -HostName $hostName -RemoteProjectPath $remoteProjectPath
     $prompt = Build-WorkerCorePrompt -WorkerContract $workerContract -MetaPath $metaPath -Instructions $instructions -OutboxPath $outboxPath -ProjectPath $remoteProjectPath -RemoteDirective $remoteDirective -Directive $directive
@@ -1389,9 +1366,11 @@ function Invoke-SshWorker {
     $modeFlag = Get-ModeFlag -Mode $Mode
     $remoteArgs = New-WorkerRunArguments -Prompt $remotePrompt -Model $modelValue -ModeFlag $modeFlag -TaskId $TaskId -SessionId $SessionId
     $remoteRunSegment = ($remoteArgs | ForEach-Object { Quote-Posix $_ }) -join ' '
-    $runCommand = $remoteCli + ' ' + $remoteRunSegment
+    $innerCmd = $remoteCli + ' ' + $remoteRunSegment
+    $runCommand = 'script -qfc ' + (Quote-Posix $innerCmd) + ' /dev/null'
     $sm = if ($SessionId) { 'resume' } else { 'new' }
-    $parts = @('cd -- ' + (Quote-Posix $remoteProjectPath), $runCommand)
+    $cdPart = 'cd -- ' + (Quote-Posix $remoteProjectPath)
+    $parts = @($cdPart, $runCommand)
     $localOutbox = Join-Path $TaskDirectory 'outbox'
     $pollHostName = $hostName
     $pollRemoteOutbox = $remoteOutbox
@@ -1518,10 +1497,23 @@ function Initialize-RemoteWorkspace {
     $initResult = Invoke-CapturedProcess -StartInfo $initInfo -TaskDirectory $effectiveLogDir -TimeoutSeconds 60 -LogPrefix (Join-Path $effectiveLogDir 'remote-init')
     if ($initResult.ExitCode -ne 0) { throw 'Remote workspace init failed: ' + $initResult.StandardError }
 
+    # Remap allowedPaths from central source to remote repo so CodeArts Edit/Write
+    # authorization checks pass when the worker operates inside the isolated worktree.
+    $metaForRemote = $MetaPath
+    try {
+        $metaObj = Get-Content -LiteralPath $MetaPath -Raw | ConvertFrom-Json
+        if ($metaObj.PSObject.Properties.Name -contains 'allowedPaths') {
+            $metaObj.allowedPaths = @($remoteRepo)
+            $remappedMetaPath = Join-Path $effectiveLogDir 'META-remapped.json'
+            $metaObj | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $remappedMetaPath -NoNewline
+            $metaForRemote = $remappedMetaPath
+        }
+    } catch {}
+
     $transfers = @(
         @{ Local=$BundleFile; Remote=$remoteBundle; Label='bundle' },
         @{ Local=$WorkerContractPath; Remote=($remoteProtocol + '/WORKER.md'); Label='worker-contract' },
-        @{ Local=$MetaPath; Remote=($remoteTaskDir + '/META.json'); Label='task-meta' }
+        @{ Local=$metaForRemote; Remote=($remoteTaskDir + '/META.json'); Label='task-meta' }
     )
     $remoteInstructionPaths = @()
     foreach ($instruction in @($InstructionPaths)) {
@@ -1652,7 +1644,9 @@ function Complete-WorkerRun {
         if ($TaskId) { Remove-Lease -TaskId $TaskId }
         return
     }
-    if ($Result.Cancelled -or $Result.TimedOut) {
+    $isCancelled = if ($Result.PSObject.Properties.Name -contains 'Cancelled') { [bool]$Result.Cancelled } else { $false }
+    $isTimedOut = if ($Result.PSObject.Properties.Name -contains 'TimedOut') { [bool]$Result.TimedOut } else { $false }
+    if ($isCancelled -or $isTimedOut) {
         $telemetry = Parse-CodeArtsJsonLines -Output ([string]$Result.StandardOutput)
         $sessionId = if ($telemetry.sessionId) { [string]$telemetry.sessionId } else { $ExistingSessionId }
         $sessionMode = $null
@@ -1747,7 +1741,7 @@ if (-not $BridgeTest) {
         'doctor' {
             $cli = Find-CodeArtsCli
             $version = $null
-            if ($cli -and [System.IO.Path]::GetExtension($cli) -eq '.exe') {
+            if ($cli) {
                 $version = (& $cli --version 2>$null | Out-String).Trim()
             }
             $auth = [ordered]@{
@@ -1787,10 +1781,11 @@ if (-not $BridgeTest) {
             }
             Assert-SafeId -Value $ProjectId -Label 'ProjectId'
             Assert-RequiredModel -Model $Model
-            if ($Transport -eq 'local') {
+            if ($Transport -in @('local', 'remote-worktree')) {
                 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
                 if (-not (Test-Path -LiteralPath $ProjectRoot -PathType Container)) { throw "Local project directory does not exist: $ProjectRoot" }
-            } else {
+            }
+            if ($Transport -ne 'local') {
                 if ([string]::IsNullOrWhiteSpace($SshHost)) { throw 'SSH project requires -SshHost' }
             }
             $registry = Get-Registry
@@ -1807,11 +1802,16 @@ if (-not $BridgeTest) {
                 model = $effectiveModel
                 timeoutMinutes = $effectiveTimeout
             }
-            if ($Transport -in @('ssh', 'ssh-shell')) {
+            if ($Transport -in @('ssh', 'ssh-shell', 'remote-worktree')) {
                 $project.sshHost = $SshHost
             }
             if ($Transport -eq 'ssh') {
                 $project.remoteBridgeRoot = $RemoteBridgeRoot
+                if (-not [string]::IsNullOrWhiteSpace($RemoteCliPath)) { $project.remoteCliPath = $RemoteCliPath }
+            }
+            if ($Transport -eq 'remote-worktree') {
+                if ([string]::IsNullOrWhiteSpace($RemoteWorkspaceRoot)) { throw 'remote-worktree project requires -RemoteWorkspaceRoot' }
+                $project.remoteWorkspaceRoot = $RemoteWorkspaceRoot
                 if (-not [string]::IsNullOrWhiteSpace($RemoteCliPath)) { $project.remoteCliPath = $RemoteCliPath }
             }
             $others = @($registry.projects | Where-Object { $_.id -ne $ProjectId })
@@ -1918,11 +1918,13 @@ if (-not $BridgeTest) {
             $needProjectLock = ($workspaceMode -eq 'existing')
             $needWorkdirLock = ($role -eq 'implement' -or $workspaceMode -eq 'existing' -or $workspaceMode -eq 'worktree')
             if ($needWorkdirLock) {
-                $wdLockPath = Get-WorkDirLockPath -WorkingDir $workingDir
+                $transportForLock = if ($worker) { [string]$worker.transport } else { [string]$project.transport }
+                $hostForLock = if ($worker -and $worker.PSObject.Properties.Name -contains 'host' -and -not [string]::IsNullOrWhiteSpace([string]$worker.host)) { [string]$worker.host } else { $null }
+                $lockKey = if ($transportForLock -in @('ssh', 'remote-worktree') -and $hostForLock) { ($hostForLock + '|' + $workingDir) } else { $workingDir }
+                $wdLockPath = Get-WorkDirLockPath -WorkingDir $lockKey
                 $workdirLockStream = [System.IO.File]::Open($wdLockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
             }
-            $needSleep = $false
-            $needReadHost = $false
+            $autoClose = $false
             try {
                 if ($needProjectLock) {
                     $lockStream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
@@ -1949,6 +1951,8 @@ if (-not $BridgeTest) {
                     $result = Invoke-SshShellWorker -Project $project -Worker $worker -WorkingDir $workingDir -TaskDirectory $taskDirectory -Mode $mode -TimeoutSeconds ($minutes * 60) -SoftTimeoutSeconds $softTimeoutSeconds -LogPrefix $logPrefix -SessionId $existingSessionId -TaskId $TaskId -Attempt $attempt
                 } elseif ($transport -eq 'ssh') {
                     $result = Invoke-SshWorker -Project $project -Worker $worker -WorkingDir $workingDir -TaskDirectory $taskDirectory -Mode $mode -TimeoutSeconds ($minutes * 60) -SoftTimeoutSeconds $softTimeoutSeconds -LogPrefix $logPrefix -SessionId $existingSessionId -TaskId $TaskId -Attempt $attempt
+                } elseif ($transport -eq 'remote-worktree') {
+                    $result = Invoke-RemoteWorktreeWorker -Project $project -Worker $worker -WorkingDir $workingDir -TaskDirectory $taskDirectory -Mode $mode -TimeoutSeconds ($minutes * 60) -SoftTimeoutSeconds $softTimeoutSeconds -LogPrefix $logPrefix -SessionId $existingSessionId -TaskId $TaskId -Attempt $attempt
                 } else {
                     throw "Unsupported transport: $transport"
                 }
@@ -1968,7 +1972,8 @@ if (-not $BridgeTest) {
                             Write-Output (Get-OutboxSummaryText -TaskDirectory $taskDirectory)
                         }
                         Write-Output "Worker status: $($finalState.status). Log: $logPath"
-                        $needSleep = $true
+                        Write-Output 'Window will close automatically in 10 seconds...'
+                        $autoClose = $true
                     } elseif ($finalState.status -in @('FAILED','BLOCKED','AUTH_REQUIRED','RETRYABLE','CANCELLED')) {
                         Write-Output ''
                         if (-not $outboxHasFiles) {
@@ -1977,8 +1982,8 @@ if (-not $BridgeTest) {
                             Write-Output (Get-OutboxSummaryText -TaskDirectory $taskDirectory)
                         }
                         Write-Output "Worker status: $($finalState.status). Reason: $($finalState.message). Log: $logPath"
-                        Write-Output 'Press Enter to close window...'
-                        $needReadHost = $true
+                        Write-Output 'Window will close automatically in 10 seconds...'
+                        $autoClose = $true
 
                     }
                 }
@@ -2000,8 +2005,7 @@ if (-not $BridgeTest) {
                 if ($lockStream) { $lockStream.Dispose() }
                 if ($workdirLockStream) { $workdirLockStream.Dispose() }
             }
-            if ($needSleep) { Start-Sleep -Seconds 5 }
-            if ($needReadHost) { Read-Host | Out-Null }
+            if ($autoClose) { Start-Sleep -Seconds 10 }
         }
         'status' {
             if ($TaskId) {
@@ -2077,7 +2081,7 @@ if (-not $BridgeTest) {
         'worker-register' {
             if (-not $WorkerId) { throw 'worker-register requires -WorkerId' }
             if (-not $Transport) { throw 'worker-register requires -Transport' }
-            if ($Transport -notin @('local','ssh','ssh-shell')) { throw "Unsupported transport: $Transport" }
+            if ($Transport -notin @('local','ssh','ssh-shell','remote-worktree')) { throw "Unsupported transport: $Transport" }
             Assert-RequiredModel -Model $script:RequiredModel
             $reg = Get-WorkersRegistry
             if (-not $reg) { $reg = [ordered]@{ schemaVersion=1; workers=@() } }
@@ -2244,8 +2248,8 @@ if (-not $BridgeTest) {
             $bridgeScript = $MyInvocation.MyCommand.Path
             $hostExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
             if (-not $hostExe -or -not (Test-Path -LiteralPath $hostExe -PathType Leaf)) {
-                $pwshPath = Join-Path $PSHOME 'pwsh.exe'
-                if (Test-Path -LiteralPath $pwshPath -PathType Leaf) { $hostExe = $pwshPath } else { $hostExe = Join-Path $PSHOME 'powershell.exe' }
+                $pwshPath = Join-Path $PSHOME 'pwsh'
+                if (Test-Path -LiteralPath $pwshPath -PathType Leaf) { $hostExe = $pwshPath }
             }
             $windowStyle = if ($Quiet) { 'Hidden' } else { 'Normal' }
             try {
@@ -2268,8 +2272,14 @@ if (-not $BridgeTest) {
                     try {
                         $runnerArgs = @('-NoProfile', '-File', $bridgeScript, 'run', '-TaskId', $candidate.taskId)
                         if ($Quiet) { $runnerArgs += @('-Quiet') }
-                        $proc = Start-Process -FilePath $hostExe -ArgumentList $runnerArgs -WindowStyle $windowStyle -PassThru
-                                                $lease.processId = $proc.Id
+                        $startProcessArgs = @{
+                            FilePath = $hostExe
+                            ArgumentList = $runnerArgs
+                            PassThru = $true
+                        }
+                        if ($IsWindows) { $startProcessArgs.WindowStyle = $windowStyle }
+                        $proc = Start-Process @startProcessArgs
+                        $lease.processId = $proc.Id
                         $lease.processStartTime = $proc.StartTime.ToUniversalTime().ToString('o')
                         Write-Lease -Lease $lease
                         $state.processId = $proc.Id

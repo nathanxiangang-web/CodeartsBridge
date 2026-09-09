@@ -9,7 +9,7 @@
     {
       "id": "bridge-selftest",
       "transport": "local",
-      "projectRoot": "E:\\Obsidian\\codex-glm\\examples\\handshake-project",
+      "projectRoot": "/home/nathan/codex-glm-bridge-repo/examples/handshake-project",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 3
@@ -17,45 +17,98 @@
     {
       "id": "codex-glm-bridge",
       "transport": "local",
-      "projectRoot": "E:\\Obsidian\\codex-glm",
+      "projectRoot": "/home/nathan/codex-glm-bridge-repo",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 60
     },
     {
-      "id": "cloudsite-dev-vm",
-      "transport": "ssh-shell",
-      "projectRoot": "/home/nathan/CloudSite",
+      "id": "cloudsite-rc1-w01",
+      "transport": "remote-worktree",
+      "projectRoot": "/home/nathan/CloudSite-source",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
-      "timeoutMinutes": 30,
-      "sshHost": "dsh"
+      "timeoutMinutes": 15,
+      "sshHost": "nathan@192.168.178.52",
+      "remoteWorkspaceRoot": "/home/nathan/.codex-glm-bridge/workspaces",
+      "remoteCliPath": "codearts"
+    },
+    {
+      "id": "cloudsite-rc1-w02",
+      "transport": "remote-worktree",
+      "projectRoot": "/home/nathan/CloudSite-source",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 15,
+      "sshHost": "nathan@192.168.178.50",
+      "remoteWorkspaceRoot": "/home/nathan/.codex-glm-bridge/workspaces",
+      "remoteCliPath": "codearts"
+    },
+    {
+      "id": "cloudsite-rc1-w03",
+      "transport": "remote-worktree",
+      "projectRoot": "/home/nathan/CloudSite-source",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 15,
+      "sshHost": "root@192.168.5.15",
+      "remoteWorkspaceRoot": "/root/.codex-glm-bridge/workspaces",
+      "remoteCliPath": "codearts"
+    },
+    {
+      "id": "cloudsite-rc1-w04",
+      "transport": "remote-worktree",
+      "projectRoot": "/home/nathan/CloudSite-source",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 15,
+      "sshHost": "nathan@192.168.178.51",
+      "remoteWorkspaceRoot": "/home/nathan/.codex-glm-bridge/workspaces",
+      "remoteCliPath": "codearts"
     },
     {
       "id": "codex-glm-ma-w01",
-      "transport": "local",
-      "projectRoot": "E:\\Obsidian\\codex-glm\\work\\multiagent-20260908\\worker01-en",
+      "transport": "ssh",
+      "projectRoot": "/home/nathan/codex-glm-bridge-repo",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
-      "timeoutMinutes": 120
+      "timeoutMinutes": 120,
+      "remoteBridgeRoot": "/home/nathan/.codex-glm-bridge",
+      "remoteCliPath": "codearts",
+      "sshHost": "nathan@192.168.178.52"
     },
     {
       "id": "codex-glm-ma-w02",
-      "transport": "ssh-shell",
-      "projectRoot": "/tmp/codex-glm-ma-20260908-worker02-en",
+      "transport": "ssh",
+      "projectRoot": "/home/nathan/codex-glm-bridge-repo",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 120,
-      "sshHost": "nathan@192.168.178.50"
+      "sshHost": "nathan@192.168.178.50",
+      "remoteBridgeRoot": "/home/nathan/.codex-glm-bridge",
+      "remoteCliPath": "codearts"
     },
     {
       "id": "codex-glm-ma-w03",
-      "transport": "ssh-shell",
-      "projectRoot": "/tmp/codex-glm-ma-20260908-worker03-en",
+      "transport": "ssh",
+      "projectRoot": "/root/codex-glm-bridge-repo",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 120,
-      "sshHost": "root@192.168.5.15"
+      "sshHost": "root@192.168.5.15",
+      "remoteBridgeRoot": "/root/.codex-glm-bridge",
+      "remoteCliPath": "codearts"
+    },
+    {
+      "id": "codex-glm-ma-w04",
+      "transport": "ssh",
+      "projectRoot": "/home/nathan/codex-glm-bridge-repo",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 120,
+      "sshHost": "nathan@192.168.178.51",
+      "remoteBridgeRoot": "/home/nathan/.codex-glm-bridge",
+      "remoteCliPath": "codearts"
     }
   ]
 }
