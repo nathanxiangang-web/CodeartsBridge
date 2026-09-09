@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex GLM Bridge Policy Profile",
+  "description": "Project-agnostic policy profile describing phases, checks, roles, risk, approval gates, timeouts, working-directory rules and evidence requirements. Commands are executable plus argv arrays; environment entries are allowlist names or secret references, never secret values.",
+  "type": "object",
+  "required": ["schemaVersion", "profileId", "projectId", "riskLevel", "roles", "phases"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "profileId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "projectId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "description": { "type": "string" },
+    "riskLevel": { "enum": ["low", "medium", "high", "critical"] },
+    "roles": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+      "minItems": 1
+    },
+    "defaultTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+    "workingDirectory": { "$ref": "#/$defs/workingDirectory" },
+    "phases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/phase" },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "workingDirectory": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["projectRoot", "subpath", "temp"] },
+        "subpath": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "phase": {
+      "type": "object",
+      "required": ["id", "checks"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "description": { "type": "string" },
+        "roles": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }
+        },
+        "riskLevel": { "enum": ["low", "medium", "high", "critical"] },
+        "requiresApproval": { "type": "boolean" },
+        "approvalGate": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "onFailure": { "enum": ["block", "continue", "warn"] },
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/check" },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "check": {
+      "type": "object",
+      "required": ["id", "command"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "description": { "type": "string" },
+        "roles": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }
+        },
+        "riskLevel": { "enum": ["low", "medium", "high", "critical"] },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "command": { "$ref": "#/$defs/command" },
+        "requiredEvidence": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9._/ -]+$" }
+        },
+        "expectExitCode": { "type": "integer", "minimum": 0 },
+        "skip": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "command": {
+      "type": "object",
+      "required": ["executable", "argv"],
+      "properties": {
+        "executable": { "type": "string", "minLength": 1 },
+        "argv": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "env": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/envEntry" }
+        },
+        "workingDirectory": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "envEntry": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "from": { "enum": ["allowlist", "secret"] },
+        "secretRef": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "from": { "const": "secret" } } },
+          "then": { "required": ["secretRef"] }
+        },
+        {
+          "if": { "properties": { "from": { "const": "allowlist" } } },
+          "then": { "not": { "required": ["secretRef"] } }
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

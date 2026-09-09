@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "profileId": "cloudsite.example",
+  "projectId": "cloudsite-dev",
+  "description": "CloudSite v1.2 production-gate example derived from the repository CI and recovery documentation. It contains no credentials, live hostnames, mutable production commands, or secret values. Deploy and rollback remain approval-blocked dry runs.",
+  "riskLevel": "critical",
+  "roles": ["developer", "ci", "release-manager"],
+  "defaultTimeoutSeconds": 1800,
+  "workingDirectory": { "mode": "projectRoot" },
+  "phases": [
+    {
+      "id": "backend-test",
+      "description": "Run the complete FastAPI test suite with Python 3.12 dependencies already installed.",
+      "roles": ["developer", "ci"],
+      "riskLevel": "medium",
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "pytest",
+          "command": { "executable": "python", "argv": ["-m", "pytest"], "workingDirectory": "apps/api" },
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "frontend",
+      "description": "Use the repository-pinned pnpm toolchain for frozen install, type checking, security tests, and production build.",
+      "roles": ["developer", "ci"],
+      "riskLevel": "medium",
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "frozen-install",
+          "command": { "executable": "corepack", "argv": ["pnpm", "install", "--frozen-lockfile"], "workingDirectory": "apps/web" },
+          "expectExitCode": 0
+        },
+        {
+          "id": "typecheck",
+          "command": { "executable": "corepack", "argv": ["pnpm", "run", "lint"], "workingDirectory": "apps/web" },
+          "expectExitCode": 0
+        },
+        {
+          "id": "security-tests",
+          "command": { "executable": "corepack", "argv": ["pnpm", "run", "test:security"], "workingDirectory": "apps/web" },
+          "expectExitCode": 0
+        },
+        {
+          "id": "production-build",
+          "command": { "executable": "corepack", "argv": ["pnpm", "run", "build"], "workingDirectory": "apps/web" },
+          "requiredEvidence": ["apps/web/.next/BUILD_ID"],
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "compose-validate",
+      "description": "Validate every supported Compose layout without starting services.",
+      "roles": ["developer", "ci"],
+      "riskLevel": "low",
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "default-compose",
+          "command": { "executable": "docker", "argv": ["compose", "config", "--quiet"] },
+          "expectExitCode": 0
+        },
+        {
+          "id": "traefik-compose",
+          "command": { "executable": "docker", "argv": ["compose", "-f", "docker-compose.traefik.yml", "config", "--quiet"], "env": [{ "name": "CLOUDSITE_DOMAIN", "from": "allowlist" }] },
+          "expectExitCode": 0
+        },
+        {
+          "id": "development-compose",
+          "command": { "executable": "docker", "argv": ["compose", "-f", "docker-compose.dev.yml", "config", "--quiet"] },
+          "expectExitCode": 0
+        },
+        {
+          "id": "offline-compose",
+          "command": { "executable": "docker", "argv": ["compose", "-f", "docker-compose.yml", "-f", "docker-compose.offline.yml", "config", "--quiet"] },
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "docker-smoke",
+      "description": "Build and start the development stack, then require both API and Web health checks. Cleanup is owned by the CI harness even on failure.",
+      "roles": ["ci"],
+      "riskLevel": "medium",
+      "timeoutSeconds": 3600,
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "build-images",
+          "command": { "executable": "docker", "argv": ["compose", "-f", "docker-compose.dev.yml", "build"] },
+          "expectExitCode": 0
+        },
+        {
+          "id": "start-stack",
+          "command": { "executable": "docker", "argv": ["compose", "-f", "docker-compose.dev.yml", "up", "-d", "--wait"] },
+          "expectExitCode": 0
+        },
+        {
+          "id": "api-health",
+          "command": { "executable": "curl", "argv": ["-fsS", "http://127.0.0.1:8000/api/health"] },
+          "expectExitCode": 0
+        },
+        {
+          "id": "web-health",
+          "command": { "executable": "curl", "argv": ["-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/"] },
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "version-consistency",
+      "description": "Reject a release whose API, Web, and requested tag versions differ.",
+      "roles": ["ci", "release-manager"],
+      "riskLevel": "medium",
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "check-release-version",
+          "command": { "executable": "python", "argv": ["scripts/check-release-version.py"], "env": [{ "name": "RELEASE_TAG", "from": "allowlist" }] },
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "backup-verify",
+      "description": "Verify a WAL-safe backup artifact before release. The artifact path is task-owned and provisioned outside the profile.",
+      "roles": ["ci", "release-manager"],
+      "riskLevel": "high",
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "verify-backup",
+          "command": { "executable": "bash", "argv": ["scripts/verify-backup.sh", "evidence/cloudsite/backup.tar.gz"] },
+          "requiredEvidence": ["evidence/cloudsite/backup.tar.gz"],
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "restore-drill",
+      "description": "Perform a non-destructive restore into a task-owned directory; never overwrite live project or production data.",
+      "roles": ["ci", "release-manager"],
+      "riskLevel": "high",
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "restore-to-evidence",
+          "command": { "executable": "bash", "argv": ["scripts/restore.sh", "evidence/cloudsite/backup.tar.gz", "--target", "evidence/cloudsite/restore-drill"] },
+          "requiredEvidence": ["evidence/cloudsite/restore-drill/.env", "evidence/cloudsite/restore-drill/data/state.db", "evidence/cloudsite/restore-drill/data/index.db"],
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "deploy",
+      "description": "Production deployment boundary. Approval is mandatory; this example emits a plan and cannot mutate production.",
+      "roles": ["release-manager"],
+      "riskLevel": "critical",
+      "requiresApproval": true,
+      "approvalGate": "cloudsite-deploy",
+      "timeoutSeconds": 1800,
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "deploy-plan-only",
+          "command": { "executable": "pwsh", "argv": ["-NoProfile", "-Command", "Write-Output 'cloudsite deploy plan only; no production mutation'"] },
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "rollback",
+      "description": "Production rollback boundary. Separate approval is mandatory and the example remains non-mutating.",
+      "roles": ["release-manager"],
+      "riskLevel": "critical",
+      "requiresApproval": true,
+      "approvalGate": "cloudsite-rollback",
+      "timeoutSeconds": 1800,
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "rollback-plan-only",
+          "command": { "executable": "pwsh", "argv": ["-NoProfile", "-Command", "Write-Output 'cloudsite rollback plan only; restore requires separate explicit approval'"] },
+          "expectExitCode": 0
+        }
+      ]
+    }
+  ]
+}

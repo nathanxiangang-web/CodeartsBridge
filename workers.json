@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "defaults": {
+    "model": "huaweicloud-maas/GLM-5.2",
+    "concurrencyLimit": 1,
+    "enabled": true
+  },
+  "workers": [
+    {
+      "id": "worker-01-local",
+      "transport": "local",
+      "host": "localhost",
+      "cliPath": "C:\\Users\\Nathan\\.codeartsdoer\\installers\\bin\\codearts.exe",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "concurrencyLimit": 1,
+      "enabled": true,
+      "capabilities": ["implement", "review", "test"]
+    },
+    {
+      "id": "worker-02-remote",
+      "transport": "ssh",
+      "host": "nathan@192.168.178.50",
+      "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "concurrencyLimit": 1,
+      "enabled": true,
+      "capabilities": ["implement", "review", "test"]
+    },
+    {
+      "id": "worker-03-remote",
+      "transport": "ssh",
+      "host": "root@192.168.5.15",
+      "cliPath": "/root/.codeartsdoer/installers/bin/codearts",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "concurrencyLimit": 1,
+      "enabled": true,
+      "capabilities": ["implement", "review", "test"]
+    }
+  ]
+}

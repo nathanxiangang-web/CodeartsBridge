@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex GLM Bridge Task State",
+  "type": "object",
+  "required": ["schemaVersion", "taskId", "status", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+    "status": {
+      "enum": [
+        "READY",
+        "QUEUED",
+        "STARTING",
+        "RUNNING",
+        "REVIEW_REQUIRED",
+        "FIX_REQUIRED",
+        "BLOCKED",
+        "AUTH_REQUIRED",
+        "RETRYABLE",
+        "FAILED",
+        "CANCELLED",
+        "DONE"
+      ]
+    },
+    "attempt": { "type": "integer", "minimum": 0 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "message": { "type": ["string", "null"] },
+    "processId": { "type": ["integer", "null"] },
+    "exitCode": { "type": ["integer", "null"] },
+    "sessionId": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_-]*$" },
+    "sessionMode": { "type": ["string", "null"], "enum": ["new", "resume", null] },
+    "lastEventAt": { "type": ["string", "null"] },
+    "tokens": {}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "profileId": "generic-lib.example",
+  "projectId": "generic-lib",
+  "description": "Tiny non-CloudSite example proving the engine is project-agnostic: a small library with lint and unit tests.",
+  "riskLevel": "low",
+  "roles": ["dev", "ci"],
+  "defaultTimeoutSeconds": 120,
+  "workingDirectory": { "mode": "projectRoot" },
+  "phases": [
+    {
+      "id": "lint",
+      "description": "Script lint.",
+      "roles": ["dev", "ci"],
+      "riskLevel": "low",
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "shellcheck",
+          "description": "Static shell analysis.",
+          "command": { "executable": "pwsh", "argv": ["-NoProfile", "-Command", "Write-Output 'lint ok'"] },
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "test",
+      "description": "Unit tests.",
+      "roles": ["ci"],
+      "riskLevel": "low",
+      "onFailure": "block",
+      "checks": [
+        {
+          "id": "unit",
+          "description": "Unit test runner.",
+          "command": { "executable": "pwsh", "argv": ["-NoProfile", "-Command", "Write-Output 'tests ok'"], "env": [ { "name": "RUNNER_OS", "from": "allowlist" } ] },
+          "requiredEvidence": ["reports/unit.xml"],
+          "expectExitCode": 0
+        }
+      ]
+    }
+  ]
+}

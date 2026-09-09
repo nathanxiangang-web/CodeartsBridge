@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "defaults": {
+    "runMode": "auto",
+    "model": "huaweicloud-maas/GLM-5.2",
+    "timeoutMinutes": 60
+  },
+  "projects": [
+    {
+      "id": "bridge-selftest",
+      "transport": "local",
+      "projectRoot": "E:\\Obsidian\\codex-glm\\examples\\handshake-project",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 3
+    },
+    {
+      "id": "codex-glm-bridge",
+      "transport": "local",
+      "projectRoot": "E:\\Obsidian\\codex-glm",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 60
+    },
+    {
+      "id": "cloudsite-dev-vm",
+      "transport": "ssh-shell",
+      "projectRoot": "/home/nathan/CloudSite",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 30,
+      "sshHost": "dsh"
+    },
+    {
+      "id": "codex-glm-ma-w01",
+      "transport": "local",
+      "projectRoot": "E:\\Obsidian\\codex-glm\\work\\multiagent-20260908\\worker01-en",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 120
+    },
+    {
+      "id": "codex-glm-ma-w02",
+      "transport": "ssh-shell",
+      "projectRoot": "/tmp/codex-glm-ma-20260908-worker02-en",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 120,
+      "sshHost": "nathan@192.168.178.50"
+    },
+    {
+      "id": "codex-glm-ma-w03",
+      "transport": "ssh-shell",
+      "projectRoot": "/tmp/codex-glm-ma-20260908-worker03-en",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 120,
+      "sshHost": "root@192.168.5.15"
+    }
+  ]
+}

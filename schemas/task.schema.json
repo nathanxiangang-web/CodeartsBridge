@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex GLM Bridge Task Metadata",
+  "type": "object",
+  "required": ["schemaVersion", "taskId", "projectId", "createdAt", "runMode"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+    "projectId": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "runMode": { "enum": ["auto", "manual", "sandbox"] },
+    "baseline": { "type": ["string", "null"] },
+    "allowedPaths": { "type": "array", "items": { "type": "string" } },
+    "workerId": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "role": { "enum": ["implement", "review", "test"] },
+    "dependsOn": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" } },
+    "workspaceMode": { "enum": ["shared-readonly", "worktree", "existing"] }
+  },
+  "additionalProperties": false
+}
