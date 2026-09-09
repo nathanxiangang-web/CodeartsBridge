@@ -759,6 +759,15 @@ function Build-WorkerCorePrompt {
     return $base
 }
 
+function Test-WorkerTransportCompatibility {
+    param(
+        [Parameter(Mandatory)][string]$WorkerTransport,
+        [Parameter(Mandatory)][string]$ProjectTransport
+    )
+    if ($WorkerTransport -eq $ProjectTransport) { return $true }
+    return $ProjectTransport -eq 'remote-worktree' -and $WorkerTransport -eq 'ssh'
+}
+
 function Select-DispatchPlan {
     param([Parameter(Mandatory)][string]$TasksRoot, [int]$MaxWorkers = 4)
 
@@ -840,9 +849,9 @@ function Select-DispatchPlan {
             if ([int]$workerUsage[$worker.id] -ge [int]$worker.concurrencyLimit) { $skipped += [pscustomobject]@{ taskId=$c.taskId; reason="explicit worker at capacity: $explicitWorkerId (not replaced)" }; continue }
             $caps = @($worker.capabilities)
             if ($caps.Count -gt 0 -and $role -notin $caps) { $skipped += [pscustomobject]@{ taskId=$c.taskId; reason="explicit worker lacks capability $role : $explicitWorkerId (not replaced)" }; continue }
-            if ([string]$worker.transport -ne [string]$project.transport) { $skipped += [pscustomobject]@{ taskId=$c.taskId; reason="explicit worker transport mismatch: $($worker.transport) != $($project.transport) (not replaced)" }; continue }
+            if (-not (Test-WorkerTransportCompatibility -WorkerTransport ([string]$worker.transport) -ProjectTransport ([string]$project.transport))) { $skipped += [pscustomobject]@{ taskId=$c.taskId; reason="explicit worker transport mismatch: $($worker.transport) cannot run $($project.transport) (not replaced)" }; continue }
         } else {
-            $candidatesW = @($workers | Where-Object { [bool]$_.enabled -and [string]$_.transport -eq [string]$project.transport } | Sort-Object id)
+            $candidatesW = @($workers | Where-Object { [bool]$_.enabled -and (Test-WorkerTransportCompatibility -WorkerTransport ([string]$_.transport) -ProjectTransport ([string]$project.transport)) } | Sort-Object id)
             $chosen = $null
             foreach ($w in $candidatesW) {
                 if ([int]$workerUsage[$w.id] -ge [int]$w.concurrencyLimit) { continue }
@@ -1925,7 +1934,7 @@ if (-not $BridgeTest) {
             $needProjectLock = ($workspaceMode -eq 'existing')
             $needWorkdirLock = ($role -eq 'implement' -or $workspaceMode -eq 'existing' -or $workspaceMode -eq 'worktree')
             if ($needWorkdirLock) {
-                $transportForLock = if ($worker) { [string]$worker.transport } else { [string]$project.transport }
+                $transportForLock = [string]$project.transport
                 $hostForLock = if ($worker -and $worker.PSObject.Properties.Name -contains 'host' -and -not [string]::IsNullOrWhiteSpace([string]$worker.host)) { [string]$worker.host } else { $null }
                 $lockKey = if ($transportForLock -in @('ssh', 'remote-worktree') -and $hostForLock) { ($hostForLock + '|' + $workingDir) } else { $workingDir }
                 $wdLockPath = Get-WorkDirLockPath -WorkingDir $lockKey
@@ -1951,7 +1960,7 @@ if (-not $BridgeTest) {
                 $minutes = if ($TimeoutMinutes -gt 0) { $TimeoutMinutes } elseif ($hardFromMeta -gt 0) { $hardFromMeta } else { [int]$project.timeoutMinutes }
                 $softTimeoutSeconds = if ($SoftTimeoutMinutes -gt 0) { $SoftTimeoutMinutes * 60 } elseif ($softFromMeta -gt 0) { $softFromMeta * 60 } elseif ($minutes -gt 0) { [int]($minutes * 60 * 2 / 3) } else { 0 }
                 $logPrefix = Join-Path $LogsRoot ("$TaskId.attempt-{0:D3}" -f $attempt)
-                $transport = if ($worker) { [string]$worker.transport } else { [string]$project.transport }
+                $transport = [string]$project.transport
                 if ($transport -eq 'local') {
                     $result = Invoke-LocalWorker -Project $project -Worker $worker -WorkingDir $workingDir -TaskDirectory $taskDirectory -Mode $mode -TimeoutSeconds ($minutes * 60) -SoftTimeoutSeconds $softTimeoutSeconds -LogPrefix $logPrefix -SessionId $existingSessionId -TaskId $TaskId -Attempt $attempt
                 } elseif ($transport -eq 'ssh-shell') {

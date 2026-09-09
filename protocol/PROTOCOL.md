@@ -63,18 +63,18 @@ REVIEW_REQUIRED -> FIX_REQUIRED -> RUNNING
 - 后续 attempt 若已有 `sessionId`，使用 `codearts run --session <id>` 续跑，不默认 fork。session ID 只接受 `^[A-Za-z0-9_-]+$`。
 - `Set-State` 合并更新，保留已记录的遥测字段；旧 state 无需迁移。
 - 整改/恢复任务在 prompt 中列出 inbox 全部指令文件，以最后一份为准但要求 Worker 结合前置 TASK/FIX 背景，不能只读一个失去背景的 FIX 文件。
-- `local`、`ssh-shell`、`ssh` 三种 transport 会话语义一致；远端参数通过 `Quote-Posix` 安全引用。
+- `local`、`ssh-shell`、`ssh`、`remote-worktree` 会话语义一致；远端参数通过 `Quote-Posix` 安全引用。
 
-## 5. 双 Worker 派发
+## 5. 四 Worker 派发
 
-- `dispatch` 一次性派发，默认 `MaxWorkers = 2`，非阻塞启动子 PowerShell 进程执行 `run -TaskId`，默认打开可见窗口。
+- `dispatch` 一次性派发，默认 `MaxWorkers = 4`，非阻塞启动子 PowerShell 进程执行 `run -TaskId`，默认打开可见窗口。
 - 全局 `dispatcher.lock` 文件锁防止重复领取；派发前原子置 `QUEUED`；活跃数（`QUEUED`+`STARTING`+`RUNNING`）不超过 `MaxWorkers`。
-- 候选状态仅限 `READY`、`FIX_REQUIRED`、`RETRYABLE`。同 `projectId` 最多一个活跃任务：不同项目可并行，同项目不会双派发。
+- 候选状态仅限 `READY`、`FIX_REQUIRED`、`RETRYABLE`。同一远端工作区最多一个写任务；同一源码可通过绑定不同主机的多个 `remote-worktree` 项目配置并行。
 - 派发失败恢复原状态，不留永久 `QUEUED`。`runtime/logs/dispatcher/` 存放派发摘要 JSON；Worker 日志为 `runtime/logs/<task-id>.attempt-NNN.stdout.log` 和 `.stderr.log`。
 - 默认窗口显示任务/项目/attempt/session/pid/elapsed 心跳（每5秒）和逐行公开事件摘要；Worker 生成的 reasoning、工具摘要、事件文本与正式交付默认使用纯英文 ASCII，避免中文和其他非 ASCII 标点经过控制台传输后乱码；凭据在摘要中遮盖为 `***`，完整原始 stdout/stderr 保留在 attempt 日志。
 - 成功/`REVIEW_REQUIRED` 显示最终状态与日志路径，约5秒后自动关闭；异常状态等待按 Enter。`-Quiet` 隐藏窗口并压制控制台进度，但不影响日志和遥测。
 - `-DryRun` 只输出调度决策，不启动 CodeArts。
-- 同项目并发写入仍未开放：后续必须依赖独立 Git worktree。
+- `existing` 工作区不允许并发写；模块化并行必须使用独立 `remote-worktree` 工作区，结果以 `refs/worker/<task-id>/result` 回收到集成仓库后再 Review 和合并。
 
 ## 6. 模式与环境
 
@@ -85,8 +85,9 @@ REVIEW_REQUIRED -> FIX_REQUIRED -> RUNNING
 - `local`：CodeArts CLI 与项目位于当前 Windows 主机。
 - `ssh`：项目与 CodeArts CLI 位于虚拟机，Runner 使用现有 SSH 配置传入任务并取回结果。
 - `ssh-shell`：CodeArts CLI 位于当前 Windows，Worker 使用现有免交互 SSH 配置操作虚拟机项目，正式交付仍写回本地任务目录。
+- `remote-worktree`：桥接机从干净集成仓库导出指定基线，每个远端 Worker 在自己的任务目录建立独立仓库、运行独立 CodeArts 账号并提交结果；桥接机只导入 namespaced ref，不自动修改主线。
 
-两种 SSH 模式均要求免交互认证；Runner 不读取、存储或传输密码、AK、SK。
+所有远端模式均要求免交互 SSH；Runner 只检查远端 CLI 授权是否可用，不读取、打印、存储或跨主机复制密码、AK、SK。
 
 ## 7. 正常交付
 

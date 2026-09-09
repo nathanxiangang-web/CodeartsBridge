@@ -8,7 +8,7 @@
 - 先读`文件下\tests\remote.md`了解你现在可指挥的worker有几个后续进行指挥工作
 - 新项目默认 `runMode: auto`，不启用沙箱限制。
 - 默认模型固定为 `huaweicloud-maas/GLM-5.2`，与 GLM Worker 角色一致。
-- 同一个项目同时只运行一个任务。
+- 同一份源代码可通过 4 个 `remote-worktree` 项目配置并行运行；每个 Worker 使用独立账号、主机和任务工作区。
 - 任务文件、Worker 结果和调度状态分别由不同角色写入。
 - 生产发布、系统配置等边界由任务本身定义，不在桥梁层写死。
 - 本地与 SSH 虚拟机使用同一套任务协议；传输差异由调度器适配。
@@ -16,13 +16,14 @@
 
 ## Transport 架构（v1.2）
 
-三种 transport 各司其职，远端账号不再成摆设：
+四种 transport 各司其职。Worker 的 `ssh` 表示 CLI 连接方式，项目的 `remote-worktree` 表示源码隔离方式，两者可以配合使用：
 
 | transport | CLI 位置 | 认证账号 | 并发模型 | 适用场景 |
 |-----------|---------|---------|---------|---------|
 | `local` | 本机 codearts | 本机账号 | 单进程 | 本地开发、selftest |
 | `ssh-shell` | 本机 codearts | 本机账号 | 共用本机 CLI，上限 1-2 | 远端无 CLI 时降级方案 |
 | `ssh` | 远端 codearts | 远端各自账号 | 每 worker 独立远端 CLI+账号，真并行 | 生产多 worker 协同（当前默认） |
+| `remote-worktree` | 远端 codearts | 远端各自账号 | 每任务独立仓库和分支 | 同一源码按模块并行开发（CloudSite 默认） |
 
 `ssh` transport（`Invoke-SshWorker`，bridge.ps1:1350）流程：
 1. 本地 `git bundle` 导出基线源码 → scp 到远端 `remoteBridgeRoot`
@@ -41,6 +42,10 @@
 
 `ssh` transport 必需字段：`sshHost`、`remoteBridgeRoot`（远端任务根目录，须绝对路径如 `/home/nathan/.codex-glm-bridge`，scp 不展开 ~）、`remoteCliPath`（可选，缺省 `codearts`）。worker.cliPath 优先于 project.remoteCliPath。
 
+`remote-worktree` 项目由桥接机上的干净集成仓库导出基线 bundle，在目标 Worker 主机的 `remoteWorkspaceRoot/<task-id>/repo` 建立独立副本。Worker 提交后，桥把结果导入集成仓库的 `refs/worker/<task-id>/result`；架构师检查 `RESULT.md`、`DIFF.stat`、`TESTS.md` 和必要 diff，再按依赖顺序合并。Worker 不直接写 178.50 主线。
+
+CloudSite 使用 `cloudsite-rc1-w01` 到 `cloudsite-rc1-w04` 四个项目配置，分别绑定四台 Worker 主机。四个任务可以同时开发不同模块；可能修改同一文件或同一迁移版本的任务仍应由架构师串行合入并处理冲突。
+
 远端 bashrc 注意：Ubuntu 顶部 `case $- in *i*) ;; *) return;;` 会挡住非交互 shell 读取后续 export，需把 `CODEARTS_CLI_AK/SK` export 移到 `case $-` 之前。
 
 ## 会话复用（v1.1）
@@ -50,7 +55,7 @@
 - 同一任务后续 attempt 若已有 `sessionId`，使用 `codearts run --session <id>` 续跑，不默认 fork；session ID 只接受 `^[A-Za-z0-9_-]+$`。
 - `Set-State` 基于旧 state 合并更新，不会因最终状态写入而丢失已记录的会话和遥测字段；旧版 state 文件无需迁移即可读取。
 - 整改/恢复任务必须获得原始 TASK 和相关 FIX 的完整最小上下文：Runner 在 prompt 中列出 inbox 中全部指令文件，以最后一份为准但要求 Worker 结合前置背景。
-- `local`、`ssh-shell`、`ssh` 三种 transport 使用一致的会话语义；远端 shell 参数通过 `Quote-Posix` 安全引用，session ID 校验后再拼入命令。
+- `local`、`ssh-shell`、`ssh`、`remote-worktree` 使用一致的会话语义；远端 shell 参数通过 `Quote-Posix` 安全引用，session ID 校验后再拼入命令。
 
 ## 四 Worker 派发（v1.2）
 
@@ -58,7 +63,7 @@
 - 非阻塞启动子 PowerShell 进程执行 `run -TaskId`，默认打开独立 PowerShell 窗口显示心跳和事件摘要；`-Quiet` 才隐藏窗口。使用全局 `dispatcher.lock` 文件锁防止重复领取。
 - 派发前原子地把任务置为 `QUEUED`；`run` 接受 `QUEUED`。活跃数统计 `QUEUED`、`STARTING`、`RUNNING`，不得超过 `MaxWorkers`。
 - 候选状态仅限 `READY`、`FIX_REQUIRED`、`RETRYABLE`；不会自动重跑 `BLOCKED`、`FAILED`、`AUTH_REQUIRED`。
-- 当前阶段仍实行同一 `projectId` 最多一个活跃任务：不同项目可以并行，同项目不会双派发。
+- 同一远端工作区仍只允许一个写任务；同一源码通过四个独立 `remote-worktree` 项目和四台主机并行，不共享任务工作区。
 - 派发失败时恢复任务原状态并记录明确错误，不留下永久 `QUEUED`。
 - `runtime/logs/dispatcher/` 存放派发摘要 JSON；Worker stdout/stderr 写入 `runtime/logs/<task-id>.attempt-NNN.stdout.log` 和 `.stderr.log`。
 ### 可见窗口行为
@@ -85,7 +90,7 @@ pwsh -NoProfile -File ~/codex-glm-bridge-repo/scripts/show-progress.ps1 -TaskId 
 - Windows 独立回显窗口不要使用 `pwsh -NoExit` 启动；任务输出结束后保留 10 秒并自动关闭。
 
 - `-DryRun` 无副作用模式只输出调度决策，不启动 CodeArts，供测试验证。
-- 同项目并发写入仍未开放：后续必须依赖独立 Git worktree 才能安全并行同一项目的多个任务。
+- 并行开发必须使用独立 `remote-worktree` 工作区；`existing` 模式仍不能让多个任务同时写同一路径。
 
 ## 入口
 
