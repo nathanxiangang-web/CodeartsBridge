@@ -53,6 +53,7 @@ CloudSite 使用 `cloudsite-rc1-w01` 到 `cloudsite-rc1-w04` 四个项目配置�
 3. 使用 `dispatch -MaxWorkers 4` 并行启动。每个任务会在自己的远端目录和 Git 分支中运行，不共享可写工作区。
 4. 任务进入 `REVIEW_REQUIRED` 后，只读 `RESULT.md`、`DIFF.stat`、`TESTS.md` 和必要 diff。通过后执行 `review-pass`，再按模型/迁移、业务逻辑、API、前端的依赖顺序整合 `refs/worker/<task-id>/result`。
 5. 每合入一个结果就更新集成主线；给空闲 Worker 创建后继写任务时使用新的 `HEAD`。不要把仍基于旧模型的后继任务直接并发到共享边界。
+6. Worker 先跑任务要求的聚焦验证，然后立即提交并写齐 `RESULT.md`、`DIFF.stat`、`TESTS.md`、`DIFF.patch`；只有仍有时间才跑全套回归、额外构建或 lint，并把追加结果回写 `TESTS.md`。不要让已完成代码因为最后才提交而被硬时限截断。
 
 ```powershell
 $baseline = git -C <integration-repo> rev-parse HEAD

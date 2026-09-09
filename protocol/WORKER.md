@@ -21,31 +21,32 @@ Do not ask the Architect to approve ordinary engineering steps one by one. The d
 9. If the task cannot be completed within its stated soft limit, the context becomes too large, or the remaining work crosses a new component boundary, stop the current implementation loop at a safe checkpoint. Preserve working changes and write `CHECKPOINT.md` plus `ASSISTANCE_REQUEST.md` in the current task outbox.
 10. Do not treat a checkpoint as failure. Report completed scope, exact remaining scope, current tests, and the smallest suggested follow-up task. Never keep consuming context merely to appear complete.
 11. A built-in editor refusal is not a user rejection when the task explicitly authorizes the target repository path. After verifying the exact in-scope path, use one quoted system-shell write as the standard fallback and inspect the diff immediately. Stop and write the checkpoint only after two independent shell/path/permission failures, or when the target is outside task scope. Do not spend the remaining task time building ad hoc file-splicing scripts.
+12. Protect the deliverable before using remaining time for broad checks. After the required focused tests pass, commit the scoped work and write `RESULT.md`, `DIFF.stat`, `TESTS.md`, and `DIFF.patch`. Run a full repository suite, optional build, or extra lint only after that checkpoint exists; update `TESTS.md` if those later checks finish.
 
 ## Soft and hard delivery
 
-Every task has two time limits. The Architect sets them per task complexity but the ratio is fixed at 3:4 (soft:hard).
+Every task has target, soft, and hard time limits. The Architect sets them per task complexity; the values in `META.json` are authoritative. Current implementation tasks normally target 10 minutes and use a hard cutoff of 15 minutes, with the soft limit set before the cutoff to reserve delivery time.
 
-### Soft delivery (soft timeout, default 15 minutes)
+### Soft delivery
 
 When the soft timeout fires the worker MUST stop the current implementation loop immediately and perform a soft delivery:
 
 1. Save all completed work to the task `outbox` (partial test files, partial results, any valid artifacts).
 2. Write `CHECKPOINT.md` to `outbox` with: completed scope, exact remaining scope, current test status, and the smallest suggested follow-up task.
 3. Write `ASSISTANCE_REQUEST.md` to `outbox` with the same information in the assistance request format.
-4. Do not continue coding past the soft timeout. The grace period (default 5 minutes) exists only to finish writing the checkpoint files, not to attempt more work.
+4. Do not continue coding past the soft timeout. The remaining interval exists only to commit a safe checkpoint and finish the outbox files, not to attempt more work or start a broad test suite.
 
-### Hard cutoff (hard timeout, default 20 minutes)
+### Hard cutoff
 
-When the hard timeout fires the bridge force-kills the worker process. No further output is captured. The task is marked FAILED. The Architect salvages any artifacts already in the outbox and decides whether to re-dispatch with a smaller scope.
+When the hard timeout fires the bridge force-kills the worker process. No further output is captured. The state may temporarily remain `RUNNING` with an empty `processId` and exit code 137; the Architect closes that orphan state with `cancel`, salvages the isolated commit and outbox, and decides whether any smaller follow-up is needed.
 
 ### Scaling rule
 
-The 15/20 minute defaults scale with task complexity but the 3:4 ratio is invariant. Examples:
+Time limits scale with task complexity. Examples:
 
-- Read and write a test file: soft=4 min, hard=5 min
-- Implement a small function: soft=7 min, hard=10 min
-- Full test module with run and deliverables: soft=15 min, hard=20 min
+- Read and write a test file: target=3 min, soft=4 min, hard=5 min
+- Implement a small function: target=6 min, soft=8 min, hard=10 min
+- Standard implementation module: target=10 min, soft=12 min, hard=15 min
 
 The Architect sets `softTimeoutMinutes` and `hardTimeoutMinutes` in `META.json` for each task. Workers must not assume the defaults; read `META.json` first.
 
@@ -56,6 +57,7 @@ Generate:
 - `RESULT.md`
 - `DIFF.stat`
 - `TESTS.md`
+- `DIFF.patch`
 
 `RESULT.md` must list modified files, core changes, and remaining risks. `TESTS.md` must distinguish passed, failed, and not-run checks; never report an unrun check as passed.
 
