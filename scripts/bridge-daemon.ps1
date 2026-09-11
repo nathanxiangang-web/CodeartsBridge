@@ -454,6 +454,10 @@ function Invoke-DaemonLoop {
                 Set-DaemonHealth -Status 'running' -Iteration $iteration -LastSuccessTime $lastSuccessTime -LastError $lastError -LastErrorAt $lastErrorAt -StartTime $startTime -ProcessId $currentPid -StdOutTruncated $lastStdOutTrunc -StdErrTruncated $lastStdErrTrunc -DrainIncomplete $lastDrainIncomplete
             } catch {}
 
+            if ($iteration % 10 -eq 0) {
+                try { & $BridgeScript snapshot 2>$null | Out-Null } catch {}
+            }
+
             if ($SingleRun) { break }
             if (Test-StopRequested) { break }
 

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('bootstrap', 'doctor', 'register', 'worker-register', 'worker-list', 'worker-health', 'create', 'create-multi', 'run', 'status', 'pause', 'resume', 'cancel', 'review-pass', 'review-fix', 'dispatch', 'capture', 'integration-check', 'cleanup')]
+    [ValidateSet('bootstrap', 'doctor', 'register', 'worker-register', 'worker-list', 'worker-health', 'create', 'create-multi', 'run', 'status', 'pause', 'resume', 'cancel', 'review-pass', 'review-fix', 'dispatch', 'capture', 'integration-check', 'cleanup', 'snapshot')]
     [string]$Command,
 
     [string]$ProjectId,
@@ -183,6 +183,10 @@ function Set-State {
         [string]$SessionMode,
         [string]$LastEventAt,
         [string]$LastHeartbeat = '',
+        [string]$HeartbeatSummary = '',
+        [Nullable[int]]$HeartbeatEvents,
+        [Nullable[int]]$HeartbeatThink,
+        [Nullable[int]]$HeartbeatTool,
         $Tokens
     )
 
@@ -210,6 +214,10 @@ function Set-State {
     if ($SessionMode) { $state.sessionMode = $SessionMode }
     if ($LastEventAt) { $state.lastEventAt = $LastEventAt }
     if ($LastHeartbeat) { $state.lastHeartbeat = $LastHeartbeat }
+    if ($HeartbeatSummary) { $state.heartbeatSummary = $HeartbeatSummary }
+    if ($null -ne $HeartbeatEvents) { $state.heartbeatEvents = $HeartbeatEvents }
+    if ($null -ne $HeartbeatThink) { $state.heartbeatThink = $HeartbeatThink }
+    if ($null -ne $HeartbeatTool) { $state.heartbeatTool = $HeartbeatTool }
     if ($null -ne $Tokens) { $state.tokens = $Tokens }
     Write-AtomicJson -Path $path -Value $state
     return [pscustomobject]$state
@@ -1183,7 +1191,12 @@ function Invoke-CapturedProcess {
             }
             if (([DateTimeOffset]::Now - $lastHeartbeatUpdate).TotalSeconds -ge 30) {
                 $lastHeartbeatUpdate = [DateTimeOffset]::Now
-                Set-State -Directory $TaskDirectory -Status "RUNNING" -Message "Worker is running" -ProcessId $process.Id -LastHeartbeat ([DateTimeOffset]::Now.ToString("o")) | Out-Null
+                $recentSummary = ''
+                try {
+                    $recentJsonLines = @($stdoutBuilder.ToString() -split "`r?`n" | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+                    if ($recentJsonLines.Count -gt 0) { $recentSummary = Get-JsonEventSummary -Line $recentJsonLines[0] }
+                } catch {}
+                Set-State -Directory $TaskDirectory -Status "RUNNING" -Message "Worker is running" -ProcessId $process.Id -LastHeartbeat ([DateTimeOffset]::Now.ToString("o")) -HeartbeatSummary $recentSummary -HeartbeatEvents $eventsCount -HeartbeatThink $thoughtCount -HeartbeatTool $toolCount | Out-Null
             }
             $assistancePath = Join-Path $TaskDirectory "outbox\ASSISTANCE_REQUEST.md"
             $assistanceRequested = Test-Path -LiteralPath $assistancePath -PathType Leaf
@@ -1582,6 +1595,32 @@ function Import-WorkerBundle {
     return [pscustomobject]@{ ImportedSha = $importedSha; BundleFile = $localBundleFile; Sha256 = $hash; NamespacedRef = $namespacedRef; AncestryValid = $true }
 }
 
+function Salvage-RemoteUncommitted {
+    param([Parameter(Mandatory)][string]$HostName, [Parameter(Mandatory)][string]$RemoteRepo, [Parameter(Mandatory)][string]$TaskId, [Parameter(Mandatory)][string]$LocalEvidenceDir)
+    Assert-SafeId -Value $TaskId -Label 'TaskId'
+    [System.IO.Directory]::CreateDirectory($LocalEvidenceDir) | Out-Null
+    $ssh = (Get-Command ssh -ErrorAction Stop).Path
+    $scp = (Get-Command scp -ErrorAction Stop).Path
+    $stamp = [DateTimeOffset]::UtcNow.ToString('yyyyMMddHHmmss')
+    $remoteDiff = "/tmp/salvage-$TaskId-$stamp.diff"
+    $remoteStatus = "/tmp/salvage-$TaskId-$stamp.status"
+    $remoteTar = "/tmp/salvage-$TaskId-$stamp.tar.gz"
+    $cmd = 'git -C ' + (Quote-Posix $RemoteRepo) + ' diff HEAD > ' + (Quote-Posix $remoteDiff) + ' 2>/dev/null; ' +
+           'git -C ' + (Quote-Posix $RemoteRepo) + ' status --short > ' + (Quote-Posix $remoteStatus) + ' 2>/dev/null; ' +
+           'tar -czf ' + (Quote-Posix $remoteTar) + ' -C /tmp ' + (Split-Path -Leaf $remoteDiff) + ' ' + (Split-Path -Leaf $remoteStatus) + ' 2>/dev/null; ' +
+           'echo $?' 
+    $salvageInfo = New-ProcessStartInfo -FilePath $ssh -Arguments @('-o', 'BatchMode=yes', $HostName, $cmd)
+    $salvageResult = Invoke-CapturedProcess -StartInfo $salvageInfo -TaskDirectory $LocalEvidenceDir -TimeoutSeconds 30 -LogPrefix (Join-Path $LocalEvidenceDir "salvage-remote-$stamp")
+    $localTar = Join-Path $LocalEvidenceDir "salvage-$TaskId-$stamp.tar.gz"
+    $copyInfo = New-ProcessStartInfo -FilePath $scp -Arguments @('-o', 'BatchMode=yes', '-q', ($HostName + ':' + $remoteTar), $localTar)
+    try { $null = Invoke-CapturedProcess -StartInfo $copyInfo -TaskDirectory $LocalEvidenceDir -TimeoutSeconds 30 -LogPrefix (Join-Path $LocalEvidenceDir "salvage-copy-$stamp") } catch {}
+    if (Test-Path -LiteralPath $localTar -PathType Leaf) {
+        try { tar -xzf $localTar -C $LocalEvidenceDir 2>$null } catch {}
+        return $localTar
+    }
+    return $null
+}
+
 function Remove-RemoteWorkspace {
     param([Parameter(Mandatory)][string]$HostName, [Parameter(Mandatory)][string]$RemoteTaskDir, [Parameter(Mandatory)][string]$TaskId)
     Assert-SafeId -Value $TaskId -Label 'TaskId'
@@ -1619,7 +1658,27 @@ function Invoke-RemoteWorktreeWorker {
     $remoteRunSegment = ($argList | ForEach-Object { Quote-Posix $_ }) -join ' '
     $runCommand = (Get-RemoteWorkerGuardrailPrefix) + '; cd -- ' + (Quote-Posix $initResult.RemoteRepo) + ' && ' + $remoteCli + ' ' + $remoteRunSegment
     $sm = if ($SessionId) { 'resume' } else { 'new' }
-    $runResult = Invoke-SshCommand -HostName $hostName -RemoteCommand $runCommand -TaskDirectory $TaskDirectory -TimeoutSeconds $TimeoutSeconds -LogPrefix $LogPrefix -TaskId $TaskId -ProjectId ([string]$Project.id) -SessionMode $sm -Attempt $Attempt -ShowProgress:(-not $Quiet)
+    $scp = (Get-Command scp -ErrorAction Stop).Path
+    $localOutbox = Join-Path $TaskDirectory 'outbox'
+    $remoteOutbox = $initResult.RemoteOutbox
+    $pollHostName = $hostName
+    $pollRemoteOutbox = $remoteOutbox
+    $pollScp = $scp
+    $controlPollAction = {
+        foreach ($ctrlFile in @('ASSISTANCE_REQUEST.md', 'CHECKPOINT.md')) {
+            $localCtrl = Join-Path $localOutbox $ctrlFile
+            if (-not (Test-Path -LiteralPath $localCtrl -PathType Leaf)) {
+                try { $null = Invoke-BoundedFetch -FilePath $pollScp -Arguments @('-q', ($pollHostName + ':' + $pollRemoteOutbox + '/' + $ctrlFile), $localCtrl) -TimeoutSeconds 10 } catch {}
+            }
+        }
+    }
+    $runResult = Invoke-SshCommand -HostName $hostName -RemoteCommand $runCommand -TaskDirectory $TaskDirectory -TimeoutSeconds $TimeoutSeconds -LogPrefix $LogPrefix -TaskId $TaskId -ProjectId ([string]$Project.id) -SessionMode $sm -Attempt $Attempt -PollAction $controlPollAction -SoftTimeoutSeconds $SoftTimeoutSeconds -ShowProgress:(-not $Quiet)
+    if ($runResult.ExitCode -ne 0 -or ($runResult.PSObject.Properties.Name -contains 'TimedOut' -and $runResult.TimedOut)) {
+        try {
+            $salvagePath = Salvage-RemoteUncommitted -HostName $hostName -RemoteRepo $initResult.RemoteRepo -TaskId $TaskId -LocalEvidenceDir (Join-Path $TaskDirectory 'evidence')
+            if ($salvagePath) { $runResult | Add-Member -NotePropertyName SalvagePath -NotePropertyValue $salvagePath }
+        } catch {}
+    }
     if ($runResult.ExitCode -eq 0) {
         try {
             $importResult = Import-WorkerBundle -HostName $hostName -RemoteRepo $initResult.RemoteRepo -RemoteBranch $initResult.RemoteBranch -ProjectRoot $projectRoot -TaskId $TaskId -BaselineSha $baselineSha
@@ -1630,9 +1689,7 @@ function Invoke-RemoteWorktreeWorker {
             $runResult | Add-Member -NotePropertyName ImportError -NotePropertyValue $_.Exception.Message
         }
     }
-    $scp = (Get-Command scp -ErrorAction Stop).Path
-    $localOutbox = Join-Path $TaskDirectory 'outbox'
-    $remoteOutbox = $initResult.RemoteOutbox
+
     $fetchInfo = New-ProcessStartInfo -FilePath $scp -Arguments @('-q', '-r', ($hostName + ':' + $remoteOutbox + '/.'), $localOutbox)
     $null = Invoke-CapturedProcess -StartInfo $fetchInfo -TaskDirectory $TaskDirectory -TimeoutSeconds 120 -LogPrefix ($LogPrefix + '.fetch')
     return $runResult
@@ -1674,6 +1731,23 @@ function Complete-WorkerRun {
         if ($null -ne $telemetry.tokens) { $telemetryParams.Tokens = $telemetry.tokens }
         $currentState = Get-State -Directory $TaskDirectory
         Set-State -Directory $TaskDirectory -Status ([string]$currentState.status) -Message ([string]$currentState.message) -ExitCode $exitCode @telemetryParams | Out-Null
+        if ($isTimedOut -and $TaskId) {
+            try {
+                $metaPath = Join-Path $TaskDirectory 'META.json'
+                $meta = if (Test-Path -LiteralPath $metaPath) { Read-JsonFile -Path $metaPath } else { $null }
+                $attemptNum = if ($meta -and $meta.PSObject.Properties.Name -contains 'attempt') { [int]$meta.attempt } else { 1 }
+                $hardSec = if ($meta -and $meta.PSObject.Properties.Name -contains 'hardTimeoutMinutes') { [int]$meta.hardTimeoutMinutes * 60 } else { 900 }
+                $elapsedSec = if ($currentState -and $currentState.PSObject.Properties.Name -contains 'updatedAt') { [int]([DateTimeOffset]::Now - [DateTimeOffset]::Parse([string]$currentState.updatedAt)).TotalSeconds } else { $hardSec }
+                $isQueue = ([string]$currentState.status -eq 'RETRYABLE')
+                $null = New-TimeoutHandoff -TaskDirectory $TaskDirectory -TaskId $TaskId `
+                    -Attempt $attemptNum -Reason ([string]$currentState.message) `
+                    -ElapsedSeconds $elapsedSec -HardTimeoutSeconds $hardSec `
+                    -WorktreePath $WorktreePath -ProjectRoot $ProjectRoot -QueueTimeout:$isQueue
+                if (-not $isQueue) {
+                    Set-State -Directory $TaskDirectory -Status 'SPLIT_REQUIRED' -Message 'Timeout handoff written; use create -ParentTaskId to decompose' -ExitCode $exitCode @telemetryParams | Out-Null
+                }
+            } catch {}
+        }
         if ($TaskId) { Remove-Lease -TaskId $TaskId }
         return
     }
@@ -1742,6 +1816,36 @@ function Complete-WorkerRun {
             Write-AtomicJson -Path (Join-Path $TaskDirectory 'state.json') -Value $failState
         }
     }
+}
+function Write-BridgeSnapshot {
+    $snapshotsRoot = Join-Path $RuntimeRoot 'snapshots'
+    [System.IO.Directory]::CreateDirectory($snapshotsRoot) | Out-Null
+    $tasks = @()
+    foreach ($d in @(Get-ChildItem -LiteralPath $TasksRoot -Directory -ErrorAction SilentlyContinue)) {
+        $sp = Join-Path $d.FullName 'state.json'
+        $mp = Join-Path $d.FullName 'META.json'
+        if ((Test-Path -LiteralPath $sp) -and (Test-Path -LiteralPath $mp)) {
+            $tasks += [pscustomobject]@{ id = $d.Name; state = (Read-JsonFile -Path $sp); meta = (Read-JsonFile -Path $mp) }
+        }
+    }
+    $leases = @(Get-ChildItem -LiteralPath $LeasesRoot -File -Filter '*.json' -ErrorAction SilentlyContinue | ForEach-Object { Read-JsonFile -Path $_.FullName })
+    $workers = Get-WorkersRegistry
+    $daemonHealthPath = Join-Path $RuntimeRoot 'daemon/health.json'
+    $daemonHealth = if (Test-Path -LiteralPath $daemonHealthPath) { Read-JsonFile -Path $daemonHealthPath } else { $null }
+    $snap = [ordered]@{
+        schemaVersion = 1
+        createdAt = [DateTimeOffset]::Now.ToString('o')
+        taskCount = $tasks.Count
+        leaseCount = $leases.Count
+        tasks = $tasks
+        leases = $leases
+        workers = $workers
+        daemonHealth = $daemonHealth
+    }
+    $path = Join-Path $snapshotsRoot ([DateTimeOffset]::UtcNow.ToString('yyyyMMddHHmmss') + '.json')
+    Write-AtomicJson -Path $path -Value $snap
+    Get-ChildItem -LiteralPath $snapshotsRoot -File | Sort-Object Name -Descending | Select-Object -Skip 100 | Remove-Item -Force -ErrorAction SilentlyContinue
+    return $path
 }
 if (-not $BridgeTest) {
     Ensure-BridgeLayout
@@ -2328,6 +2432,11 @@ $dispatched += [pscustomobject]@{ taskId = $candidate.taskId; projectId = $candi
             } else {
                 Write-Output 'No dispatchable tasks.'
             }
+        }
+
+        'snapshot' {
+            $path = Write-BridgeSnapshot
+            Write-Output "Snapshot written: $path"
         }
 
     }
