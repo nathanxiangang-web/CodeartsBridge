@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 2,
+  "defaults": {
+    "model": "default",
+    "concurrencyLimit": 1,
+    "enabled": true
+  },
+  "workers": [
+    {
+      "id": "worker-01",
+      "enabled": true,
+      "transport": "ssh",
+      "host": "user@node01",
+      "cliPath": "/home/user/.codeartsdoer/installers/bin/codearts",
+      "model": "default",
+      "concurrencyLimit": 1,
+      "roles": ["implement", "review", "test"],
+      "skills": ["python", "typescript", "docker"],
+      "agent": {
+        "type": "codearts",
+        "model": "default"
+      },
+      "workspace": {
+        "supported": ["existing", "remote-worktree"]
+      }
+    },
+    {
+      "id": "worker-02",
+      "enabled": true,
+      "transport": "ssh",
+      "host": "user@node02",
+      "cliPath": "/home/user/.codeartsdoer/installers/bin/codearts",
+      "model": "default",
+      "concurrencyLimit": 1,
+      "roles": ["implement", "review", "test"],
+      "skills": ["python", "java", "backend"],
+      "agent": {
+        "type": "codearts",
+        "model": "default"
+      },
+      "workspace": {
+        "supported": ["existing", "remote-worktree"]
+      }
+    },
+    {
+      "id": "worker-03-qa",
+      "enabled": true,
+      "transport": "ssh",
+      "host": "user@node03",
+      "cliPath": "/home/user/.codeartsdoer/installers/bin/codearts",
+      "model": "default",
+      "concurrencyLimit": 1,
+      "roles": ["review", "test"],
+      "skills": ["python", "typescript"],
+      "agent": {
+        "type": "codearts",
+        "model": "default"
+      },
+      "workspace": {
+        "supported": ["existing"]
+      }
+    }
+  ]
+}

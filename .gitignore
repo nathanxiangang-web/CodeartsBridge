@@ -23,3 +23,18 @@ tests/win1649.csv
 tests/远程账号.md
 .tmp_test.txt
 **/.tmp_test.txt
+
+# JiuwenSwarm runtime file operation logs
+.agent_history/
+
+# Real configs — only examples in repo
+config/projects.json
+config/workers.json
+projects.json
+workers.json
+!.gitignore
+
+# Environment
+.env
+.env.*
+!.env.example

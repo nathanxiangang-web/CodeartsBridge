@@ -2,7 +2,11 @@
 
 `codex-glm` 是架构师端（Codex）与执行端（CodeArts Agent / GLM Worker）之间的文件通信桥梁。
 
-桥运行在 Linux（192.168.178.52），架构师发布任务文件，调度器调用远端 CodeArts CLI，GLM Worker 自主完成搜索、修改、测试和构建，然后把压缩结果写回任务目录。Windows 退化为纯 SSH 客户端 + 编辑器，不再安装 CodeArts CLI。
+当前被开发的项目：**CloudSite v2.0**，集成仓库在 178.50 `/home/nathan/CloudSite`。开发策略：先复用本桥调度控制 Worker，按 P0→P6 阶段门逐模块替换为新方案。
+
+桥运行在 Linux（192.168.178.50），架构师发布任务文件，调度器调用远端 CodeArts CLI，GLM Worker 自主完成搜索、修改、测试和构建，然后把压缩结果写回任务目录。Windows 退化为纯 SSH 客户端 + 编辑器，不再安装 CodeArts CLI。
+
+**后续部署、测试和桥操作全部在 178.50 上进行。** 其他远端设备（178.52、178.51、5.15）上的 CloudSite 文件已清理，不再作为桥接机或集成仓库。CloudSite v2.0.0-alpha.1 已发布到 GitHub（`ghcr.io/nathanxiangang-web/cloudsite-{api,web}:v2.0.0-alpha.1`）。
 
 ## 当前默认
 - 先读`文件下\tests\remote.md`了解你现在可指挥的worker有几个后续进行指挥工作
@@ -35,14 +39,16 @@
 
 | worker | host | 远端账号 | 项目 |
 |--------|------|---------|------|
-| worker-01-remote | nathan@192.168.178.52 | win1649 (GT-nathanxia) | codex-glm-ma-w01 |
-| worker-02-remote | nathan@192.168.178.50 | 8080 (pyjcc-jc) | codex-glm-ma-w02 |
-| worker-03-remote | root@192.168.5.15 | rocky1043 | codex-glm-ma-w03 |
-| worker-04-remote | nathan@192.168.178.51 | ubuntu5390 | codex-glm-ma-w04 |
+| bus-w01-dev | nathan@192.168.178.50 | win1649 (GT-nathanxia) | bus-rc1-w01 |
+| bus-w02-dev | nathan@192.168.178.50 | 8080 (pyjcc-jc) | bus-rc1-w02 |
+| bus-w03-dev | root@192.168.5.15 | rocky1043 | bus-rc1-w03 |
+| bus-w04-qa | nathan@192.168.178.51 | ubuntu5390 | bus-rc1-w04 |
+
+模块分工（AgentBridge 蓝图 26.2）：w01 = tasking/scheduling；w02 = execution/workspace/CLI 探针；w03 = identity/workers/telemetry；w04 = review/QA（无 implement 能力）。
 
 `ssh` transport 必需字段：`sshHost`、`remoteBridgeRoot`（远端任务根目录，须绝对路径如 `/home/nathan/.codex-glm-bridge`，scp 不展开 ~）、`remoteCliPath`（可选，缺省 `codearts`）。worker.cliPath 优先于 project.remoteCliPath。
 
-`remote-worktree` 项目由桥接机上的干净集成仓库导出基线 bundle，在目标 Worker 主机的 `remoteWorkspaceRoot/<task-id>/repo` 建立独立副本。Worker 提交后，桥把结果导入集成仓库的 `refs/worker/<task-id>/result`；架构师检查 `RESULT.md`、`DIFF.stat`、`TESTS.md` 和必要 diff，再按依赖顺序合并。Worker 不直接写 178.50 主线。
+`remote-worktree` 项目由 178.50 上的干净集成仓库导出基线 bundle，在目标 Worker 主机的 `remoteWorkspaceRoot/<task-id>/repo` 建立独立副本。Worker 提交后，桥把结果导入集成仓库的 `refs/worker/<task-id>/result`；架构师检查 `RESULT.md`、`DIFF.stat`、`TESTS.md` 和必要 diff，再按依赖顺序合并。Worker 不直接写 178.50 主线。
 
 CloudSite 使用 `cloudsite-rc1-w01` 到 `cloudsite-rc1-w04` 四个项目配置，分别绑定四台 Worker 主机。四个任务可以同时开发不同模块；可能修改同一文件或同一迁移版本的任务仍应由架构师串行合入并处理冲突。
 
@@ -97,6 +103,7 @@ pwsh -File .\scripts\bridge.ps1 review-pass -TaskId <task-id>
 - 候选状态仅限 `READY`、`FIX_REQUIRED`、`RETRYABLE`；不会自动重跑 `BLOCKED`、`FAILED`、`AUTH_REQUIRED`。
 - 同一远端工作区仍只允许一个写任务；同一源码通过四个独立 `remote-worktree` 项目和四台主机并行，不共享任务工作区。
 - 派发失败时恢复任务原状态并记录明确错误，不留下永久 `QUEUED`。
+- **派发后必须立即开回显窗口**（见下方"回显窗口"段落）。`dispatch` 返回后对每个已派发 TaskId 执行 `show-progress.ps1`，确认心跳在增长。漏开回显 = 派发流程未完成。
 - `runtime/logs/dispatcher/` 存放派发摘要 JSON；Worker stdout/stderr 写入 `runtime/logs/<task-id>.attempt-NNN.stdout.log` 和 `.stderr.log`。
 ### 可见窗口行为
 
@@ -146,12 +153,52 @@ pwsh -File .\scripts\bridge.ps1 dispatch -DryRun
 
 完整流程见 [protocol/PROTOCOL.md](protocol/PROTOCOL.md)。
 
-## Linux Daemon（systemd user service）
+## 回显窗口（派工强制步骤 — 不得跳过）
 
-桥迁 Linux 后用 systemd user service 替代 NSSM。先确认 52 号主机可以执行 `pwsh`，并把本仓库同步到 `/home/nathan/codex-glm-bridge-repo`：
+**每次 `dispatch` 或 `create` 后，必须立即对每个已派发任务开回显窗口。这不是可选步骤。**
+
+回显是派发工作流的固定环节，与 create → dispatch → **回显** → 验收 四步同等强制。
+漏开回显 = 派发流程未完成。daemon 以 `-Quiet` 运行无本地窗口，架构师必须用以下命令查看：
+
+### 一键盯全部活跃任务（推荐）
 
 ```bash
-# 在 52 上创建 service unit
+# 在桥机(178.50)上运行：自动发现所有 RUNNING/STARTING/QUEUED 任务，循环刷新状态+最新事件
+ssh nathan@192.168.178.50 '/home/nathan/.local/bin/pwsh -NoProfile -File /home/nathan/codex-glm-bridge-repo/scripts/watch-tasks.ps1'
+```
+
+### 单任务回显
+
+```bash
+# 1) 单次摘要：状态 + 最近 80 条事件摘要（派工后立即执行）
+ssh nathan@192.168.178.50 'cd /home/nathan/codex-glm-bridge-repo && /home/nathan/.local/bin/pwsh -NoProfile -File scripts/show-progress.ps1 -TaskId <task-id>'
+
+# 2) 持续跟随：Ctrl+C 退出不影响 Worker
+ssh nathan@192.168.178.50 'cd /home/nathan/codex-glm-bridge-repo && /home/nathan/.local/bin/pwsh -NoProfile -File scripts/show-progress.ps1 -TaskId <task-id> -Follow'
+```
+
+### 派工回显检查清单
+
+每次派工后逐项确认：
+1. `dispatch` 返回后，立即对每个 TaskId 执行 `show-progress.ps1 -TaskId <id>`
+2. 确认窗口显示 `RUNNING` + 心跳计数在增长（events/think/tool 至少有一个在动）
+3. 若计数全零且持续 2 分钟无变化 → 诊断：查 stderr 日志、查远端 `pgrep -af codearts`
+4. 任务进入 `REVIEW_REQUIRED` 或 `FAILED` 后，读 outbox 交付物验收
+
+注意事项：
+
+- **178.50 上非交互 SSH 的 PATH 不含 pwsh**（Ubuntu bashrc 的 `case $-` 在非交互时提前 return），必须用绝对路径 `/home/nathan/.local/bin/pwsh`。
+- `show-progress` 的 `[think]`/`[event] tool=` 行来自 `runtime/logs/<task-id>.attempt-NNN.stdout.log` 的 JSONL 解析，敏感信息（AK/SK/token）已遮盖为 `***`，单行 160 字截断。
+- 回显只用于观察；验收以 outbox 的 `RESULT.md`、`DIFF.stat`、`TESTS.md`、`DIFF.patch` 为准。
+- daemon `-Quiet` 模式没有窗口，架构师一律用 `watch-tasks.ps1` 或 `show-progress.ps1` 查看。
+- 判断任务卡死：连续 5 分钟 `tool=` 计数不变且无新事件，先看远端主机 `pgrep -af "codearts run"` 再决定是否 `cancel`（保留现场）。
+
+## Linux Daemon（systemd user service）
+
+桥迁 Linux 后用 systemd user service 替代 NSSM。先确认 178.50 主机可以执行 `pwsh`，并把本仓库同步到 `/home/nathan/codex-glm-bridge-repo`：
+
+```bash
+# 在 178.50 上创建 service unit
 mkdir -p ~/.config/systemd/user
 cat > ~/.config/systemd/user/codex-glm-bridge.service << 'EOF'
 [Unit]

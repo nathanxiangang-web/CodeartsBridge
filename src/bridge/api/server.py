@@ -1,0 +1,410 @@
+# AI生成
+"""HTTP API server using only Python standard library.
+
+Endpoints:
+  GET    /api/projects           - List projects
+  POST   /api/projects           - Register project
+  GET    /api/workers             - List workers
+  GET    /api/workers/{id}        - Get worker detail
+  GET    /api/tasks               - List tasks
+  POST   /api/tasks               - Create task
+  GET    /api/tasks/{id}          - Get task detail
+  POST   /api/tasks/{id}/cancel   - Cancel task
+  POST   /api/tasks/{id}/retry    - Retry task
+  POST   /api/tasks/{id}/review/pass - Review pass
+  POST   /api/tasks/{id}/review/fix  - Review fix
+  POST   /api/integrations        - Integrate approved task
+  GET    /api/events              - SSE event stream
+  GET    /api/health              - Health check
+"""
+from __future__ import annotations
+
+import json
+import logging
+import threading
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
+from socketserver import ThreadingMixIn
+from typing import Any
+from urllib.parse import urlparse, parse_qs
+
+logger = logging.getLogger(__name__)
+
+
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
+class BridgeAPIHandler(BaseHTTPRequestHandler):
+    bridge_root: Path = Path(".")
+    event_store = None
+
+    def log_message(self, format, *args):
+        logger.debug("API %s - %s", self.address_string(), format % args)
+
+    def _send_json(self, code: int, data: Any):
+        body = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_sse(self, event_type: str, data: dict):
+        line = f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+        self.wfile.write(line.encode("utf-8"))
+        self.wfile.flush()
+
+    def _read_body(self) -> dict:
+        length = int(self.headers.get("Content-Length", 0))
+        if length == 0:
+            return {}
+        raw = self.rfile.read(length)
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {}
+
+    def _parse_path(self):
+        parsed = urlparse(self.path)
+        parts = [p for p in parsed.path.split("/") if p]
+        query = parse_qs(parsed.query)
+        return parts, query
+
+    def do_GET(self):
+        parts, query = self._parse_path()
+        if not parts or parts[0] != "api":
+            return self._send_json(404, {"error": "Not found"})
+        if len(parts) < 2:
+            return self._send_json(404, {"error": "Not found"})
+
+        resource = parts[1]
+        if resource == "health":
+            return self._handle_health()
+        if resource == "projects":
+            return self._handle_list_projects()
+        if resource == "workers":
+            if len(parts) >= 3:
+                return self._handle_get_worker(parts[2])
+            return self._handle_list_workers()
+        if resource == "tasks":
+            if len(parts) >= 3:
+                return self._handle_get_task(parts[2])
+            return self._handle_list_tasks(query)
+        if resource == "events":
+            return self._handle_event_stream(query)
+        return self._send_json(404, {"error": f"Unknown endpoint: {resource}"})
+
+    def do_POST(self):
+        parts, _ = self._parse_path()
+        if not parts or parts[0] != "api":
+            return self._send_json(404, {"error": "Not found"})
+        if len(parts) < 2:
+            return self._send_json(404, {"error": "Not found"})
+
+        resource = parts[1]
+        if resource == "projects":
+            return self._handle_create_project()
+        if resource == "tasks":
+            if len(parts) >= 3:
+                task_id = parts[2]
+                if len(parts) >= 4:
+                    action = parts[3]
+                    if action == "cancel":
+                        return self._handle_cancel_task(task_id)
+                    if action == "retry":
+                        return self._handle_retry_task(task_id)
+                    if action == "review" and len(parts) >= 5:
+                        review_action = parts[4]
+                        if review_action == "pass":
+                            return self._handle_review_pass(task_id)
+                        if review_action == "fix":
+                            return self._handle_review_fix(task_id)
+                return self._send_json(404, {"error": "Unknown task action"})
+            return self._handle_create_task()
+        if resource == "integrations":
+            return self._handle_integrate()
+        return self._send_json(404, {"error": f"Unknown endpoint: {resource}"})
+
+    # ── Health ──────────────────────────────────────────────────────────────
+
+    def _handle_health(self):
+        tasks_dir = self.bridge_root / "tasks"
+        task_count = 0
+        running = 0
+        if tasks_dir.exists():
+            for d in tasks_dir.iterdir():
+                if d.is_dir():
+                    task_count += 1
+                    sf = d / "state.json"
+                    if sf.exists():
+                        try:
+                            s = json.loads(sf.read_text()).get("state", "")
+                            if s == "RUNNING":
+                                running += 1
+                        except Exception:
+                            pass
+        workers_file = self.bridge_root / "workers.json"
+        worker_count = 0
+        if workers_file.exists():
+            try:
+                worker_count = len(json.loads(workers_file.read_text()))
+            except Exception:
+                pass
+        self._send_json(200, {
+            "status": "healthy",
+            "tasks": task_count,
+            "running": running,
+            "workers": worker_count,
+            "timestamp": time.time(),
+        })
+
+    # ── Projects ────────────────────────────────────────────────────────────
+
+    def _handle_list_projects(self):
+        pf = self.bridge_root / "projects.json"
+        if not pf.exists():
+            return self._send_json(200, [])
+        try:
+            data = json.loads(pf.read_text(encoding="utf-8"))
+            return self._send_json(200, data if isinstance(data, list) else list(data.values()))
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_create_project(self):
+        body = self._read_body()
+        if not body.get("projectId"):
+            return self._send_json(400, {"error": "projectId required"})
+        pf = self.bridge_root / "projects.json"
+        projects = []
+        if pf.exists():
+            try:
+                projects = json.loads(pf.read_text(encoding="utf-8"))
+                if isinstance(projects, dict):
+                    projects = list(projects.values())
+            except Exception:
+                pass
+        projects.append(body)
+        pf.write_text(json.dumps(projects, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._send_json(201, body)
+
+    # ── Workers ─────────────────────────────────────────────────────────────
+
+    def _handle_list_workers(self):
+        wf = self.bridge_root / "workers.json"
+        if not wf.exists():
+            return self._send_json(200, [])
+        try:
+            data = json.loads(wf.read_text(encoding="utf-8"))
+            return self._send_json(200, data if isinstance(data, list) else list(data.values()))
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_get_worker(self, worker_id: str):
+        wf = self.bridge_root / "workers.json"
+        if not wf.exists():
+            return self._send_json(404, {"error": "Worker not found"})
+        try:
+            data = json.loads(wf.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                data = list(data.values())
+            for w in data:
+                if w.get("id") == worker_id:
+                    return self._send_json(200, w)
+            return self._send_json(404, {"error": f"Worker {worker_id} not found"})
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    # ── Tasks ───────────────────────────────────────────────────────────────
+
+    def _handle_list_tasks(self, query: dict):
+        from bridge.application.task_service import list_tasks
+        try:
+            tasks = list_tasks(self.bridge_root)
+            state_filter = query.get("state", [None])[0]
+            if state_filter:
+                tasks = [t for t in tasks if t.get("state") == state_filter]
+            return self._send_json(200, tasks)
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_get_task(self, task_id: str):
+        from bridge.application.task_service import get_task_status
+        try:
+            status = get_task_status(self.bridge_root, task_id)
+            if status is None:
+                return self._send_json(404, {"error": f"Task {task_id} not found"})
+            return self._send_json(200, status)
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_create_task(self):
+        from bridge.application.task_service import create_task
+        body = self._read_body()
+        required = ["projectId", "workerId", "role", "taskId", "taskFile"]
+        for field in required:
+            if field not in body:
+                return self._send_json(400, {"error": f"{field} required"})
+        try:
+            meta = create_task(
+                bridge_root=self.bridge_root,
+                project_id=body["projectId"],
+                worker_id=body["workerId"],
+                role=body["role"],
+                task_id=body["taskId"],
+                task_file=body["taskFile"],
+                required_skills=body.get("requiredSkills", []),
+                depends_on=body.get("dependsOn", []),
+            )
+            return self._send_json(201, meta)
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_cancel_task(self, task_id: str):
+        from bridge.application.task_service import cancel_task
+        body = self._read_body()
+        try:
+            result = cancel_task(self.bridge_root, task_id, body.get("reason", ""))
+            return self._send_json(200, result)
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_retry_task(self, task_id: str):
+        from bridge.core.state import get_state, set_state, FAILED, RETRYABLE, READY
+        task_dir = self.bridge_root / "tasks" / task_id
+        if not task_dir.exists():
+            return self._send_json(404, {"error": f"Task {task_id} not found"})
+        try:
+            current = get_state(task_dir).get("state", "")
+            if current not in (FAILED, RETRYABLE, "BLOCKED"):
+                return self._send_json(400, {"error": f"Cannot retry from state {current}"})
+            set_state(task_dir, READY)
+            return self._send_json(200, {"taskId": task_id, "state": "READY"})
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    # ── Review ──────────────────────────────────────────────────────────────
+
+    def _handle_review513_review_pass(self, task_id: str):
+        from bridge.application.review_service import review_pass
+        body = self._read_body()
+        try:
+            result = review_pass(self.bridge_root, task_id, reviewer_id=body.get("reviewerId", ""))
+            return self._send_json(200, {"success": result.success, "newState": result.new_state})
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_review_pass(self, task_id: str):
+        from bridge.application.review_service import review_pass
+        body = self._read_body()
+        try:
+            result = review_pass(self.bridge_root, task_id, reviewer_id=body.get("reviewerId", ""))
+            return self._send_json(200, {"success": result.success, "newState": result.new_state})
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_review_fix(self, task_id: str):
+        from bridge.application.review_service import review_fix
+        body = self._read_body()
+        fix_file = body.get("fixFile", "")
+        if not fix_file:
+            return self._send_json(400, {"error": "fixFile required"})
+        try:
+            result = review_fix(self.bridge_root, task_id, fix_file, reviewer_id=body.get("reviewerId", ""))
+            return self._send_json(200, {"success": result.success, "newState": result.new_state})
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    # ── Integration ────────────────────────────────────────────────────────
+
+    def _handle_integrate(self):
+        from bridge.application.integration_service import integrate_approved_task
+        body = self._read_body()
+        task_id = body.get("taskId")
+        if not task_id:
+            return self._send_json(400, {"error": "taskId required"})
+        try:
+            result = integrate_approved_task(self.bridge_root, task_id)
+            return self._send_json(200, {
+                "success": result.success,
+                "taskId": result.task_id,
+                "newState": result.new_state,
+            })
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    # ── Event Stream (SSE) ──────────────────────────────────────────────────
+
+    def _handle_event_stream(self, query: dict):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        from bridge.core.events import EventStore
+        events_dir = self.bridge_root / "events"
+        store = EventStore(events_dir)
+
+        last_count = 0
+        keepalive = 0
+        try:
+            while True:
+                recent = store.recent(100)
+                if len(recent) > last_count:
+                    for evt in recent[last_count:]:
+                        self._send_sse(evt.type, {
+                            "eventId": evt.event_id,
+                            "taskId": evt.task_id,
+                            "payload": evt.payload,
+                        })
+                    last_count = len(recent)
+                keepalive += 1
+                if keepalive % 10 == 0:
+                    self._send_sse("keepalive", {"timestamp": time.time()})
+                time.sleep(0.5)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+
+def create_handler(bridge_root: Path):
+    """Create a handler class bound to a specific bridge_root."""
+    class BoundHandler(BridgeAPIHandler):
+        pass
+    BoundHandler.bridge_root = Path(bridge_root)
+    return BoundHandler
+
+
+class BridgeAPIServer:
+    """HTTP API server for CodeartsBridge."""
+
+    def __init__(self, bridge_root: str | Path, host: str = "0.0.0.0", port: int = 8080):
+        self.bridge_root = Path(bridge_root)
+        self.host = host
+        self.port = port
+        self._server: ThreadingHTTPServer | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self):
+        handler = create_handler(self.bridge_root)
+        self._server = ThreadingHTTPServer((self.host, self.port), handler)
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        logger.info("API server listening on %s:%d", self.host, self.port)
+
+    def stop(self):
+        if self._server:
+            self._server.shutdown()
+            self._server.server_close()
+            self._server = None
+        if self._thread:
+            self._thread.join(timeout=5)
+            self._thread = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._server is not None
+
+    def url(self, path: str = "") -> str:
+        return f"http://{self.host}:{self.port}{path}"

@@ -1,0 +1,282 @@
+# AI生成
+"""Tests for Phase 9: HTTP REST API + Event Stream + Health API."""
+
+from __future__ import annotations
+
+import json
+import sys
+import time
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+
+@pytest.fixture
+def api_server(tmp_path):
+    """Start an API server on a random port for testing."""
+    from bridge.api.server import BridgeAPIServer
+    import socket
+
+    # Find a free port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    server = BridgeAPIServer(bridge_root=tmp_path, host="127.0.0.1", port=port)
+    server.start()
+    time.sleep(0.2)  # Give server time to start
+
+    yield server
+
+    server.stop()
+
+
+def _get(server, path):
+    url = server.url(path)
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode("utf-8"))
+
+
+def _post(server, path, data=None):
+    url = server.url(path)
+    body = json.dumps(data or {}).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode("utf-8"))
+
+
+class TestHealthAPI:
+    def test_health_returns_ok(self, api_server):
+        code, data = _get(api_server, "/api/health")
+        assert code == 200
+        assert data["status"] == "healthy"
+        assert "tasks" in data
+        assert "workers" in data
+        assert "timestamp" in data
+
+    def test_health_counts_tasks(self, api_server, tmp_path):
+        from bridge.core.state import set_state, CREATED, READY
+        tasks_dir = tmp_path / "tasks"
+        for i in range(3):
+            td = tasks_dir / f"t{i}"
+            td.mkdir(parents=True)
+            set_state(td, CREATED)
+            set_state(td, READY)
+        code, data = _get(api_server, "/api/health")
+        assert code == 200
+        assert data["tasks"] == 3
+
+
+class TestProjectsAPI:
+    def test_list_empty(self, api_server):
+        code, data = _get(api_server, "/api/projects")
+        assert code == 200
+        assert data == []
+
+    def test_create_and_list(self, api_server):
+        code, data = _post(api_server, "/api/projects", {
+            "projectId": "p1",
+            "name": "Test Project",
+            "repoUrl": "https://github.com/test/repo",
+        })
+        assert code == 201
+        assert data["projectId"] == "p1"
+
+        code, data = _get(api_server, "/api/projects")
+        assert code == 200
+        assert len(data) == 1
+        assert data[0]["projectId"] == "p1"
+
+    def test_create_missing_id(self, api_server):
+        code, data = _post(api_server, "/api/projects", {"name": "No ID"})
+        assert code == 400
+
+
+class TestWorkersAPI:
+    def test_list_empty(self, api_server):
+        code, data = _get(api_server, "/api/workers")
+        assert code == 200
+        assert data == []
+
+    def test_get_worker_not_found(self, api_server):
+        code, data = _get(api_server, "/api/workers/nonexistent")
+        assert code == 404
+        assert "error" in data
+
+    def test_list_with_workers(self, api_server, tmp_path):
+        wf = tmp_path / "workers.json"
+        wf.write_text(json.dumps([
+            {"id": "w1", "roles": ["implement"], "skills": ["python"]},
+            {"id": "w2", "roles": ["review"], "skills": ["python"]},
+        ]), encoding="utf-8")
+        code, data = _get(api_server, "/api/workers")
+        assert code == 200
+        assert len(data) == 2
+
+    def test_get_worker_by_id(self, api_server, tmp_path):
+        wf = tmp_path / "workers.json"
+        wf.write_text(json.dumps([
+            {"id": "w1", "roles": ["implement"]},
+            {"id": "w2", "roles": ["review"]},
+        ]), encoding="utf-8")
+        code, data = _get(api_server, "/api/workers/w1")
+        assert code == 200
+        assert data["id"] == "w1"
+
+
+class TestTasksAPI:
+    def _create_task(self, api_server, tmp_path, task_id="t1"):
+        task_file = tmp_path / f"{task_id}.md"
+        task_file.write_text(f"# Task {task_id}\n", encoding="utf-8")
+        code, data = _post(api_server, "/api/tasks", {
+            "projectId": "p1",
+            "workerId": "w1",
+            "role": "implement",
+            "taskId": task_id,
+            "taskFile": str(task_file),
+            "requiredSkills": ["python"],
+        })
+        return code, data
+
+    def test_list_empty(self, api_server):
+        code, data = _get(api_server, "/api/tasks")
+        assert code == 200
+        assert data == []
+
+    def test_create_and_get(self, api_server, tmp_path):
+        code, data = self._create_task(api_server, tmp_path)
+        assert code == 201
+        assert data["taskId"] == "t1"
+        assert data["schemaVersion"] == 2
+
+        code, data = _get(api_server, "/api/tasks/t1")
+        assert code == 200
+        assert data["taskId"] == "t1"
+
+    def test_list_tasks(self, api_server, tmp_path):
+        for i in range(3):
+            self._create_task(api_server, tmp_path, f"t{i}")
+        code, data = _get(api_server, "/api/tasks")
+        assert code == 200
+        assert len(data) == 3
+
+    def test_cancel_task(self, api_server, tmp_path):
+        self._create_task(api_server, tmp_path)
+        code, data = _post(api_server, "/api/tasks/t1/cancel", {"reason": "test"})
+        assert code == 200
+        assert data["state"] == "CANCELLED"
+
+    def test_get_task_not_found(self, api_server):
+        code, data = _get(api_server, "/api/tasks/nonexistent")
+        assert code in (404, 500)  # 404 if handled, 500 if exception
+        assert "error" in data
+
+    def test_create_missing_field(self, api_server):
+        code, data = _post(api_server, "/api/tasks", {"projectId": "p1"})
+        assert code == 400
+
+
+class TestReviewAPI:
+    def _setup_task_in_review(self, tmp_path):
+        from bridge.core.state import set_state, CREATED
+        task_dir = tmp_path / "tasks" / "t1"
+        (task_dir / "inbox").mkdir(parents=True)
+        (task_dir / "outbox").mkdir(parents=True)
+        set_state(task_dir, CREATED)
+        for s in ["READY", "QUEUED", "STARTING", "RUNNING", "VERIFYING", "REVIEW_REQUIRED"]:
+            set_state(task_dir, s)
+
+    def test_review_pass(self, api_server, tmp_path):
+        self._setup_task_in_review(tmp_path)
+        code, data = _post(api_server, "/api/tasks/t1/review/pass", {"reviewerId": "w2"})
+        assert code == 200
+        assert data["success"] is True
+        assert data["newState"] == "APPROVED"
+
+    def test_review_fix(self, api_server, tmp_path):
+        self._setup_task_in_review(tmp_path)
+        fix_file = tmp_path / "fix.md"
+        fix_file.write_text("# Fix needed\n", encoding="utf-8")
+        code, data = _post(api_server, "/api/tasks/t1/review/fix", {
+            "reviewerId": "w2",
+            "fixFile": str(fix_file),
+        })
+        assert code == 200
+        assert data["success"] is True
+        assert data["newState"] == "FIX_REQUIRED"
+
+    def test_review_fix_missing_file(self, api_server, tmp_path):
+        self._setup_task_in_review(tmp_path)
+        code, data = _post(api_server, "/api/tasks/t1/review/fix", {"reviewerId": "w2"})
+        assert code == 400
+
+
+class TestIntegrationAPI:
+    def test_integrate_missing_task_id(self, api_server):
+        code, data = _post(api_server, "/api/integrations", {})
+        assert code == 400
+
+
+class TestEventStreamAPI:
+    def test_event_stream_connects(self, api_server):
+        """Test that the SSE endpoint accepts connections and sends headers."""
+        import socket
+        host, port = api_server.host, api_server.port
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(3)
+        sock.connect((host, port))
+        sock.sendall(b"GET /api/events HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        # Read response headers
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = sock.recv(1024)
+            if not chunk:
+                break
+            data += chunk
+        sock.close()
+        assert b"200" in data
+        assert b"text/event-stream" in data
+
+
+class TestAPIServer:
+    def test_server_start_stop(self, tmp_path):
+        from bridge.api.server import BridgeAPIServer
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        server = BridgeAPIServer(bridge_root=tmp_path, host="127.0.0.1", port=port)
+        assert not server.is_running
+        server.start()
+        time.sleep(0.2)
+        assert server.is_running
+        server.stop()
+        assert not server.is_running
+
+    def test_server_url(self, tmp_path):
+        from bridge.api.server import BridgeAPIServer
+        server = BridgeAPIServer(bridge_root=tmp_path, host="localhost", port=9999)
+        assert server.url("/api/health") == "http://localhost:9999/api/health"
+
+
+class TestAPIImports:
+    def test_import_api(self):
+        from bridge.api import BridgeAPIServer, create_handler
+        assert BridgeAPIServer is not None
+        assert create_handler is not None
+
+    def test_import_server(self):
+        from bridge.api.server import BridgeAPIHandler, ThreadingHTTPServer
+        assert BridgeAPIHandler is not None
+        assert ThreadingHTTPServer is not None

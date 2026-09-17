@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 2,
+  "defaults": {
+    "runMode": "auto",
+    "model": "default",
+    "timeoutMinutes": 60
+  },
+  "projects": [
+    {
+      "id": "project-a",
+      "name": "Project A",
+      "enabled": true,
+      "transport": "local",
+      "projectRoot": "/workspace/project-a",
+      "runMode": "auto",
+      "model": "default",
+      "timeoutMinutes": 60,
+      "defaultWorkspace": "worktree",
+      "requiredSkills": [],
+      "policyProfile": "default"
+    },
+    {
+      "id": "project-b",
+      "name": "Project B",
+      "enabled": true,
+      "transport": "ssh",
+      "projectRoot": "/workspace/project-b",
+      "runMode": "auto",
+      "model": "default",
+      "timeoutMinutes": 30,
+      "defaultWorkspace": "existing",
+      "sshHost": "user@node01",
+      "remoteCliPath": "codearts",
+      "remoteBridgeRoot": "/home/user/.codex-glm-bridge",
+      "requiredSkills": ["python"],
+      "policyProfile": "default"
+    },
+    {
+      "id": "project-c",
+      "name": "Project C (Remote Worktree)",
+      "enabled": true,
+      "transport": "ssh",
+      "projectRoot": "/workspace/project-c",
+      "runMode": "auto",
+      "model": "default",
+      "timeoutMinutes": 15,
+      "defaultWorkspace": "remote-worktree",
+      "sshHost": "user@node02",
+      "remoteWorkspaceRoot": "/home/user/.codex-glm-bridge/workspaces",
+      "remoteCliPath": "codearts",
+      "requiredSkills": ["python", "backend"],
+      "policyProfile": "default"
+    }
+  ]
+}
