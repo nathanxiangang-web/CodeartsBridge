@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 from pathlib import Path
 
 from . import __version__
@@ -277,21 +278,60 @@ def cmd_resume(args) -> int:
 
 
 def cmd_serve(args) -> int:
-    """Start the HTTP API server (Phase 9)."""
+    """Start unified bridge server (Phase 12: bridge serve).
+
+    Starts: HTTP API + Web UI + MCP + Health Service.
+    """
+    import signal
+    import time
     from .api.server import BridgeAPIServer
+
     root = _bridge_root()
-    server = BridgeAPIServer(bridge_root=root, host=args.host, port=args.port)
-    server.start()
-    print(f"API server running at http://{args.host}:{args.port}")
-    print("Press Ctrl+C to stop.")
+    _ensure_layout(root)
+
+    # Start HTTP API server (serves Web UI + REST API + SSE)
+    api_server = BridgeAPIServer(bridge_root=root, host=args.host, port=args.port)
+    api_server.start()
+    print(f"Bridge serve started:")
+    print(f"  Web UI:  http://{args.host}:{args.port}")
+    print(f"  API:     http://{args.host}:{args.port}/api")
+    print(f"  Health:  http://{args.host}:{args.port}/api/health")
+    print(f"  Events:  http://{args.host}:{args.port}/api/events (SSE)")
+
+    # Start MCP server (stdio mode, in separate thread)
+    mcp_thread = None
+    if not args.no_mcp:
+        from .interfaces.mcp.server import MCPServer
+        mcp_server = MCPServer(bridge_root=root)
+
+        def _run_mcp():
+            try:
+                mcp_server.start()
+            except Exception:
+                pass  # MCP stdio may not be available in all contexts
+
+        mcp_thread = threading.Thread(target=_run_mcp, daemon=True)
+        mcp_thread.start()
+        print(f"  MCP:     stdio (JSON-RPC 2.0)")
+
+    print(f"\nPress Ctrl+C to stop.")
+
+    def _shutdown(*_):
+        api_server.stop()
+        if mcp_thread:
+            mcp_thread.join(timeout=2)
+        print("\nBridge stopped.")
+
     try:
-        import signal
-        signal.signal(signal.SIGINT, lambda *_: server.stop())
-        while server.is_running:
-            import time
+        try:
+            signal.signal(signal.SIGINT, _shutdown)
+            signal.signal(signal.SIGTERM, _shutdown)
+        except ValueError:
+            pass  # signal only works in main thread
+        while api_server.is_running:
             time.sleep(1)
     except KeyboardInterrupt:
-        server.stop()
+        _shutdown()
     return 0
 
 
@@ -361,9 +401,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("pause", help="Pause dispatch")
     sub.add_parser("resume", help="Resume dispatch")
 
-    p_serve = sub.add_parser("serve", help="Start HTTP API server")
+    p_serve = sub.add_parser("serve", help="Start unified bridge server (API + Web UI + MCP)")
     p_serve.add_argument("--host", default="0.0.0.0")
     p_serve.add_argument("--port", type=int, default=8080)
+    p_serve.add_argument("--no-mcp", action="store_true", help="Disable MCP server")
 
     sub.add_parser("projects", help="List registered projects")
     sub.add_parser("workers", help="List registered workers")

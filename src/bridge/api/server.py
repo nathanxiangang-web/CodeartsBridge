@@ -2,6 +2,7 @@
 """HTTP API server using only Python standard library.
 
 Endpoints:
+  GET    /                      - Web UI (Dashboard)
   GET    /api/projects           - List projects
   POST   /api/projects           - Register project
   GET    /api/workers             - List workers
@@ -51,6 +52,13 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_html(self, code: int, content: bytes):
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
     def _send_sse(self, event_type: str, data: dict):
         line = f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
         self.wfile.write(line.encode("utf-8"))
@@ -72,10 +80,20 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         return parts, query
 
+    def _serve_static(self):
+        """Serve static web UI files from src/bridge/web/."""
+        web_dir = Path(__file__).resolve().parent.parent / "web"
+        index_file = web_dir / "index.html"
+        if index_file.exists():
+            content = index_file.read_bytes()
+            return self._send_html(200, content)
+        return self._send_json(404, {"error": "Web UI not found"})
+
     def do_GET(self):
         parts, query = self._parse_path()
+        # Serve web UI for non-API paths
         if not parts or parts[0] != "api":
-            return self._send_json(404, {"error": "Not found"})
+            return self._serve_static()
         if len(parts) < 2:
             return self._send_json(404, {"error": "Not found"})
 
@@ -152,8 +170,11 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                 worker_count = len(json.loads(workers_file.read_text()))
             except Exception:
                 pass
+        from bridge import __version__
         self._send_json(200, {
             "status": "healthy",
+            "version": __version__,
+            "bridge_root": str(self.bridge_root),
             "tasks": task_count,
             "running": running,
             "workers": worker_count,
@@ -225,7 +246,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             state_filter = query.get("state", [None])[0]
             if state_filter:
                 tasks = [t for t in tasks if t.get("state") == state_filter]
-            return self._send_json(200, tasks)
+            return self._send_json(200, {"tasks": tasks})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
@@ -242,20 +263,25 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     def _handle_create_task(self):
         from bridge.application.task_service import create_task
         body = self._read_body()
-        required = ["projectId", "workerId", "role", "taskId", "taskFile"]
-        for field in required:
-            if field not in body:
-                return self._send_json(400, {"error": f"{field} required"})
+        task_id = body.get("taskId") or body.get("task_id")
+        project_id = body.get("projectId") or body.get("project_id")
+        worker_id = body.get("workerId") or body.get("worker_id") or "default"
+        role = body.get("role", "implement")
+        task_file = body.get("taskFile") or body.get("task_file") or ""
+        if not task_id:
+            return self._send_json(400, {"error": "taskId required"})
+        if not project_id:
+            return self._send_json(400, {"error": "projectId required"})
         try:
             meta = create_task(
                 bridge_root=self.bridge_root,
-                project_id=body["projectId"],
-                worker_id=body["workerId"],
-                role=body["role"],
-                task_id=body["taskId"],
-                task_file=body["taskFile"],
-                required_skills=body.get("requiredSkills", []),
-                depends_on=body.get("dependsOn", []),
+                project_id=project_id,
+                worker_id=worker_id,
+                role=role,
+                task_id=task_id,
+                task_file=task_file,
+                required_skills=body.get("requiredSkills", body.get("required_skills", [])),
+                depends_on=body.get("dependsOn", body.get("depends_on", [])),
             )
             return self._send_json(201, meta)
         except Exception as e:
@@ -286,20 +312,11 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
 
     # ── Review ──────────────────────────────────────────────────────────────
 
-    def _handle_review513_review_pass(self, task_id: str):
-        from bridge.application.review_service import review_pass
-        body = self._read_body()
-        try:
-            result = review_pass(self.bridge_root, task_id, reviewer_id=body.get("reviewerId", ""))
-            return self._send_json(200, {"success": result.success, "newState": result.new_state})
-        except Exception as e:
-            return self._send_json(500, {"error": str(e)})
-
     def _handle_review_pass(self, task_id: str):
         from bridge.application.review_service import review_pass
         body = self._read_body()
         try:
-            result = review_pass(self.bridge_root, task_id, reviewer_id=body.get("reviewerId", ""))
+            result = review_pass(self.bridge_root, task_id, reviewer_id=body.get("reviewerId", "api"))
             return self._send_json(200, {"success": result.success, "newState": result.new_state})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
@@ -307,11 +324,14 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     def _handle_review_fix(self, task_id: str):
         from bridge.application.review_service import review_fix
         body = self._read_body()
-        fix_file = body.get("fixFile", "")
-        if not fix_file:
-            return self._send_json(400, {"error": "fixFile required"})
+        fix_file = body.get("fixFile") or body.get("fix_file") or ""
         try:
-            result = review_fix(self.bridge_root, task_id, fix_file, reviewer_id=body.get("reviewerId", ""))
+            if not fix_file:
+                fix_path = self.bridge_root / "tasks" / task_id / "inbox" / "REVIEW_FIX.md"
+                fix_path.parent.mkdir(parents=True, exist_ok=True)
+                fix_path.write_text("# FIX\n\nPlease fix the issues.\n", encoding="utf-8")
+                fix_file = str(fix_path)
+            result = review_fix(self.bridge_root, task_id, fix_file, reviewer_id=body.get("reviewerId", "api"))
             return self._send_json(200, {"success": result.success, "newState": result.new_state})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
@@ -321,7 +341,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     def _handle_integrate(self):
         from bridge.application.integration_service import integrate_approved_task
         body = self._read_body()
-        task_id = body.get("taskId")
+        task_id = body.get("taskId") or body.get("task_id")
         if not task_id:
             return self._send_json(400, {"error": "taskId required"})
         try:

@@ -1,0 +1,218 @@
+<!-- AI生成 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeartsBridge</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9}
+.nav{background:#161b22;padding:12px 24px;display:flex;gap:24px;align-items:center;border-bottom:1px solid #30363d}
+.nav a{color:#8b949e;text-decoration:none;font-size:14px;padding:6px 12px;border-radius:6px}
+.nav a:hover{background:#21262d;color:#c9d1d9}
+.nav a.active{background:#1f6feb;color:#fff}
+.nav .brand{font-weight:700;font-size:16px;color:#f0f6fc;margin-right:16px}
+.container{max-width:1200px;margin:0 auto;padding:24px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px}
+.card h2{font-size:14px;color:#8b949e;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.stat{text-align:center}
+.stat .num{font-size:28px;font-weight:700}
+.stat .label{font-size:12px;color:#8b949e;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #21262d}
+th{color:#8b949e;font-weight:600}
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-created{background:#1f6feb33;color:#58a6ff}
+.badge-queued{background:#f0883e33;color:#f0883e}
+.badge-running{background:#f0883e33;color:#f0883e}
+.badge-verifying{background:#a371f733;color:#a371f7}
+.badge-review_required{background:#d2992233;color:#d29922}
+.badge-review_passed{background:#3fb95033;color:#3fb950}
+.badge-fix_required{background:#f8514933;color:#f85149}
+.badge-fixing{background:#f0883e33;color:#f0883e}
+.badge-approved{background:#3fb95033;color:#3fb950}
+.badge-integrating{background:#a371f733;color:#a371f7}
+.badge-integrated{background:#3fb95033;color:#3fb950}
+.badge-done{background:#3fb95033;color:#3fb950}
+.badge-cancelled{background:#6e768133;color:#8b949e}
+.badge-failed{background:#f8514933;color:#f85149}
+.btn{padding:6px 14px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;cursor:pointer;font-size:13px}
+.btn:hover{background:#30363d}
+.btn-primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.btn-danger{background:#f8514933;border-color:#f85149;color:#f85149}
+input,select,textarea{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:6px 10px;color:#c9d1d9;font-size:13px}
+input,select,textarea{width:100%}
+.form-row{display:flex;gap:12px;margin-bottom:12px;align-items:center}
+.form-row label{width:120px;font-size:13px;color:#8b949e}
+.form-row input,.form-row select{flex:1}
+.muted{color:#8b949e}
+.hidden{display:none}
+#content{min-height:400px}
+</style>
+</head>
+<body>
+<nav class="nav">
+<span class="brand">CodeartsBridge</span>
+<a href="#dashboard" class="nav-link active" data-page="dashboard">Dashboard</a>
+<a href="#projects" class="nav-link" data-page="projects">Projects</a>
+<a href="#tasks" class="nav-link" data-page="tasks">Tasks</a>
+<a href="#workers" class="nav-link" data-page="workers">Workers</a>
+<a href="#review" class="nav-link" data-page="review">Review</a>
+<a href="#settings" class="nav-link" data-page="settings">Settings</a>
+</nav>
+<div class="container">
+<div id="content"></div>
+</div>
+<script>
+const API='/api';
+async function api(path,opts){const r=await fetch(API+path,opts);try{return await r.json()}catch(e){return{error:String(e)}}}
+function badge(s){return `<span class="badge badge-${s}">${s}</span>`}
+function esc(s){return String(s??'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}
+
+async function loadDashboard(){
+const h=await api('/health');
+const tasks=await api('/tasks');
+const workers=await api('/workers');
+const byState={};
+(tasks.tasks||[]).forEach(t=>{byState[t.state]=(byState[t.state]||0)+1});
+const online=(workers.workers||[]).filter(w=>w.enabled).length;
+const offline=(workers.workers||[]).filter(w=>!w.enabled).length;
+return `
+<div class="card"><h2>Bridge Status</h2><p class="muted">Version ${esc(h.version||'?')} · Root: ${esc(h.bridge_root||'?')}</p></div>
+<div class="card"><h2>Workers</h2><div class="grid">
+<div class="stat"><div class="num" style="color:#3fb950">${online}</div><div class="label">Online</div></div>
+<div class="stat"><div class="num" style="color:#8b949e">${offline}</div><div class="label">Offline</div></div>
+<div class="stat"><div class="num">${(workers.workers||[]).length}</div><div class="label">Total</div></div>
+</div></div>
+<div class="card"><h2>Tasks</h2><div class="grid">
+${Object.entries(byState).map(([s,n])=>`<div class="stat"><div class="num">${n}</div><div class="label">${esc(s)}</div></div>`).join('')}
+${Object.keys(byState).length===0?'<p class="muted">No tasks</p>':''}
+</div></div>
+<div class="card"><h2>Recent Tasks</h2>
+<table><tr><th>ID</th><th>State</th><th>Project</th><th>Role</th></tr>
+${(tasks.tasks||[]).slice(0,10).map(t=>`<tr><td>${esc(t.task_id)}</td><td>${badge(t.state)}</td><td>${esc(t.project_id)}</td><td>${esc(t.role)}</td></tr>`).join('')}
+</table></div>`;
+}
+
+async function loadProjects(){
+const r=await api('/projects');
+return `
+<div class="card"><h2>Projects</h2>
+<table><tr><th>ID</th><th>Name</th><th>Repo</th><th>Branch</th></tr>
+${(r.projects||[]).map(p=>`<tr><td>${esc(p.project_id||p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.repo_url||p.repo||'-')}</td><td>${esc(p.branch||'-')}</td></tr>`).join('')}
+</table></div>
+<div class="card"><h2>Add Project</h2>
+<div class="form-row"><label>Project ID</label><input id="pj-id"></div>
+<div class="form-row"><label>Name</label><input id="pj-name"></div>
+<div class="form-row"><label>Repo URL</label><input id="pj-repo"></div>
+<div class="form-row"><label>Branch</label><input id="pj-branch" value="main"></div>
+<button class="btn btn-primary" onclick="addProject()">Add</button>
+</div>`;
+}
+
+async function addProject(){
+const body={project_id:document.getElementById('pj-id').value,name:document.getElementById('pj-name').value,repo_url:document.getElementById('pj-repo').value,branch:document.getElementById('pj-branch').value};
+await api('/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+location.reload();
+}
+
+async function loadTasks(){
+const r=await api('/tasks');
+return `
+<div class="card"><h2>Tasks</h2>
+<table><tr><th>ID</th><th>State</th><th>Project</th><th>Worker</th><th>Role</th><th>Attempt</th><th>Actions</th></tr>
+${(r.tasks||[]).map(t=>`<tr><td>${esc(t.task_id)}</td><td>${badge(t.state)}</td><td>${esc(t.project_id)}</td><td>${esc(t.worker_id||'-')}</td><td>${esc(t.role)}</td><td>${t.attempt||0}</td>
+<td><button class="btn" onclick="cancelTask('${esc(t.task_id)}')">Cancel</button></td></tr>`).join('')}
+</table></div>
+<div class="card"><h2>Create Task</h2>
+<div class="form-row"><label>Task ID</label><input id="tk-id"></div>
+<div class="form-row"><label>Project</label><input id="tk-project"></div>
+<div class="form-row"><label>Worker</label><input id="tk-worker" placeholder="auto"></div>
+<div class="form-row"><label>Role</label><select id="tk-role"><option>implement</option><option>review</option><option>test</option><option>integration</option><option>ops</option></select></div>
+<div class="form-row"><label>Task File</label><input id="tk-file" placeholder="optional"></div>
+<button class="btn btn-primary" onclick="createTask()">Create</button>
+</div>`;
+}
+
+async function createTask(){
+const body={task_id:document.getElementById('tk-id').value,project_id:document.getElementById('tk-project').value,role:document.getElementById('tk-role').value};
+const w=document.getElementById('tk-worker').value;if(w)body.worker_id=w;
+const f=document.getElementById('tk-file').value;if(f)body.task_file=f;
+await api('/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+location.reload();
+}
+
+async function cancelTask(id){
+await api(`/tasks/${id}/cancel`,{method:'POST'});
+location.reload();
+}
+
+async function loadWorkers(){
+const r=await api('/workers');
+return `
+<div class="card"><h2>Workers</h2>
+<table><tr><th>ID</th><th>Enabled</th><th>Roles</th><th>Skills</th><th>Agent</th><th>Host</th></tr>
+${(r.workers||[]).map(w=>`<tr><td>${esc(w.id)}</td><td>${w.enabled?'✅':'❌'}</td><td>${esc((w.roles||[]).join(', '))}</td><td>${esc((w.skills||[]).join(', '))}</td><td>${esc(w.agent_type||'-')}</td><td>${esc(w.host||'local')}</td></tr>`).join('')}
+</table></div>`;
+}
+
+async function loadReview(){
+const r=await api('/tasks');
+const reviewTasks=(r.tasks||[]).filter(t=>t.state==='review_required'||t.state==='fix_required');
+return `
+<div class="card"><h2>Review Queue</h2>
+${reviewTasks.length===0?'<p class="muted">No tasks pending review</p>':''}
+<table><tr><th>ID</th><th>State</th><th>Project</th><th>Role</th><th>Actions</th></tr>
+${reviewTasks.map(t=>`<tr><td>${esc(t.task_id)}</td><td>${badge(t.state)}</td><td>${esc(t.project_id)}</td><td>${esc(t.role)}</td>
+<td>
+<button class="btn btn-primary" onclick="reviewPass('${esc(t.task_id)}')">Pass</button>
+<button class="btn btn-danger" onclick="reviewFix('${esc(t.task_id)}')">Fix</button>
+</td></tr>`).join('')}
+</table></div>`;
+}
+
+async function reviewPass(id){
+await api(`/tasks/${id}/review/pass`,{method:'POST'});
+location.reload();
+}
+
+async function reviewFix(id){
+await api(`/tasks/${id}/review/fix`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fix_file:''})});
+location.reload();
+}
+
+async function loadSettings(){
+const h=await api('/health');
+return `
+<div class="card"><h2>Bridge Configuration</h2>
+<p class="muted">Version: ${esc(h.version||'?')}</p>
+<p class="muted">Bridge Root: ${esc(h.bridge_root||'?')}</p>
+<p class="muted">API Status: ${esc(h.status||'?')}</p>
+</div>
+<div class="card"><h2>Runtime Settings</h2>
+<div class="form-row"><label>Max Workers</label><input type="number" value="4" id="cfg-max-workers"></div>
+<div class="form-row"><label>Soft Timeout</label><input type="number" value="12" id="cfg-soft-timeout"><span class="muted">minutes</span></div>
+<div class="form-row"><label>Hard Timeout</label><input type="number" value="15" id="cfg-hard-timeout"><span class="muted">minutes</span></div>
+<button class="btn btn-primary" onclick="alert('Settings saved (demo)')">Save</button>
+</div>
+<div class="card"><h2>Logging</h2>
+<div class="form-row"><label>Log Level</label><select><option>DEBUG</option><option selected>INFO</option><option>WARNING</option><option>ERROR</option></select></div>
+</div>`;
+}
+
+const pages={dashboard:loadDashboard,projects:loadProjects,tasks:loadTasks,workers:loadWorkers,review:loadReview,settings:loadSettings};
+
+async function navigate(page){
+document.querySelectorAll('.nav-link').forEach(a=>a.classList.remove('active'));
+document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
+const fn=pages[page]||loadDashboard;
+try{document.getElementById('content').innerHTML=await fn()}catch(e){document.getElementById('content').innerHTML=`<div class="card"><p class="muted">Error: ${esc(e)}</p></div>`}
+}
+
+window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)||'dashboard'));
+window.addEventListener('load',()=>navigate(location.hash.slice(1)||'dashboard'));
+</script>
+</body>
+</html>
