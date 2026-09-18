@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from bridge.pipeline import (
@@ -50,6 +51,11 @@ class TestPipelineState:
         assert s2.cycle_count == 5
         assert s2.status == "RUNNING"
         assert s2.total_dispatched == 10
+
+    def test_serializes_true_first_pass_rate(self):
+        state = PipelineState(first_pass_count=3, total_pass_count=4)
+        data = state.to_dict()
+        assert data["firstPassRate"] == pytest.approx(0.75)
 
     def test_load_save(self, pipeline_bridge):
         bridge = pipeline_bridge
@@ -119,6 +125,77 @@ class TestRunPipelineCycle:
         _save_state(bridge, state)
         loaded = _load_state(bridge)
         assert loaded.cycle_count == state.cycle_count
+
+    def test_first_pass_count_excludes_rework_passes(self, pipeline_bridge, monkeypatch):
+        bridge = pipeline_bridge
+        for task_id, attempt in (("first-pass", 1), ("reworked", 2)):
+            task_dir = bridge / "tasks" / task_id
+            task_dir.mkdir(parents=True)
+            (task_dir / "state.json").write_text(json.dumps({
+                "taskId": task_id,
+                "state": "DONE",
+                "status": "DONE",
+                "attempt": attempt,
+            }))
+
+        architect_result = SimpleNamespace(
+            reviewed=2,
+            passed=2,
+            errors=[],
+            verdicts=[
+                SimpleNamespace(task_id="first-pass", decision="PASS"),
+                SimpleNamespace(task_id="reworked", decision="PASS"),
+            ],
+        )
+        monkeypatch.setattr("bridge.pipeline.architect_loop", lambda **kwargs: architect_result)
+        monkeypatch.setattr(
+            "bridge.pipeline.auto_dispatch",
+            lambda **kwargs: SimpleNamespace(dispatched=0, errors=[]),
+        )
+        monkeypatch.setattr("bridge.pipeline.integrate_loop", lambda bridge_root: [])
+        monkeypatch.setattr(
+            "bridge.pipeline.detect_conflict",
+            lambda task_id, bridge_root: SimpleNamespace(conflict=False),
+        )
+
+        state = PipelineState()
+        run_pipeline_cycle(bridge, state, PipelineConfig(dry_run=True))
+
+        assert state.total_pass_count == 2
+        assert state.first_pass_count == 1
+        assert state.to_dict()["firstPassRate"] == pytest.approx(0.5)
+
+    def test_pass_with_missing_attempt_is_not_called_first_pass(self, pipeline_bridge, monkeypatch):
+        bridge = pipeline_bridge
+        task_dir = bridge / "tasks" / "legacy-pass"
+        task_dir.mkdir(parents=True)
+        (task_dir / "state.json").write_text(json.dumps({
+            "taskId": "legacy-pass",
+            "state": "DONE",
+            "status": "DONE",
+        }))
+
+        architect_result = SimpleNamespace(
+            reviewed=1,
+            passed=1,
+            errors=[],
+            verdicts=[SimpleNamespace(task_id="legacy-pass", decision="PASS")],
+        )
+        monkeypatch.setattr("bridge.pipeline.architect_loop", lambda **kwargs: architect_result)
+        monkeypatch.setattr(
+            "bridge.pipeline.auto_dispatch",
+            lambda **kwargs: SimpleNamespace(dispatched=0, errors=[]),
+        )
+        monkeypatch.setattr("bridge.pipeline.integrate_loop", lambda bridge_root: [])
+        monkeypatch.setattr(
+            "bridge.pipeline.detect_conflict",
+            lambda task_id, bridge_root: SimpleNamespace(conflict=False),
+        )
+
+        state = PipelineState()
+        run_pipeline_cycle(bridge, state, PipelineConfig(dry_run=True))
+        assert state.total_pass_count == 1
+        assert state.first_pass_count == 0
 
     def test_cycle_time_positive(self, pipeline_bridge):
         bridge = pipeline_bridge
