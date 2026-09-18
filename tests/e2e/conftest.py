@@ -33,6 +33,8 @@ def projects_json(bridge_root: Path) -> Path:
             {"id": "test-local", "transport": "local", "projectRoot": str(bridge_root / "work"), "runMode": "auto"},
             {"id": "test-remote", "transport": "remote-worktree", "projectRoot": "/remote/repo",
              "sshHost": "user@host", "remoteWorkspaceRoot": "/remote/ws", "runMode": "auto"},
+            {"id": "test-remote-w2", "transport": "remote-worktree", "projectRoot": "/remote/repo-w2",
+             "sshHost": "user@host2", "remoteWorkspaceRoot": "/remote/ws-w2", "runMode": "auto"},
         ],
     }
     p = bridge_root / "projects.json"
