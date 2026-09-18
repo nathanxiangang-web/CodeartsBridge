@@ -280,7 +280,10 @@ def adaptive_dispatch(
                 pass
 
             try:
-                if enabled_worker_ids:
+                # Explicit workerId is a user/operator routing decision.
+                # Adaptive scheduling may tune timeouts, but must not compete
+                # with that hard assignment through preferredWorker.
+                if enabled_worker_ids and not meta.get("workerId"):
                     rec_worker = recommend_worker(
                         task_id, bridge_root, enabled_worker_ids
                     )
