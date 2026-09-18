@@ -144,6 +144,7 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
     bridge_root = Path(bridge_root)
     start = time.time()
     result = CycleResult(cycle=state.cycle_count + 1)
+    conflict_task_ids: list[str] = []
 
     # Step 1: Architect review (review REVIEW_REQUIRED tasks)
     if config.dry_run:
@@ -182,15 +183,20 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
         from .state import DONE, get_state
         tasks_root = bridge_root / "tasks"
         if tasks_root.exists():
-            done_count = sum(
-                1 for td in tasks_root.iterdir()
-                if td.is_dir() and (get_state(td).get("status") or get_state(td).get("state", "")) == DONE
-            )
-            result.integrated = done_count
+            for td in tasks_root.iterdir():
+                if not td.is_dir():
+                    continue
+                task_state = get_state(td)
+                status = task_state.get("status") or task_state.get("state", "")
+                if status != DONE or task_state.get("integratedSha"):
+                    continue
+                conflict_task_ids.append(td.name)
+            result.integrated = len(conflict_task_ids)
     else:
         try:
             results = integrate_loop(bridge_root)
             successful = [r for r in results if r.success]
+            conflict_task_ids = [r.task_id for r in successful]
             result.integrated = len(successful)
             state.total_integrated += len(successful)
             for r in results:
@@ -202,21 +208,16 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
         except Exception as e:
             result.errors.append(f"integrate_loop: {e}")
 
-    # Step 4: Conflict detection for integrated tasks
+    # Step 4: Conflict detection only for tasks integrated (or previewed)
+    # in this cycle. Historical or unrelated tasks must not be reprocessed.
     try:
-        from .state import DONE
-        tasks_root = bridge_root / "tasks"
-        if tasks_root.exists():
-            for task_dir in tasks_root.iterdir():
-                if not task_dir.is_dir():
-                    continue
-                tid = task_dir.name
-                cr = detect_conflict(tid, bridge_root)
-                if cr.conflict:
-                    result.conflicts += 1
-                    if not config.dry_run:
-                        state.total_conflicts += 1
-                        handle_conflict(tid, bridge_root)
+        for tid in conflict_task_ids:
+            cr = detect_conflict(tid, bridge_root)
+            if cr.conflict:
+                result.conflicts += 1
+                if not config.dry_run:
+                    state.total_conflicts += 1
+                    handle_conflict(tid, bridge_root)
     except Exception as e:
         result.errors.append(f"conflict_check: {e}")
 
