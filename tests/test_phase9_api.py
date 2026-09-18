@@ -323,6 +323,18 @@ class TestAPIImports:
         assert BridgeAPIHandler is not None
         assert ThreadingHTTPServer is not None
 
+class TestThinkingEchoWebRegression:
+    def test_metrics_dashboard_keeps_hardened_thinking_echo(self):
+        web_path = Path(__file__).parent.parent / "src" / "bridge" / "web" / "index.html"
+        html = web_path.read_text(encoding="utf-8")
+        assert "async function loadMetrics()" in html
+        assert "const seenEventIds={};" in html
+        assert "const activityRank={RUNNING:3,STARTING:2,QUEUED:1};" in html
+        assert "task.workerId||(task.meta&&task.meta.workerId)||''" in html
+        assert "loadHistory();" in html
+        assert "const shownCount={};" not in html
+
+
 class TestTaskLogParsing:
     def test_latest_window_has_stable_event_ids(self):
         from bridge.api.server import _parse_task_session_log
