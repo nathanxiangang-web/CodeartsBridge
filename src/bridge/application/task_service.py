@@ -29,7 +29,7 @@ def create_task(
     worker_id: str | None,
     role: str,
     task_id: str,
-    task_file: str,
+    task_file: str | None,
     required_skills: list[str] | None = None,
     depends_on: list[str] | None = None,
     priority: int = 0,
@@ -44,11 +44,14 @@ def create_task(
     if task_dir.exists():
         raise ValueError(f"Task already exists: {task_id}")
 
-    # Read task content
-    task_path = Path(task_file)
-    if not task_path.is_file():
-        raise ValueError(f"Task file not found: {task_file}")
-    task_content = task_path.read_text(encoding="utf-8")
+    # Read task content. The public CLI/UI contract allows task_file to be omitted.
+    if task_file:
+        task_path = Path(task_file)
+        if not task_path.is_file():
+            raise ValueError(f"Task file not found: {task_file}")
+        task_content = task_path.read_text(encoding="utf-8")
+    else:
+        task_content = "# TASK\n\n(No task file provided)\n"
 
     # Create directories
     (task_dir / "inbox").mkdir(parents=True)
