@@ -61,15 +61,89 @@ class CostReport:
     record_count: int = 0
 
 
+def normalize_tokens(tokens) -> dict:
+    """Normalize token payloads from supported runtimes to one canonical shape.
+
+    Supported inputs:
+    - scalar total token counts
+    - canonical keys: input/output/reasoning/cache.read/cache.write
+    - OpenAI-style aliases: input_tokens/output_tokens/reasoning_tokens
+    - legacy aliases: prompt_tokens/completion_tokens
+    - total-only dicts: total/total_tokens/totalTokens
+    """
+    empty = {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {"read": 0, "write": 0},
+    }
+    if tokens is None or isinstance(tokens, bool):
+        return empty
+
+    if isinstance(tokens, (int, float, str)):
+        try:
+            total = max(0, int(float(tokens)))
+        except (TypeError, ValueError):
+            return empty
+        return {**empty, "input": total}
+
+    if not isinstance(tokens, dict):
+        return empty
+
+    def _number(*keys) -> int:
+        for key in keys:
+            if key in tokens and tokens.get(key) is not None:
+                try:
+                    return max(0, int(float(tokens.get(key))))
+                except (TypeError, ValueError):
+                    continue
+        return 0
+
+    cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+
+    def _cache_number(nested_key: str, *flat_keys: str) -> int:
+        value = cache.get(nested_key)
+        if value is not None:
+            try:
+                return max(0, int(float(value)))
+            except (TypeError, ValueError):
+                pass
+        return _number(*flat_keys)
+
+    normalized = {
+        "input": _number("input", "input_tokens", "prompt_tokens"),
+        "output": _number("output", "output_tokens", "completion_tokens"),
+        "reasoning": _number("reasoning", "reasoning_tokens"),
+        "cache": {
+            "read": _cache_number("read", "cache_read", "cache_read_tokens"),
+            "write": _cache_number("write", "cache_write", "cache_write_tokens"),
+        },
+    }
+
+    if normalized["input"] == normalized["output"] == normalized["reasoning"] == 0:
+        total = _number("total", "total_tokens", "totalTokens")
+        if total:
+            normalized["input"] = total
+
+    return normalized
+
+
+def token_total(tokens) -> int:
+    """Return non-cache input + output + reasoning tokens for reporting."""
+    normalized = normalize_tokens(tokens)
+    return normalized["input"] + normalized["output"] + normalized["reasoning"]
+
+
 def _estimate_cost(tokens: dict, model: str) -> float:
+    tokens = normalize_tokens(tokens)
     pricing = MODEL_PRICING.get(model, MODEL_PRICING["default"])
     cost = 0.0
-    cost += tokens.get("input", 0) / 1000 * pricing["input_per_1k"]
-    cost += tokens.get("output", 0) / 1000 * pricing["output_per_1k"]
-    cost += tokens.get("reasoning", 0) / 1000 * pricing["reasoning_per_1k"]
-    cache = tokens.get("cache", {})
-    cost += cache.get("read", 0) / 1000 * pricing["cache_read_per_1k"]
-    cost += cache.get("write", 0) / 1000 * pricing["cache_write_per_1k"]
+    cost += tokens["input"] / 1000 * pricing["input_per_1k"]
+    cost += tokens["output"] / 1000 * pricing["output_per_1k"]
+    cost += tokens["reasoning"] / 1000 * pricing["reasoning_per_1k"]
+    cache = tokens["cache"]
+    cost += cache["read"] / 1000 * pricing["cache_read_per_1k"]
+    cost += cache["write"] / 1000 * pricing["cache_write_per_1k"]
     return round(cost, 6)
 
 
@@ -86,8 +160,9 @@ def collect_cost_records(bridge_root: Path) -> list[CostRecord]:
         state = read_json_or_none(task_dir / "state.json")
         if not state:
             continue
-        tokens = state.get("tokens", {})
-        if not tokens:
+        raw_tokens = state.get("tokens")
+        tokens = normalize_tokens(raw_tokens)
+        if token_total(tokens) == 0 and tokens["cache"]["read"] == 0 and tokens["cache"]["write"] == 0:
             continue
 
         meta = read_json_or_none(task_dir / "META.json") or {}
@@ -97,14 +172,14 @@ def collect_cost_records(bridge_root: Path) -> list[CostRecord]:
         records.append(CostRecord(
             task_id=state.get("taskId", task_dir.name),
             project_id=meta.get("projectId", ""),
-            worker_id=meta.get("workerId", ""),
+            worker_id=state.get("assignedWorkerId") or meta.get("workerId", ""),
             role=meta.get("role", ""),
             model=model,
-            tokens_in=tokens.get("input", 0),
-            tokens_out=tokens.get("output", 0),
-            tokens_reasoning=tokens.get("reasoning", 0),
-            cache_read=tokens.get("cache", {}).get("read", 0),
-            cache_write=tokens.get("cache", {}).get("write", 0),
+            tokens_in=tokens["input"],
+            tokens_out=tokens["output"],
+            tokens_reasoning=tokens["reasoning"],
+            cache_read=tokens["cache"]["read"],
+            cache_write=tokens["cache"]["write"],
             estimated_cost=cost,
             timestamp=state.get("updatedAt", ""),
         ))
