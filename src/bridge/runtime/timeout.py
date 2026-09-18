@@ -64,8 +64,66 @@ def from_task_meta(meta: dict) -> TimeoutConfig:
     if not hard:
         hard = meta.get("timeoutMinutes", 0)
 
+    # Fallback to top-level softTimeoutMinutes/hardTimeoutMinutes for v1 compat
+    if not soft:
+        soft = meta.get("softTimeoutMinutes", 0)
+    if not hard:
+        hard = meta.get("hardTimeoutMinutes", 0)
+    if not target:
+        target = meta.get("targetMinutes", 0)
+
     return TimeoutConfig(
         soft_timeout_minutes=float(soft) if soft else 0.0,
         hard_timeout_minutes=float(hard) if hard else 0.0,
         target_minutes=float(target) if target else 0.0,
     )
+
+
+def handle_soft_timeout(
+    task_dir: "str | Path",
+    status: TimeoutStatus,
+    already_requested: bool = False,
+) -> str | None:
+    """Handle soft timeout action.
+
+    Returns:
+        "ASSISTANCE_REQUIRED" if checkpoint+assistance found
+        "CHECKPOINT_REQUESTED" if soft timeout just triggered
+        None if no action needed
+
+    Does NOT set FAILED — soft timeout is non-destructive.
+    """
+    from pathlib import Path
+    task_dir = Path(task_dir)
+
+    if not status.soft_exceeded:
+        return None
+
+    outbox = task_dir / "outbox"
+
+    # Check if worker already produced checkpoint + assistance request
+    if (outbox / "CHECKPOINT.md").is_file() and (outbox / "ASSISTANCE_REQUEST.md").is_file():
+        return "ASSISTANCE_REQUIRED"
+
+    # Request checkpoint if not already done
+    if not already_requested:
+        checkpoint_request = task_dir / "inbox" / "CHECKPOINT_REQUEST.md"
+        checkpoint_request.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_request.write_text(
+            "# CHECKPOINT REQUEST\n\nSoft timeout exceeded. Please checkpoint your work.\n",
+            encoding="utf-8",
+        )
+        return "CHECKPOINT_REQUESTED"
+
+    return None
+
+
+def handle_hard_timeout(
+    task_dir: "str | Path",
+    status: TimeoutStatus,
+) -> bool:
+    """Handle hard timeout action.
+
+    Returns True if hard timeout exceeded (caller should force kill).
+    """
+    return status.hard_exceeded
