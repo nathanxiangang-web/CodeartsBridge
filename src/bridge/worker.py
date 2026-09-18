@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .codearts import parse_codearts_json_lines, REQUIRED_MODEL, resolve_model
+from .atomic import atomic_write_text
 from .config import ProjectConfig, WorkerConfig
 from .state import (
     get_state, set_state, READY, QUEUED, STARTING, RUNNING,
@@ -37,6 +38,47 @@ TRANSPORT_MAP = {
     "ssh-shell": SshShellTransport,
     "remote-worktree": RemoteWorktreeTransport,
 }
+
+
+def _capture_isolated_commit(
+    task_dir: Path,
+    effective_project: ProjectConfig,
+    workspace_mode: str,
+    result: Any,
+    workspace_baseline: str | None,
+) -> tuple[str | None, str | None]:
+    """Capture the commit that integration must consume for isolated workspaces."""
+    if getattr(result, "import_error", None):
+        return None, f"workspace result import failed: {result.import_error}"
+
+    commit_sha = getattr(result, "imported_sha", None)
+
+    if workspace_mode == "local-worktree":
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(effective_project.project_root), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return None, f"cannot resolve local worktree commit: {exc}"
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return None, "cannot resolve local worktree commit"
+        commit_sha = proc.stdout.strip()
+        if workspace_baseline and commit_sha == workspace_baseline:
+            return None, "isolated local workspace produced no new commit"
+
+    elif workspace_mode == "remote-worktree":
+        if not commit_sha:
+            return None, "remote-worktree completed without an imported result commit"
+
+    if commit_sha:
+        outbox = task_dir / "outbox"
+        outbox.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(outbox / "COMMIT.sha", f"{commit_sha}\n")
+
+    return commit_sha, None
 
 
 def _run_worker_inner(
@@ -80,6 +122,7 @@ def _run_worker_inner(
         "workspace", meta.get("workspaceMode", "auto")
     )
     baseline = meta.get("baseline")
+    workspace_baseline = baseline
     try:
         workspace_mode = resolve_workspace_mode(
             requested_workspace, project.transport
@@ -106,6 +149,7 @@ def _run_worker_inner(
             )
             effective_project = replace(project, project_root=workspace.repo_path)
             workspace_path = workspace.repo_path
+            workspace_baseline = workspace.baseline_sha
         except Exception as exc:
             set_state(
                 task_dir, BLOCKED,
@@ -212,6 +256,25 @@ def _run_worker_inner(
         has_diff = (outbox / "DIFF.stat").is_file()
 
         if has_result and has_tests and has_diff:
+            commit_sha, commit_error = _capture_isolated_commit(
+                task_dir=task_dir,
+                effective_project=effective_project,
+                workspace_mode=workspace_mode,
+                result=result,
+                workspace_baseline=(
+                    getattr(result, "baseline_sha", None) or workspace_baseline
+                ),
+            )
+            if commit_error:
+                set_state(
+                    task_dir, FAILED,
+                    message=commit_error,
+                    exit_code=0,
+                    session_id=new_session_id,
+                    session_mode=session_mode,
+                )
+                return get_state(task_dir)
+
             # PostChecks: run policy evaluation after deliverables confirmed
             if policy_profile is not None:
                 post_result = evaluate_task_policy(
@@ -235,6 +298,7 @@ def _run_worker_inner(
                         session_mode=session_mode,
                         last_event_at=telemetry.get("lastEventAt"),
                         tokens=telemetry.get("tokens"),
+                        commit_sha=commit_sha,
                     )
                     return get_state(task_dir)
 
@@ -254,6 +318,7 @@ def _run_worker_inner(
                 session_mode=session_mode,
                 last_event_at=telemetry.get("lastEventAt"),
                 tokens=telemetry.get("tokens"),
+                commit_sha=commit_sha,
             )
         else:
             set_state(
