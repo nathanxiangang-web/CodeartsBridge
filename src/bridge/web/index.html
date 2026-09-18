@@ -349,17 +349,15 @@ const slotData={};
 async function pollLogs(){
 try{
 const r=await api('/tasks');
-const taskByWorker={};
+const activeByWorker={};
 for(const task of(r.tasks||[])){
 const tid=task.taskId;
+const state=task.state||'';
+if(mapState(state)==='done')continue;
 const st=await api(`/tasks/${tid}`);
-const state=st.state||task.state;
-const ms=mapState(state);
 const wid=(st.meta&&st.meta.workerId)||(task.meta&&task.meta.workerId)||'';
 if(!wid)continue;
-const existing=taskByWorker[wid];
-if(ms==='thinking'||ms==='排队'){taskByWorker[wid]={tid,state}}
-else if(ms==='完成'&&!existing){taskByWorker[wid]={tid,state}}
+if(!activeByWorker[wid])activeByWorker[wid]={tid,state:st.state||state};
 }
 for(let i=0;i<4;i++){
 const hdr=document.querySelector(`#monitor-${i} .monitor-header`);
@@ -369,7 +367,7 @@ const hostEl=hdr.querySelector('.monitor-host');
 const host=hostEl?hostEl.textContent:'?';
 const wEl=hdr.querySelector('.monitor-tid');
 const wid=wEl?wEl.getAttribute('data-worker'):'';
-const info=taskByWorker[wid];
+const info=activeByWorker[wid];
 if(info){
 const{tid,state}=info;
 const log=await api(`/tasks/${tid}/log`);
@@ -397,8 +395,7 @@ return `<div class="${cls}">${icon} ${esc(txt)}</div>`;
 }
 if(!html)html=`<span class="muted">${ms==='排队'?'排队中…':'思考中…'}</span>`;
 logEl.innerHTML=html;
-}else{
-delete slotData[i];
+}else if(!slotData[i]){
 hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> <span class="muted" style="font-size:11px">空闲</span>`;
 logEl.innerHTML='';
 }
