@@ -1,23 +1,22 @@
 # AI生成
-"""Dispatch service: orchestrate task dispatch using the scheduler.
-
-Application-layer service that connects the scheduler planner with
-the runtime supervisor and agent adapters.
-"""
+"""Dispatch service aligned with the canonical scheduler runtime contract."""
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from ..atomic import read_json_or_none
-from ..core.state import get_state, set_state, CREATED, READY, QUEUED, CANCELLED
-from ..core.models import load_registry, load_workers_registry
-from ..scheduler.planner import select_plan, save_assignment
-from ..scheduler.lease import create_lease, get_expired_leases, release_lease
-from ..scheduler.affinity import get_excluded_workers
+from ..core.models import Task, load_workers_registry
+from ..core.state import get_state, set_state, READY, QUEUED
+from ..scheduler.planner import (
+    select_plan,
+    save_assignment,
+    load_assignments,
+    reconcile_assignments,
+)
+from ..scheduler.lease import release_lease
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +28,8 @@ class DispatchResult:
     skipped: int = 0
     errors: list[str] = field(default_factory=list)
     assignments: list[dict] = field(default_factory=list)
+    skipped_details: list[dict] = field(default_factory=list)
+    dry_run: bool = False
 
 
 def dispatch_tasks(
@@ -36,78 +37,91 @@ def dispatch_tasks(
     max_workers: int = 4,
     dry_run: bool = False,
 ) -> DispatchResult:
-    """Dispatch ready tasks to available workers."""
+    """Plan and queue READY tasks using the same scheduler store as auto-dispatch.
+
+    This application-layer entry point intentionally does not spawn worker
+    processes. It owns deterministic planning/persistence/state transition only.
+    """
     bridge_root = Path(bridge_root)
-    result = DispatchResult()
+    result = DispatchResult(dry_run=dry_run)
 
-    # Load registries
-    registry = load_registry(bridge_root / "projects.json")
-    workers = load_workers_registry(bridge_root / "workers.json")
+    tasks_root = bridge_root / "tasks"
+    assignments_dir = bridge_root / "runtime" / "assignments"
+    leases_dir = bridge_root / "runtime" / "leases"
+    assignments_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find ready tasks
-    tasks_dir = bridge_root / "tasks"
-    if not tasks_dir.exists():
+    if not tasks_root.exists():
         return result
 
-    ready_tasks = []
-    for task_dir in sorted(tasks_dir.iterdir()):
+    workers_path = bridge_root / "workers.json"
+    if not workers_path.is_file():
+        result.errors.append("workers.json not found")
+        return result
+
+    workers = load_workers_registry(workers_path).enabled_workers()
+    if not workers:
+        result.errors.append("no enabled workers")
+        return result
+
+    ready_tasks: list[Task] = []
+    for task_dir in sorted(tasks_root.iterdir()):
         if not task_dir.is_dir():
             continue
-        task_id = task_dir.name
-        state = get_state(task_dir).get("state", CREATED)
-        if state == READY:
-            meta = read_json_or_none(task_dir / "META.json")
-            if meta:
-                ready_tasks.append(meta)
+        state = get_state(task_dir).get("state", "")
+        if state != READY:
+            continue
+        meta = read_json_or_none(task_dir / "META.json")
+        if not isinstance(meta, dict):
+            continue
+        try:
+            ready_tasks.append(Task.from_dict(meta))
+        except (KeyError, TypeError, ValueError) as exc:
+            result.errors.append(f"{task_dir.name}: invalid META: {exc}")
 
     if not ready_tasks:
         return result
 
-    # Release expired leases
-    expired = get_expired_leases(bridge_root / "runtime")
-    for lease in expired:
-        release_lease(bridge_root / "runtime", lease.lease_id)
+    reconcile_assignments(assignments_dir, leases_dir, tasks_root)
+    existing_assignments = load_assignments(assignments_dir)
 
-    # Plan dispatch
     plan = select_plan(
-        ready_tasks=ready_tasks,
+        tasks=ready_tasks,
         workers=workers,
-        registry=registry,
-        bridge_root=bridge_root,
+        existing_assignments=existing_assignments,
+        tasks_root=tasks_root,
+        leases_dir=leases_dir,
         max_workers=max_workers,
     )
 
-    result.planned = len(plan)
+    result.planned = len(plan.assignments)
+    result.skipped = len(plan.skipped)
+    result.skipped_details = list(plan.skipped)
 
     if dry_run:
+        for assignment in plan.assignments:
+            if assignment.lease_id:
+                release_lease(leases_dir, assignment.lease_id)
+            result.assignments.append(assignment.to_dict())
         return result
 
-    # Execute plan
-    for assignment in plan:
-        task_id = assignment.get("taskId", "")
-        worker_id = assignment.get("workerId", "")
-
-        # Check if task was cancelled while waiting
-        task_dir = tasks_dir / task_id
-        if get_state(task_dir).get("state", CREATED) == CANCELLED:
+    for assignment in plan.assignments:
+        task_dir = tasks_root / assignment.task_id
+        if get_state(task_dir).get("state", "") != READY:
             result.skipped += 1
+            result.errors.append(
+                f"{assignment.task_id}: no longer READY"
+            )
+            if assignment.lease_id:
+                release_lease(leases_dir, assignment.lease_id)
             continue
 
-        # Create lease
-        lease = create_lease(
-            bridge_root / "runtime",
-            task_id=task_id,
-            worker_id=worker_id,
-            ttl_minutes=30,
+        save_assignment(assignments_dir, assignment)
+        set_state(
+            task_dir,
+            QUEUED,
+            assignedWorkerId=assignment.worker_id,
         )
-
-        # Save assignment
-        save_assignment(bridge_root, assignment)
-
-        # Transition state
-        set_state(task_dir, QUEUED)
-
         result.dispatched += 1
-        result.assignments.append(assignment)
+        result.assignments.append(assignment.to_dict())
 
     return result
