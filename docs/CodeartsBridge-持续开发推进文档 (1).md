@@ -2093,33 +2093,41 @@ Bridge 本身保持简单。
 当前 Phase：
 
 ```text
-P0 ✅ → P1 ✅ → P2 ✅ → P3 ✅ → 全部完成
+P0 ✅ → P1 ✅ → P2 ✅ → P3 ✅ → P4 ✅ 全部完成
 ```
 
 当前 Wave：
 
 ```text
-无（等待用户定义 P4 或后续方向）
+无（P4 健壮性收口已完成）
 ```
 
-P0-P3 全部任务已完成，304 个测试通过。
+P0-P4 全部任务已完成，351 个测试通过。
+
+端到端真实集成测试 + 多 Worker 并行测试均已完成（2026-09-19）：
+- 单 Worker 流水线：plan_task → auto_dispatch → Worker SSH → codearts CLI → commit → review PASS → integrate → DONE
+- 多 Worker 并行：3 个独立任务并行派发到 3 个 Worker → 全部完成 → pipeline 审查 3 PASS → 全部 DONE
 
 当前状态：
 
 ```text
-HEAD: 7f3870b config: unify worker environment
-Tests: 304 passed
+HEAD: 62c0b8a config: convert bus-w04-qa to bus-w04-dev
+Tests: 351 passed
 Bridge 服务: 178.50:8080 healthy
-Workers: 4 个全部可用 (178.50/178.52/178.53/178.51)
+Workers: 4 个开发 Worker 全部可用 (178.50/178.51/178.52/178.53)
 ```
 
-后续方向待用户确认。可能的方向：
+P4 健壮性收口完成的内容：
+1. pipeline dry-run 超时修复（architect_loop/integrate_loop dry-run 支持）
+2. 软查收/硬查收两阶段超时实现（ssh.py Popen + soft checkpoint + hard kill → ASSISTANCE_REQUIRED）
+3. _parse_tests_summary 正则修复（支持 "N passed" 格式）
+4. integrate --loop 循环实现
+5. pipeline --config 配置文件加载
+6. cost --project/--summary 过滤和摘要
+7. 178.51 从 QA Worker 改为第 4 个开发 Worker（architect_loop + GitHub CI 替代 QA 角色）
+8. 多 Worker 并行真实测试验证通过（3 任务 × 3 Worker 并行）
 
-```text
-A. 定义 P4 阶段（新功能扩展）
-B. 端到端真实集成测试（用真实 Worker 跑完整流水线）
-C. 维护/优化阶段（不再新增功能，聚焦稳定性）
-D. 用户指定其他方向
+后续方向待用户确认。
 ```
 
 ---

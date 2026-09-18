@@ -16,7 +16,7 @@
 | **API 地址** | `http://192.168.178.50:8080/api/health` |
 | **GitHub 仓库** | `https://github.com/nathanxiangang-web/CodeartsBridge` |
 | **分支** | `master` = `main`（已同步） |
-| **当前 HEAD** | `7f3870b` config: unify worker environment |
+| **当前 HEAD** | `62c0b8a` config: convert bus-w04-qa to bus-w04-dev (implement capability) |
 
 ### SSH 连接信息
 
@@ -94,59 +94,21 @@ PYTHONPATH=src python3 -m pytest tests/e2e/ -q
 | `d9ebaaa` | P3-02 | 成本追踪与优化（cost.py） | DONE |
 | `0dc9741` | P3-03 | 性能仪表盘 API + UI | DONE |
 
+### P4 全部完成（健壮性收口，2026-09-19）
+
+| Commit | 任务 | 说明 | 状态 |
+|--------|------|------|------|
+| `ed46b26` | P4-01 | 两阶段超时 + pipeline dry-run 修复 | DONE |
+| `0298873` | P4-02 | _parse_tests_summary 正则修复 | DONE |
+| `f99abb3` | P4-03 | integrate --loop / pipeline --config / cost --project/--summary | DONE |
+| `62c0b8a` | P4-04 | 178.51 改为开发 Worker + 多 Worker 并行测试验证 | DONE |
+
 ---
 
 ## 三、未完成任务
 
-P0、P1、P2、P3 全部完成。
+P0、P1、P2、P3、P4 全部完成。351 tests passed。
 
-#### P1-03: 模型配置和角色路由（W02）
-
-- **目标**: 解决 worker.model 和 project.model 存在但 transport 固定 REQUIRED_MODEL 的问题
-- **需要支持**:
-  - Architect → 最强推理模型
-  - Implement → 编码模型
-  - Review → 推理模型
-  - Test → 快速/低成本模型
-- **涉及文件**: `src/bridge/transport/`, `src/bridge/config.py`
-- **依赖**: 无
-
-#### P1-04: 最小策略门控（W01）
-
-- **目标**: 接入 preChecks → Worker → postChecks → approvalGate
-- **注意**: 不要把 Bridge 做成大型 workflow engine，只做最小接入
-- **涉及文件**: 新建 `src/bridge/policy.py` 或 `src/bridge/policy/`
-- **依赖**: 无
-
-#### P1-05: 上下文包和 ADR 系统（W02）
-
-- **目标**: 新 Worker 不再重新扫描整个项目
-- **需要建立**:
-  ```
-  docs/
-  ├── 00-PROJECT-BLUEPRINT.md
-  ├── 01-ARCHITECTURE.md
-  ├── 02-DEVELOPMENT-RULES.md
-  ├── modules/
-  │   ├── dispatch.md
-  │   ├── runtime.md
-  │   ├── worker.md
-  │   ├── transport.md
-  │   └── policy.md
-  └── decisions/
-      ├── ADR-001-worker-isolation.md
-      ├── ADR-002-task-state-machine.md
-      └── ADR-003-ai-responsibilities.md
-  ```
-- **派发时给 Worker**: TASK + 相关 module docs + 相关 ADR + 相关 contract + baseline SHA
-- **依赖**: 无
-
-#### P1-06: 遥测统计（W03）
-
-- **目标**: 跟踪吞吐量、首次通过率、超时、Worker 利用率
-- **至少统计**: taskQueueTime, dispatchLatency, executionDuration, firstPassRate, timeoutRate, workerUtilization
-- **涉及文件**: 新建 `src/bridge/telemetry.py`
-- **依赖**: 无
 
 ---
 
@@ -197,7 +159,7 @@ tests/e2e/              # E2E 测试（121 个）
 
 | 环境 | E2E 测试 | Unit 测试 | 总计 |
 |------|----------|-----------|------|
-| 178.50 (Linux) | 304 | — | **304 passed** (P0+P1+P2+P3 全量) |
+| 178.50 (Linux) | 351 | — | **351 passed** (P0+P1+P2+P3+P4 全量) |
 
 ---
 
