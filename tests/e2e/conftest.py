@@ -51,6 +51,8 @@ def workers_json(bridge_root: Path) -> Path:
         "workers": [
             {"id": "w1", "transport": "local", "concurrencyLimit": 1,
              "enabled": True, "capabilities": ["implement", "review", "test"]},
+            {"id": "w1b", "transport": "local", "concurrencyLimit": 1,
+             "enabled": True, "capabilities": ["implement", "review", "test"]},
             {"id": "w2", "transport": "ssh", "host": "user@host2", "concurrencyLimit": 1,
              "enabled": True, "capabilities": ["implement", "review", "test"]},
             {"id": "w3", "transport": "ssh", "host": "user@host3", "concurrencyLimit": 1,
