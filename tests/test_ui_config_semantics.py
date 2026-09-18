@@ -126,3 +126,34 @@ def test_settings_are_readonly_runtime_truth_not_fake_controls():
     assert "cfg-hard-timeout" not in settings
     assert "saved_demo" not in settings
     assert "onclick=" not in settings
+
+
+
+def test_thinking_echo_uses_dynamic_enabled_worker_slots():
+    html = _html()
+    start = html.index("async function loadThinking(){")
+    end = html.index("async function loadMetrics(){", start)
+    thinking = html[start:end]
+
+    assert ".filter(w=>w.enabled!==false)" in thinking
+    assert "localeCompare(String(b.id||''))" in thinking
+    assert ".slice(0,4)" not in thinking
+    assert "includes('178.50')" not in thinking
+    assert "const slotCount=document.querySelectorAll('.monitor-window').length;" in thinking
+    assert "i<4" not in thinking
+    assert "i<slotCount" in thinking
+
+
+def test_thinking_echo_preserves_reliability_guards_with_dynamic_slots():
+    html = _html()
+    start = html.index("function initThinking(){")
+    end = html.index("async function loadMetrics(){", start)
+    thinking = html[start:end]
+
+    assert "const seenEventIds={};" in thinking
+    assert "const activityRank={RUNNING:3,STARTING:2,QUEUED:1};" in thinking
+    assert "while(seen.size>300)" in thinking
+    assert "loadHistory();" in thinking
+    assert "if(slotData[i]){" in thinking
+    assert "logEl.innerHTML='';" in thinking
+    assert "document.querySelectorAll('.monitor-log').forEach" in thinking
