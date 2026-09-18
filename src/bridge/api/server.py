@@ -407,7 +407,10 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         else:
             if not remote_root:
                 return self._send_json(200, {"startTime":0,"elapsed":0,"events":[],"toolCount":0,"reasoningCount":0})
-            remote_task = f"{remote_root.rstrip('/')}/tasks/{task_id}"
+            if transport == "remote-worktree":
+                remote_task = f"{remote_root.rstrip('/')}/{task_id}"
+            else:
+                remote_task = f"{remote_root.rstrip('/')}/tasks/{task_id}"
             cmd = ["ssh", "-o", "BatchMode=yes", ssh_host,
                    f"tail -n 500 {remote_task}/session.log 2>/dev/null"]
             try:
