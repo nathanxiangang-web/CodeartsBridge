@@ -18,7 +18,7 @@ from ..core.ids import generate_assignment_id
 from ..core.state import READY, QUEUED, DONE, CANCELLED, get_state
 from ..atomic import atomic_write_json, read_json_or_none
 
-from .matcher import filter_candidates, score_worker
+from .matcher import filter_candidates, filter_project_candidates, score_worker
 from .dependency import is_dependency_ready, get_blocked_dependencies
 from .capacity import filter_with_capacity, has_capacity
 from .affinity import apply_anti_affinity, apply_preferred, get_excluded_workers
@@ -36,6 +36,7 @@ def select_plan(
     tasks_root: Path,
     leases_dir: Path,
     max_workers: int = 4,
+    registry: Registry | None = None,
 ) -> ExecutionPlan:
     """Select a dispatch plan for candidate tasks.
 
@@ -78,7 +79,7 @@ def select_plan(
             })
             continue
 
-        # Filter candidates by role + skill
+        # Filter candidates by role + skill.
         candidates = filter_candidates(workers, task)
         if not candidates:
             plan.skipped.append({
@@ -88,8 +89,7 @@ def select_plan(
             continue
 
         # An explicit META.workerId is a hard routing constraint.
-        # It must never silently fall back to another worker. Role/skill
-        # validation above and capacity/anti-affinity validation below still apply.
+        # It must never silently fall back to another worker.
         if task.worker_id:
             candidates = [w for w in candidates if w.id == task.worker_id]
             if not candidates:
@@ -99,6 +99,35 @@ def select_plan(
                     "workerId": task.worker_id,
                 })
                 continue
+
+        # Project placement is part of scheduling correctness, not a Worker
+        # runtime concern. When a Registry is supplied, transport and sshHost
+        # affinity are enforced before capacity/scoring.
+        if registry is not None:
+            project = registry.get_project(task.project_id)
+            if project is None:
+                plan.skipped.append({
+                    "taskId": task.task_id,
+                    "reason": "project_unavailable",
+                    "projectId": task.project_id,
+                })
+                continue
+            placed = filter_project_candidates(candidates, project)
+            if not placed:
+                plan.skipped.append({
+                    "taskId": task.task_id,
+                    "reason": (
+                        "explicit_worker_project_mismatch"
+                        if task.worker_id
+                        else "no_project_compatible_worker"
+                    ),
+                    "projectId": task.project_id,
+                    "workerId": task.worker_id,
+                    "projectTransport": project.transport,
+                    "projectHost": project.ssh_host,
+                })
+                continue
+            candidates = placed
 
         # Filter by capacity
         candidates = filter_with_capacity(candidates, existing_assignments + plan.assignments)
