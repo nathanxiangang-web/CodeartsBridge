@@ -389,7 +389,7 @@ if(txt.length>150)txt=txt.slice(0,150)+' …';
 return `<div class="${cls}">${icon} ${esc(txt)}</div>`;
 }).join('');
 }
-if(!html)html=`<span class="muted">${t('no_events')}</span>`;
+if(!html)html=`<span class="muted">${ms==='排队'?'排队中…':'思考中…'}</span>`;
 logEl.innerHTML=html;
 }else{
 hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> <span class="muted" style="font-size:11px">空闲</span>`;
