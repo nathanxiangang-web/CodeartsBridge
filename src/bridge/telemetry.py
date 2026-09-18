@@ -48,7 +48,7 @@ class TaskMetrics:
             status=state.get("status", state.get("state", "UNKNOWN")),
             attempt=int(state.get("attempt", 0)),
             role=meta.get("role", "implement"),
-            worker_id=meta.get("workerId"),
+            worker_id=state.get("assignedWorkerId") or meta.get("workerId"),
             created_at=meta.get("createdAt"),
             queued_at=state.get("queuedAt"),
             started_at=state.get("startedAt"),
