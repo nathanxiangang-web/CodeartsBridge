@@ -147,6 +147,7 @@ def list_tasks(bridge_root: Path, state_filter: str | None = None) -> list[dict]
             "taskId": task_id,
             "state": state,
             "projectId": meta.get("projectId") if meta else None,
+            "workerId": meta.get("workerId") if meta else None,
             "role": meta.get("role") if meta else None,
         })
     return results
