@@ -99,7 +99,7 @@ def _run_worker_inner(
             workspace = LocalWorktreeWorkspace(
                 worktree_root=Path(bridge_root) / "runtime" / "worktrees"
             ).prepare(
-                project=effective_project,
+                project=project,
                 task_id=task_id,
                 task_dir=task_dir,
                 baseline=baseline,
@@ -158,7 +158,7 @@ def _run_worker_inner(
 
     # Run
     result = transport.run(
-        project=project,
+        project=effective_project,
         worker=worker,
         task_dir=task_dir,
         task_id=task_id,
