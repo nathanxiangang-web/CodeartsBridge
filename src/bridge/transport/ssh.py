@@ -111,7 +111,7 @@ class SshTransport(TransportBase):
         )
         remote_run_segment = " ".join(quote_posix(a) for a in args)
         inner_cmd = f"{remote_cli} {remote_run_segment}"
-        run_command = f"script -qfc {quote_posix(inner_cmd)} /dev/null"
+        run_command = f"script -qfc {quote_posix(inner_cmd)} {quote_posix(remote_task + '/session.log')}"
         cd_part = f"cd -- {quote_posix(remote_project_path)}"
         full_cmd = f"{cd_part} && {run_command}"
 

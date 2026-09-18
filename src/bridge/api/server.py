@@ -113,6 +113,8 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                     if len(parts) >= 5:
                         return self._handle_read_outbox_file(task_id, parts[4])
                     return self._handle_list_outbox(task_id)
+                if len(parts) >= 4 and parts[3] == "log":
+                    return self._handle_get_task_log(task_id)
                 return self._handle_get_task(task_id)
             return self._handle_list_tasks(query)
         if resource == "events":
@@ -314,6 +316,46 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             return self._send_json(200, {"name": filename, "content": content})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
+
+    def _handle_get_task_log(self, task_id: str):
+        import subprocess
+        from bridge.atomic import read_json_or_none
+        from bridge.config import load_registry, get_project
+        task_dir = self.bridge_root / "tasks" / task_id
+        meta = read_json_or_none(task_dir / "META.json")
+        if not meta:
+            return self._send_json(404, {"error": f"Task {task_id} not found"})
+        project_id = meta.get("projectId", "")
+        try:
+            registry = load_registry(self.bridge_root / "projects.json")
+            project = get_project(registry, project_id)
+        except Exception:
+            project = None
+        if not project:
+            return self._send_json(200, {"content": "", "lines": 0})
+        transport = getattr(project, "transport", "local")
+        ssh_host = getattr(project, "ssh_host", None)
+        remote_root = getattr(project, "remote_bridge_root", None)
+        if transport == "local" or not ssh_host:
+            log_path = task_dir / "session.log"
+            if not log_path.is_file():
+                return self._send_json(200, {"content": "", "lines": 0})
+            try:
+                lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                tail = lines[-300:]
+                return self._send_json(200, {"content": "\n".join(tail), "lines": len(tail)})
+            except Exception as e:
+                return self._send_json(500, {"error": str(e)})
+        else:
+            remote_task = f"{remote_root.rstrip('/')}/tasks/{task_id}"
+            cmd = ["ssh", "-o", "BatchMode=yes", ssh_host,
+                   f"tail -n 300 {remote_task}/session.log 2>/dev/null | sed 's/\\x1b\\[[0-9;]*[a-zA-Z]//g'"]
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                content = r.stdout or ""
+                return self._send_json(200, {"content": content, "lines": len(content.splitlines())})
+            except Exception as e:
+                return self._send_json(500, {"error": str(e)})
 
     def _handle_create_task(self):
         from bridge.application.task_service import create_task

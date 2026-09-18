@@ -58,6 +58,7 @@ th{color:#8b949e;font-weight:600}
 .monitor-header{padding:6px 10px;background:#161b22;border-bottom:1px solid #30363d;font-size:12px;display:flex;align-items:center;gap:6px}
 .monitor-tid{color:#58a6ff;font-weight:600}
 .monitor-log{flex:1;overflow-y:auto;padding:8px;font-family:monospace;font-size:11px}
+.monitor-content{margin:0;white-space:pre-wrap;word-break:break-all;color:#c9d1d3;font-size:11px;line-height:1.4}
 .thinking-entry{padding:4px 0;border-bottom:1px solid #21262d}
 .evt-time{color:#8b949e;margin-right:8px}
 .evt-type{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600;margin-right:8px}
@@ -339,45 +340,36 @@ ${slots.map((task,i)=>`<div class="monitor-window" id="monitor-${i}">
 
 function initThinking(){
 if(thinkingPoll)clearInterval(thinkingPoll);
-const fmtTime=(ts)=>{try{return new Date(ts).toLocaleTimeString()}catch(e){return ts||''}};
 const taskSlots={};
 for(let i=0;i<4;i++){const w=document.getElementById('monitor-'+i);if(w){const tid=w.querySelector('.monitor-tid');if(tid)taskSlots[tid.textContent]=i}}
-thinkingPrev={};
 
-function addEntry(slotIdx,cls,html){
-const log=document.getElementById('log-'+slotIdx);
-if(!log)return;
-const d=document.createElement('div');d.className='thinking-entry '+cls;d.innerHTML=html;
-log.appendChild(d);
-while(log.childNodes.length>200)log.removeChild(log.firstChild);
-log.scrollTop=log.scrollHeight;
-}
-
-async function pollTasks(){
+async function pollLogs(){
 try{
 const r=await api('/tasks');
 for(const task of(r.tasks||[])){
 const tid=task.taskId;
 const slotIdx=taskSlots[tid];
 if(slotIdx===undefined)continue;
+const log=await api(`/tasks/${tid}/log`);
 const st=await api(`/tasks/${tid}`);
-const state=st.state||'';
-const msg=st.message||'';
+const content=log.content||'';
 const hb=st.heartbeatSummary||'';
-const prev=thinkingPrev[tid]||{};
-if(state!==prev.state||msg!==prev.msg||hb!==prev.hb){
-const typeClass=state!==prev.state?'evt-state':'evt-hb';
-const label=state!==prev.state?`${esc(prev.state||'init')}→${esc(state)}`:t('heartbeat');
-addEntry(slotIdx,typeClass,`<span class="evt-time">${fmtTime(Date.now())}</span> <span class="evt-type">${label}</span>${msg?`<pre class="evt-payload">${esc(msg)}</pre>`:''}${hb?`<pre class="evt-payload">${esc(hb)}</pre>`:''}`);
-thinkingPrev[tid]={state,msg,hb};
+const hbThink=st.heartbeatThink||0;
+const hbTool=st.heartbeatTool||0;
+const logEl=document.getElementById('log-'+slotIdx);
+if(logEl){
+logEl.innerHTML=`<pre class="monitor-content">${esc(content)}</pre>`;
+logEl.scrollTop=logEl.scrollHeight;
+}
 const hdr=document.querySelector(`#monitor-${slotIdx} .monitor-header`);
-if(hdr)hdr.innerHTML=`<span class="monitor-tid">${esc(tid)}</span> ${badge(state)}`;
+if(hdr){
+hdr.innerHTML=`<span class="monitor-tid">${esc(tid)}</span> ${badge(st.state||task.state)} <span class="muted" style="font-size:10px">think:${hbThink} tool:${hbTool}</span>${hb?`<span class="muted" style="font-size:10px"> ${esc(hb)}</span>`:''}`;
 }
 }
 }catch(e){}
 }
-pollTasks();
-thinkingPoll=setInterval(pollTasks,2000);
+pollLogs();
+thinkingPoll=setInterval(pollLogs,2000);
 }
 
 function clearThinkingLog(){for(let i=0;i<4;i++){const log=document.getElementById('log-'+i);if(log)log.innerHTML=''}}
