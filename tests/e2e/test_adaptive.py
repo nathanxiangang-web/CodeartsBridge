@@ -445,6 +445,19 @@ class TestAdaptiveDispatch:
 
     def test_explicit_worker_is_not_replaced_by_adaptive_preference(self, setup_bridge, mock_popen):
         bridge_root = setup_bridge
+
+        # Keep the test's original intent under project placement rules:
+        # w1 has the better adaptive history, while explicit w3 is still a
+        # physically valid Worker for the local project.
+        workers_path = bridge_root / "workers.json"
+        workers_data = json.loads(workers_path.read_text(encoding="utf-8"))
+        w3 = next(w for w in workers_data["workers"] if w["id"] == "w3")
+        w3["transport"] = "local"
+        w3.pop("host", None)
+        workers_path.write_text(
+            json.dumps(workers_data, indent=2), encoding="utf-8"
+        )
+
         base = datetime.now(timezone.utc)
         for i in range(4):
             _make_task(
