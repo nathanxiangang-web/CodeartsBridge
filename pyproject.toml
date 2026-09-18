@@ -4,8 +4,8 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "codex-glm-bridge"
-version = "0.2.0"
-description = "Codex <-> GLM Worker Bridge - Linux native"
+version = "0.3.0"
+description = "CodeArts Agent 多节点调度桥 — Web UI 实时监控多台远程 Worker"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 

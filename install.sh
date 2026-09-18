@@ -1,6 +1,6 @@
 # AI生成
 #!/bin/bash
-# CodeartsBridge v0.2 一键安装脚本
+# CodeartsBridge v0.3 一键安装脚本
 # 用法: ./install.sh [install|uninstall|help]
 
 set -e
@@ -12,7 +12,7 @@ PYTHON_MIN="3.10"
 print_help() {
     cat << 'EOF'
 ========================================
-  CodeartsBridge v0.2 使用说明
+  CodeartsBridge v0.3 使用说明
 ========================================
 
 【安装】
@@ -86,7 +86,7 @@ check_python() {
 
 do_install() {
     echo "========================================"
-    echo "  CodeartsBridge v0.2 安装"
+    echo "  CodeartsBridge v0.3 安装"
     echo "========================================"
 
     check_python
@@ -135,7 +135,7 @@ do_install() {
 
 do_uninstall() {
     echo "========================================"
-    echo "  CodeartsBridge v0.2 卸载"
+    echo "  CodeartsBridge v0.3 卸载"
     echo "========================================"
 
     # 卸载 Python 包
