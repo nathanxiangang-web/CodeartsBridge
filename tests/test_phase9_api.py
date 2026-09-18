@@ -78,6 +78,18 @@ class TestHealthAPI:
         assert data["tasks"] == 3
 
 
+    def test_health_counts_workers_inside_registry(self, api_server, tmp_path):
+        (tmp_path / "workers.json").write_text(json.dumps({
+            "schemaVersion": 1,
+            "defaults": {"enabled": True},
+            "workers": [{"id": "w1"}, {"id": "w2"}],
+        }), encoding="utf-8")
+
+        code, data = _get(api_server, "/api/health")
+        assert code == 200
+        assert data["workers"] == 2
+
+
 class TestProjectsAPI:
     def test_create_without_worker_or_task_file_keeps_auto_assignment(self, api_server, tmp_path):
         code, data = _post(api_server, "/api/tasks", {
@@ -116,6 +128,39 @@ class TestProjectsAPI:
         assert len(data["projects"]) == 1
         assert data["projects"][0]["projectId"] == "p1"
 
+    def test_create_accepts_snake_case_and_preserves_registry(self, api_server, tmp_path):
+        (tmp_path / "projects.json").write_text(json.dumps({
+            "schemaVersion": 4,
+            "defaults": {"model": "keep-me"},
+            "projects": [],
+        }), encoding="utf-8")
+
+        code, data = _post(api_server, "/api/projects", {
+            "project_id": "snake-project",
+            "project_root": "/srv/snake",
+            "run_mode": "auto",
+            "repo_url": "https://github.com/example/snake",
+        })
+
+        assert code == 201
+        assert data["id"] == "snake-project"
+        assert data["projectId"] == "snake-project"
+        assert data["projectRoot"] == "/srv/snake"
+        assert data["runMode"] == "auto"
+
+        raw = json.loads((tmp_path / "projects.json").read_text(encoding="utf-8"))
+        assert isinstance(raw, dict)
+        assert raw["schemaVersion"] == 4
+        assert raw["defaults"] == {"model": "keep-me"}
+        assert raw["projects"][0]["id"] == "snake-project"
+
+    def test_duplicate_project_returns_conflict(self, api_server):
+        first, _ = _post(api_server, "/api/projects", {"projectId": "p1"})
+        second, data = _post(api_server, "/api/projects", {"project_id": "p1"})
+        assert first == 201
+        assert second == 409
+        assert "already registered" in data["error"]
+
     def test_create_missing_id(self, api_server):
         code, data = _post(api_server, "/api/projects", {"name": "No ID"})
         assert code == 400
@@ -141,6 +186,21 @@ class TestWorkersAPI:
         code, data = _get(api_server, "/api/workers")
         assert code == 200
         assert len(data["workers"]) == 2
+
+    def test_get_worker_from_canonical_registry(self, api_server, tmp_path):
+        wf = tmp_path / "workers.json"
+        wf.write_text(json.dumps({
+            "schemaVersion": 1,
+            "defaults": {"enabled": True},
+            "workers": [
+                {"id": "w1", "capabilities": ["implement"]},
+                {"id": "w2", "capabilities": ["review"]},
+            ],
+        }), encoding="utf-8")
+
+        code, data = _get(api_server, "/api/workers/w2")
+        assert code == 200
+        assert data["id"] == "w2"
 
     def test_get_worker_by_id(self, api_server, tmp_path):
         wf = tmp_path / "workers.json"
