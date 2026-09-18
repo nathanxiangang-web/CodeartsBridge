@@ -246,3 +246,135 @@ class TestAssignmentService:
         save_assignment(tmp_path, {"assignmentId": "a1", "workerId": "w1", "status": "active"})
         save_assignment(tmp_path, {"assignmentId": "a2", "workerId": "w1", "status": "active"})
         assert get_assignment_count_for_worker(tmp_path, "w1") == 2
+
+
+# ─── Core Registry Defaults ──────────────────────────────────────────────────
+
+class TestCoreRegistryDefaults:
+    def test_scheduler_worker_registry_applies_defaults(self):
+        from bridge.core.models import WorkersRegistry
+
+        reg = WorkersRegistry.from_dict({
+            "defaults": {
+                "transport": "ssh",
+                "model": "default-model",
+                "concurrencyLimit": 3,
+                "capabilities": ["implement", "test"],
+            },
+            "workers": [
+                {"id": "inherits"},
+                {"id": "override", "concurrencyLimit": 1, "capabilities": ["review"]},
+            ],
+        })
+
+        inherited = reg.get_worker("inherits")
+        overridden = reg.get_worker("override")
+
+        assert inherited is not None
+        assert inherited.transport == "ssh"
+        assert inherited.model == "default-model"
+        assert inherited.concurrency_limit == 3
+        assert inherited.roles == ["implement", "test"]
+
+        assert overridden is not None
+        assert overridden.concurrency_limit == 1
+        assert overridden.roles == ["review"]
+        assert overridden.model == "default-model"
+
+    def test_scheduler_project_registry_applies_defaults(self):
+        from bridge.core.models import Registry
+
+        reg = Registry.from_dict({
+            "defaults": {
+                "transport": "local",
+                "model": "default-project-model",
+                "timeoutMinutes": 42,
+            },
+            "projects": [
+                {"id": "inherits", "projectRoot": "/tmp/inherits"},
+                {
+                    "id": "override",
+                    "projectRoot": "/tmp/override",
+                    "model": "override-model",
+                },
+            ],
+        })
+
+        inherited = reg.get_project("inherits")
+        overridden = reg.get_project("override")
+
+        assert inherited is not None
+        assert inherited.transport == "local"
+        assert inherited.model == "default-project-model"
+        assert inherited.timeout_minutes == 42
+
+        assert overridden is not None
+        assert overridden.model == "override-model"
+        assert overridden.timeout_minutes == 42
+
+
+# ─── DispatchService ─────────────────────────────────────────────────────────
+
+class TestDispatchService:
+    @staticmethod
+    def _setup_ready_task(tmp_path, task_id="dispatch-task"):
+        from bridge.application.task_service import create_task
+
+        (tmp_path / "workers.json").write_text(json.dumps({
+            "schemaVersion": 1,
+            "defaults": {
+                "transport": "ssh",
+                "capabilities": ["implement"],
+                "concurrencyLimit": 1,
+                "enabled": True,
+            },
+            "workers": [{"id": "w1"}],
+        }), encoding="utf-8")
+
+        create_task(
+            bridge_root=tmp_path,
+            project_id="p1",
+            worker_id=None,
+            role="implement",
+            task_id=task_id,
+            task_file=None,
+        )
+        return tmp_path / "tasks" / task_id
+
+    def test_dry_run_uses_current_scheduler_and_releases_lease(self, tmp_path):
+        from bridge.application.dispatch_service import dispatch_tasks
+        from bridge.core.state import get_state
+
+        task_dir = self._setup_ready_task(tmp_path)
+        result = dispatch_tasks(tmp_path, dry_run=True)
+
+        assert result.planned == 1
+        assert result.dispatched == 0
+        assert result.assignments[0]["workerId"] == "w1"
+        assert get_state(task_dir)["state"] == "READY"
+
+        leases_dir = tmp_path / "runtime" / "leases"
+        assert not leases_dir.exists() or list(leases_dir.glob("*.json")) == []
+        assignments_dir = tmp_path / "runtime" / "assignments"
+        assert list(assignments_dir.glob("*.json")) == []
+
+    def test_dispatch_persists_assignment_and_runtime_worker(self, tmp_path):
+        from bridge.application.dispatch_service import dispatch_tasks
+        from bridge.core.state import get_state
+
+        task_dir = self._setup_ready_task(tmp_path)
+        result = dispatch_tasks(tmp_path, dry_run=False)
+
+        assert result.planned == 1
+        assert result.dispatched == 1
+        assert result.assignments[0]["workerId"] == "w1"
+
+        state = get_state(task_dir)
+        assert state["state"] == "QUEUED"
+        assert state["status"] == "QUEUED"
+        assert state["assignedWorkerId"] == "w1"
+
+        assignments = list((tmp_path / "runtime" / "assignments").glob("*.json"))
+        leases = list((tmp_path / "runtime" / "leases").glob("*.json"))
+        assert len(assignments) == 1
+        assert len(leases) == 1
