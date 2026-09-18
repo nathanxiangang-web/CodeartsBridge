@@ -53,18 +53,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def collect_worker_stats(bridge_root: Path) -> dict[str, WorkerPerformance]:
-    """Scan completed tasks and compute per-worker performance stats.
+def collect_worker_stats(
+    bridge_root: Path,
+    *,
+    role: str | None = None,
+    project_id: str | None = None,
+) -> dict[str, WorkerPerformance]:
+    """Compute per-worker performance, optionally scoped to role/project.
 
-    A task contributes to a worker's stats when it has a worker_id in META.json
-    and a measurable execution_time_seconds (started_at -> finished_at).
-
-    success_rate   = count(status == DONE) / task_count
-    avg_duration   = mean(execution_time_seconds) in seconds
-    timeout_rate   = count(is_timeout) / task_count
-
-    Returns a dict mapping worker_id -> WorkerPerformance. Workers with no
-    measurable tasks are omitted.
+    Runtime-assigned worker identity comes from telemetry.TaskMetrics. Filtering
+    keeps adaptive routing from treating performance in one role/project as
+    evidence for an unrelated workload.
     """
     bridge_root = Path(bridge_root)
     tasks_dir = bridge_root / "tasks"
@@ -72,10 +71,14 @@ def collect_worker_stats(bridge_root: Path) -> dict[str, WorkerPerformance]:
 
     by_worker: dict[str, list[TaskMetrics]] = {}
     for m in metrics:
-        if not m.worker_id:
+        if not m.worker_id or m.execution_time_seconds is None:
             continue
-        if m.execution_time_seconds is None:
+        if role is not None and m.role != role:
             continue
+        if project_id is not None:
+            task_meta = read_json_or_none(tasks_dir / m.task_id / "META.json") or {}
+            if task_meta.get("projectId", "") != project_id:
+                continue
         by_worker.setdefault(m.worker_id, []).append(m)
 
     result: dict[str, WorkerPerformance] = {}
@@ -83,36 +86,25 @@ def collect_worker_stats(bridge_root: Path) -> dict[str, WorkerPerformance]:
 
     for worker_id, worker_metrics in by_worker.items():
         task_count = len(worker_metrics)
-        if task_count == 0:
-            continue
-
         success_count = sum(1 for m in worker_metrics if m.status == DONE)
-        success_rate = success_count / task_count
-
         durations = [
             m.execution_time_seconds
             for m in worker_metrics
             if m.execution_time_seconds is not None
         ]
-        avg_duration = sum(durations) / len(durations) if durations else 0.0
-
         timeout_count = sum(1 for m in worker_metrics if m.is_timeout)
-        timeout_rate = timeout_count / task_count
-
         timestamps = [m.finished_at for m in worker_metrics if m.finished_at]
-        last_updated = max(timestamps) if timestamps else now
 
         result[worker_id] = WorkerPerformance(
             worker_id=worker_id,
             task_count=task_count,
-            success_rate=success_rate,
-            avg_duration=avg_duration,
-            timeout_rate=timeout_rate,
-            last_updated=last_updated,
+            success_rate=success_count / task_count if task_count else 0.0,
+            avg_duration=sum(durations) / len(durations) if durations else 0.0,
+            timeout_rate=timeout_count / task_count if task_count else 0.0,
+            last_updated=max(timestamps) if timestamps else now,
         )
 
     return result
-
 
 def _read_task_meta(bridge_root: Path, task_id: str) -> dict | None:
     """Read META.json for a task. Returns None if missing."""
@@ -171,53 +163,65 @@ def recommend_worker(
     bridge_root: Path,
     candidates: list,
 ) -> str | None:
-    """Recommend the best worker for a task based on historical performance.
+    """Recommend a worker using workload-relevant historical performance.
 
-    Score = success_rate * (1 - timeout_rate) / avg_duration
+    Evidence priority:
+    1. same role + same project
+    2. same role across projects
+    3. no recommendation (fall back to the static scheduler)
 
-    Only workers with at least MIN_TASKS_FOR_RECOMMENDATION completed tasks
-    and a positive avg_duration are scored. Returns None when no candidate
-    has sufficient data.
-
-    Args:
-        task_id: The task to assign (used for context; currently scoring is
-            purely history-based).
-        bridge_root: Bridge root path.
-        candidates: List of worker IDs (str) or objects with an id
-            attribute.
-
-    Returns:
-        Best scoring worker ID, or None if data insufficient.
+    We intentionally do not fall back to global cross-role history: a worker
+    being fast at tests or reviews is not evidence that it should be preferred
+    for implementation work.
     """
-    stats = collect_worker_stats(bridge_root)
-
-    candidate_ids: list[str] = []
-    for c in candidates:
-        if isinstance(c, str):
-            candidate_ids.append(c)
-            continue
-        cid = getattr(c, "id", None)
-        if cid:
-            candidate_ids.append(cid)
-
-    scored: list[tuple[float, str]] = []
-    for wid in candidate_ids:
-        perf = stats.get(wid)
-        if perf is None:
-            continue
-        if perf.task_count < MIN_TASKS_FOR_RECOMMENDATION:
-            continue
-        if perf.avg_duration <= 0:
-            continue
-        score = perf.success_rate * (1.0 - perf.timeout_rate) / perf.avg_duration
-        scored.append((score, wid))
-
-    if not scored:
+    bridge_root = Path(bridge_root)
+    meta = _read_task_meta(bridge_root, task_id)
+    if meta is None:
         return None
 
-    scored.sort(key=lambda x: -x[0])
-    return scored[0][1]
+    role = meta.get("role", "implement")
+    project_id = meta.get("projectId", "")
 
+    candidate_ids: list[str] = []
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            candidate_ids.append(candidate)
+            continue
+        candidate_id = getattr(candidate, "id", None)
+        if candidate_id:
+            candidate_ids.append(candidate_id)
+
+    if not candidate_ids:
+        return None
+
+    def _best(stats: dict[str, WorkerPerformance]) -> str | None:
+        scored: list[tuple[float, str]] = []
+        for worker_id in candidate_ids:
+            perf = stats.get(worker_id)
+            if perf is None:
+                continue
+            if perf.task_count < MIN_TASKS_FOR_RECOMMENDATION:
+                continue
+            if perf.avg_duration <= 0:
+                continue
+            score = perf.success_rate * (1.0 - perf.timeout_rate) / perf.avg_duration
+            scored.append((score, worker_id))
+        if not scored:
+            return None
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        return scored[0][1]
+
+    project_match = _best(
+        collect_worker_stats(
+            bridge_root,
+            role=role,
+            project_id=project_id,
+        )
+    )
+    if project_match is not None:
+        return project_match
+
+    return _best(collect_worker_stats(bridge_root, role=role))
 
 def adaptive_dispatch(
     bridge_root: Path,
