@@ -57,7 +57,7 @@ class LocalWorktreeWorkspace(WorkspaceManager):
                 baseline_sha=current_sha or baseline_sha,
                 repo_path=str(wt_path),
                 is_remote=False,
-                extra={"transport": "local", "reused": True},
+                extra={"transport": "local", "reused": True, "project_root": str(project_root)},
             )
 
         # If a previous worktree was pruned but the task branch remains, attach
@@ -89,7 +89,7 @@ class LocalWorktreeWorkspace(WorkspaceManager):
             baseline_sha=baseline_sha,
             repo_path=str(wt_path),
             is_remote=False,
-            extra={"transport": "local", "reused": False},
+            extra={"transport": "local", "reused": False, "project_root": str(project_root)},
         )
 
     def cleanup(
@@ -102,14 +102,19 @@ class LocalWorktreeWorkspace(WorkspaceManager):
         if not wt_path:
             return
 
-        # Remove worktree
+        project_root = workspace_result.extra.get("project_root", "")
+        git_prefix = ["git"]
+        if project_root:
+            git_prefix += ["-C", str(project_root)]
+
+        # Remove worktree from the owning repository, not from bridge cwd.
         subprocess.run(
-            ["git", "worktree", "remove", "--force", wt_path],
+            git_prefix + ["worktree", "remove", "--force", wt_path],
             capture_output=True, timeout=15,
         )
-        # Delete branch
+        # Delete the task branch only after the worktree is detached.
         if branch:
             subprocess.run(
-                ["git", "branch", "-D", branch],
+                git_prefix + ["branch", "-D", branch],
                 capture_output=True, timeout=10,
             )
