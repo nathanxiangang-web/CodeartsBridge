@@ -1,67 +1,84 @@
 # P3 Roadmap: Data-Driven Development Efficiency
 
-> Updated: 2026-09-19 | Phase: P3 | Baseline: 6753939
+> Updated: 2026-09-19 | Baseline: 874c9b2
 >
-> Goal: make CodeartsBridge improve development throughput using measured evidence,
-> without turning the bridge into an opaque self-tuning workflow engine.
+> Current reality: P3-01 adaptive scheduling and P3-02 cost tracking already exist
+> on main. P3-03 hardens the telemetry they depend on before further automation.
 
-## Principle
-
-P3 follows one rule:
+## Operating Principle
 
 **Measure -> explain -> recommend -> guard -> automate.**
 
-The scheduler must not learn from metrics whose definitions are unstable. Therefore
-P3 begins with telemetry truth before worker scoring, model routing, or adaptive
-priority changes.
+Adaptive behavior is only as good as its historical data. Every automated routing
+or timeout decision must use explicit metric definitions, enough samples, and a
+fallback to static policy.
 
-## P3-01: Telemetry Truth
+## P3-01: Adaptive Scheduling
+
+**Status:** DONE (existing main)
+
+Implemented in `src/bridge/adaptive.py`:
+- historical worker performance
+- adaptive timeout recommendation
+- preferred-worker recommendation
+- `bridge adaptive-dispatch`
+
+Follow-up guardrails are tracked below because the first version depends on
+telemetry semantics that were originally too loose.
+
+## P3-02: Cost Tracking
+
+**Status:** DONE (existing main)
+
+Implemented in `src/bridge/cost.py`:
+- token/cost estimation
+- project / worker / role aggregation
+- optimization recommendations
+- `bridge cost`
+
+## P3-03: Telemetry Truth & Machine-Readable Metrics
 
 **Status:** IN PROGRESS
 
-Make existing metrics decision-grade.
-
 Scope:
-- define explicit denominators for first-pass, fix, retry, and timeout rates
-- calculate throughput from wall-clock completion span instead of summed task durations
-- expose per-worker utilization over a shared execution window
-- support scalar and structured token payloads
-- add machine-readable `bridge telemetry --json`
-- regression tests for exact metric semantics
+- explicit denominators for first-pass, fix, retry, and timeout rates
+- wall-clock throughput instead of summed task durations
+- per-worker utilization over a shared observation window
+- runtime-assigned worker identity takes precedence over requested/static META worker
+- scalar and structured token payload support
+- `bridge telemetry --json`
+- exact semantic regression tests
 
 Exit gate:
-- all Python 3.11/3.12/3.13 CI suites green
-- metric definitions documented in code and tests
-- no scheduler behavior change in this task
+- Python 3.11/3.12/3.13 CI green
+- no scheduling behavior change in this task
+- adaptive.py continues to consume the same TaskMetrics API, now with more accurate data
 
-## P3-02: Worker Performance Profiles
-
-**Status:** PLANNED
-
-Build historical worker statistics by role and workload class:
-- sample count
-- first-pass rate
-- median execution time
-- retry/timeout rate
-- recent utilization
-
-The scheduler may consume a worker score only after a minimum sample threshold.
-With insufficient evidence, it falls back to current static matching.
-
-## P3-03: Model Cost / Quality Routing
+## P3-04: Adaptive Scheduling Guardrails v2
 
 **Status:** PLANNED
 
-Track model-level latency, token cost, and review outcome by role.
+Harden the current adaptive scheduler:
+- worker performance segmented by role (and project when sample size allows)
+- minimum sample + confidence/fallback rules
+- explain why a worker/timeout was selected
+- separate recommendation from mutation for auditability
+- define dry-run semantics explicitly
+- prevent a globally fast worker from being preferred for an unrelated role
 
-Routing policy:
-- architect/review: protect quality first
-- implementation: optimize quality-adjusted latency
-- test/repetitive work: prefer lower-cost models when quality guardrails hold
+## P3-05: Quality-Adjusted Model Routing
 
-No model is automatically demoted on a tiny sample.
+**Status:** PLANNED
 
-## P3-04: Adaptive Queue and Critical Path
+Combine model routing with telemetry and cost:
+- first-pass quality by role/model
+- median latency
+- token/cost profile
+- minimum-sample guardrails
+- quality floors for architect/review roles
+- cost optimization only when quality remains above the floor
+
+## P3-06: Queue / Critical-Path Optimization
 
 **Status:** PLANNED
 
@@ -74,31 +91,24 @@ Use measured duration and queue delay to improve dispatch order:
 
 Every adaptive decision must remain explainable in the dispatch result.
 
-## P3-05: Optimization Guardrails
+## P3-07: Optimization Audit & Rollback
 
 **Status:** PLANNED
 
-Add a recommendation layer before autonomous tuning:
-- emit proposed scheduling/routing changes
-- show evidence and sample size
+Before autonomous policy tuning:
+- persist proposed and applied changes
+- record evidence/sample size
 - compare before/after windows
-- allow rollback to static defaults
-- persist an audit trail for accepted automatic changes
+- provide static-policy fallback
+- support rollback of automatic tuning
 
-## Success Metrics
+## Success Questions
 
-P3 is successful when the bridge can answer, from persisted data:
+P3 should eventually answer from persisted evidence:
 
-1. Which worker is fastest for this role without lowering first-pass quality?
+1. Which worker performs best for this role without lowering first-pass quality?
 2. Where is queue time being lost?
-3. Which model/role pairing gives the best quality-adjusted cost?
-4. What is the current worker utilization and bottleneck?
-5. Did the last optimization actually improve throughput?
-
-## Non-Goals
-
-- reinforcement-learning scheduler
-- opaque automatic policy mutation
-- large workflow DSL
-- replacing human escalation for BLOCKER/AUTH_REQUIRED
-- optimizing a metric without minimum sample and quality guardrails
+3. Which model/role pairing has the best quality-adjusted cost?
+4. Which workers are under- or over-utilized?
+5. Did an adaptive change actually improve throughput?
+6. Why did the bridge make this routing/timeout decision?
