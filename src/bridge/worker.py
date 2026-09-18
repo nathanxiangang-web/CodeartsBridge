@@ -14,8 +14,8 @@ from typing import Any
 from .codearts import parse_codearts_json_lines, REQUIRED_MODEL, resolve_model
 from .config import ProjectConfig, WorkerConfig
 from .state import (
-    get_state, set_state, READY, QUEUED, STARTING, RUNNING,
-    REVIEW_REQUIRED, DONE, BLOCKED, FAILED, RETRYABLE,
+    get_state, set_state, READY, QUEUED, STARTING, RUNNING, VERIFYING,
+    REVIEW_REQUIRED, APPROVED, DONE, BLOCKED, FAILED, RETRYABLE,
     ASSISTANCE_REQUIRED, AUTH_REQUIRED, FIX_REQUIRED,
 )
 from .task import get_meta, get_instruction_context, archive_previous_outbox
@@ -165,6 +165,18 @@ def _run_worker_inner(
         has_diff = (outbox / "DIFF.stat").is_file()
 
         if has_result and has_tests and has_diff:
+            # Worker execution has finished; verification/review/integration are
+            # separate lifecycle phases and must not be collapsed into DONE.
+            set_state(
+                task_dir, VERIFYING,
+                message="deliverables complete; verifying",
+                exit_code=0,
+                session_id=new_session_id,
+                session_mode=session_mode,
+                last_event_at=telemetry.get("lastEventAt"),
+                tokens=telemetry.get("tokens"),
+            )
+
             # PostChecks: run policy evaluation after deliverables confirmed
             if policy_profile is not None:
                 post_result = evaluate_task_policy(
@@ -193,11 +205,11 @@ def _run_worker_inner(
 
             review_config = meta.get("review") or {}
             review_required = review_config.get("required", True)
-            final_state = REVIEW_REQUIRED if review_required else DONE
+            final_state = REVIEW_REQUIRED if review_required else APPROVED
             final_message = (
-                "deliverables complete"
+                "deliverables verified; review required"
                 if review_required
-                else "deliverables complete; review skipped"
+                else "deliverables verified; review skipped, ready to integrate"
             )
             set_state(
                 task_dir, final_state,
