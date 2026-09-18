@@ -28,7 +28,9 @@ from .state import (
     CANDIDATE_STATES,
 )
 from .core.models import Task, load_workers_registry
-from .scheduler.planner import select_plan, save_assignment, load_assignments
+from .scheduler.planner import (
+    select_plan, save_assignment, load_assignments, reconcile_assignments,
+)
 from .scheduler.lease import release_lease
 
 
@@ -123,7 +125,9 @@ def auto_dispatch(
         result.errors.append("no enabled workers")
         return result
 
-    # Load existing assignments (for capacity tracking)
+    # Reconcile stale runtime records before capacity tracking.
+    # This prevents completed/crashed tasks from permanently consuming worker slots.
+    reconcile_assignments(assignments_dir, leases_dir, tasks_root)
     existing_assignments = load_assignments(assignments_dir)
 
     # Plan via scheduler (select_plan handles deps, leases, capacity, affinity, scoring)
