@@ -64,30 +64,22 @@ def get_recent_events(bridge_root: str | Path, limit: int = 20) -> list[dict]:
 
 
 def get_task_assignments(bridge_root: str | Path, task_id: str) -> list[dict]:
-    """Get all assignments for a task."""
-    bridge_root = Path(bridge_root)
-    af = bridge_root / "assignments.json"
-    if not af.exists():
-        return []
-    try:
-        data = json.loads(af.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            data = list(data.values())
-        return [a for a in data if a.get("taskId") == task_id]
-    except Exception:
-        return []
+    """Get all scheduler assignments for a task."""
+    from bridge.application.assignments import list_assignments
+
+    return [
+        assignment
+        for assignment in list_assignments(bridge_root)
+        if assignment.get("taskId") == task_id
+    ]
 
 
 def get_worker_assignments(bridge_root: str | Path, worker_id: str) -> list[dict]:
-    """Get all active assignments for a worker."""
-    bridge_root = Path(bridge_root)
-    af = bridge_root / "assignments.json"
-    if not af.exists():
-        return []
-    try:
-        data = json.loads(af.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            data = list(data.values())
-        return [a for a in data if a.get("workerId") == worker_id]
-    except Exception:
-        return []
+    """Get all scheduler assignments for a worker."""
+    from bridge.application.assignments import list_assignments
+
+    return [
+        assignment
+        for assignment in list_assignments(bridge_root)
+        if assignment.get("workerId") == worker_id
+    ]
