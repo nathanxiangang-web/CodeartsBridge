@@ -48,6 +48,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         body = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -55,6 +56,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     def _send_html(self, code: int, content: bytes):
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
@@ -94,6 +96,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         # Serve web UI for non-API paths
         if not parts or parts[0] != "api":
             return self._serve_static()
+        import sys; print(f"[API] {self.path}", file=sys.stderr, flush=True)
         if len(parts) < 2:
             return self._send_json(404, {"error": "Not found"})
 
