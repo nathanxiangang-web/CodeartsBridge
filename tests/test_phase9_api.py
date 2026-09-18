@@ -172,6 +172,29 @@ class TestTasksAPI:
         assert len(data.get("tasks", [])) == 3
         assert all(task.get("workerId") == "w1" for task in data["tasks"])
 
+    def test_list_and_detail_use_runtime_assigned_worker(self, api_server, tmp_path):
+        task_dir = tmp_path / "tasks" / "runtime-assigned"
+        task_dir.mkdir(parents=True)
+        (task_dir / "META.json").write_text(json.dumps({
+            "schemaVersion": 2,
+            "taskId": "runtime-assigned",
+            "projectId": "p1",
+            "role": "implement",
+        }), encoding="utf-8")
+        (task_dir / "state.json").write_text(json.dumps({
+            "state": "QUEUED",
+            "assignedWorkerId": "w-runtime",
+        }), encoding="utf-8")
+
+        code, data = _get(api_server, "/api/tasks")
+        assert code == 200
+        task = next(t for t in data["tasks"] if t["taskId"] == "runtime-assigned")
+        assert task["workerId"] == "w-runtime"
+
+        code, data = _get(api_server, "/api/tasks/runtime-assigned")
+        assert code == 200
+        assert data["workerId"] == "w-runtime"
+
     def test_cancel_task(self, api_server, tmp_path):
         self._create_task(api_server, tmp_path)
         code, data = _post(api_server, "/api/tasks/t1/cancel", {"reason": "test"})
