@@ -186,6 +186,17 @@
       "sshHost": "nathan@192.168.178.53",
       "remoteBridgeRoot": "/home/nathan/bridge-python",
       "remoteCliPath": "codearts"
+    },
+    {
+      "id": "bridge-dev-w04",
+      "transport": "ssh",
+      "projectRoot": "/home/nathan/bridge-python",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 15,
+      "sshHost": "nathan@192.168.178.51",
+      "remoteBridgeRoot": "/home/nathan/bridge-python",
+      "remoteCliPath": "codearts"
     }
   ]
 }
