@@ -96,11 +96,22 @@ def is_terminal(state: str) -> bool:
 
 
 def get_state(task_dir: Path) -> dict:
-    """Read state.json from a task directory."""
+    """Read state.json and normalize the shared legacy/v2 aliases."""
     state_file = Path(task_dir) / "state.json"
     if not state_file.exists():
-        return {"state": CREATED}
-    return json.loads(state_file.read_text(encoding="utf-8"))
+        return {"state": CREATED, "status": CREATED}
+
+    data = json.loads(state_file.read_text(encoding="utf-8"))
+    state_value = data.get("state")
+    status_value = data.get("status")
+    if state_value:
+        data["status"] = state_value
+    elif status_value:
+        data["state"] = status_value
+    else:
+        data["state"] = CREATED
+        data["status"] = CREATED
+    return data
 
 
 def set_state(task_dir: Path, state: str, **extra) -> dict:
@@ -109,13 +120,19 @@ def set_state(task_dir: Path, state: str, **extra) -> dict:
 
     task_dir = Path(task_dir)
     current = read_json_or_none(task_dir / "state.json") or {}
-    from_state = current.get("state", CREATED)
+    from_state = current.get("state") or current.get("status") or CREATED
 
     if from_state != state and not is_valid_transition(from_state, state):
         from ..core.errors import StateTransitionError
         raise StateTransitionError(from_state, state)
 
+    # state.json is shared with the legacy runtime. Keep both aliases in
+    # lockstep so legacy readers never observe a stale transition.
     current["state"] = state
+    current["status"] = state
     current.update(extra)
+    # Extra payloads must not be able to re-introduce alias divergence.
+    current["state"] = state
+    current["status"] = state
     atomic_write_json(task_dir / "state.json", current)
     return current
