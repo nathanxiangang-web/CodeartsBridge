@@ -31,6 +31,7 @@ from .config import load_registry, load_workers_registry, get_project, get_worke
 from .state import get_state, set_state, READY, QUEUED, DONE, REVIEW_REQUIRED, FIX_REQUIRED
 from .task import create_task, write_review_pass, write_review_fix, read_outbox_summary
 from .dispatch import select_dispatch_plan, execute_dispatch
+from .auto_dispatch import auto_dispatch, AutoDispatchResult
 from .worker import run_worker
 from .codearts import find_codearts_cli, REQUIRED_MODEL
 
@@ -198,6 +199,51 @@ def cmd_dispatch(args) -> int:
         print(f"\nSkipped {len(plan.skipped)}:")
         for s in plan.skipped:
             print(f"  {s.task_id}: {s.reason}")
+
+    return 0
+
+
+def cmd_auto_dispatch(args) -> int:
+    """Auto-dispatch ready tasks to available workers."""
+    root = _bridge_root()
+    _ensure_layout(root)
+
+    def _run_once(dry_run: bool) -> AutoDispatchResult:
+        result = auto_dispatch(
+            bridge_root=root,
+            max_workers=args.max_workers,
+            dry_run=dry_run,
+        )
+        tag = "[dry-run] " if dry_run else ""
+        print(f"{tag}planned={result.planned} dispatched={result.dispatched} skipped={result.skipped}")
+        for a in result.assignments:
+            tid = a["taskId"]
+            wid = a["workerId"]
+            rol = a["role"]
+            print(f"  {tid} -> {wid} ({rol})")
+        if result.skipped_details:
+            for s in result.skipped_details:
+                sid = s.get("taskId", "?")
+                sreason = s.get("reason", "?")
+                print(f"  skip {sid}: {sreason}")
+        if result.errors:
+            for e in result.errors:
+                print(f"  ERROR: {e}")
+        return result
+
+    if args.loop:
+        import time
+        interval = args.interval
+        print(f"Auto-dispatch loop: interval={interval}s max_workers={args.max_workers}")
+        try:
+            while True:
+                _run_once(args.dry_run)
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            print("\nAuto-dispatch loop stopped.")
+            return 0
+    else:
+        _run_once(args.dry_run)
 
     return 0
 
@@ -401,6 +447,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_dispatch.add_argument("--max-workers", type=int, default=4)
     p_dispatch.add_argument("--dry-run", action="store_true")
 
+    p_auto = sub.add_parser("auto-dispatch", help="Auto-dispatch ready tasks to workers")
+    p_auto.add_argument("--loop", action="store_true", help="Run continuously until Ctrl-C")
+    p_auto.add_argument("--interval", type=int, default=10, help="Loop interval in seconds")
+    p_auto.add_argument("--max-workers", type=int, default=4)
+    p_auto.add_argument("--dry-run", action="store_true", help="Show plan without dispatching")
+
     p_run = sub.add_parser("run", help="Run a single task")
     p_run.add_argument("-t", "--task-id", required=True)
     p_run.add_argument("--quiet", action="store_true")
@@ -436,6 +488,7 @@ COMMAND_MAP = {
     "status": cmd_status,
     "create": cmd_create,
     "dispatch": cmd_dispatch,
+    "auto-dispatch": cmd_auto_dispatch,
     "run": cmd_run,
     "review-pass": cmd_review_pass,
     "review-fix": cmd_review_fix,
