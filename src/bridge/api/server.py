@@ -33,91 +33,6 @@ from urllib.parse import urlparse, parse_qs
 logger = logging.getLogger(__name__)
 
 
-def _parse_task_session_log(raw_text: str) -> dict:
-    """Parse a CodeArts session log into a bounded, cursor-safe UI payload."""
-    import hashlib
-    import re
-    from datetime import datetime
-
-    raw_text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_text)
-    raw_text = re.sub(r'[\r\x00-\x08\x0b\x0c\x0e-\x1f]', '', raw_text)
-
-    def timestamp_ms(value):
-        if value is None:
-            return 0
-        if isinstance(value, (int, float)):
-            # Accept both epoch seconds and epoch milliseconds.
-            return int(value * 1000) if value < 100_000_000_000 else int(value)
-        if isinstance(value, str):
-            try:
-                numeric = float(value)
-                return int(numeric * 1000) if numeric < 100_000_000_000 else int(numeric)
-            except ValueError:
-                try:
-                    return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
-                except ValueError:
-                    return 0
-        return 0
-
-    events = []
-    timestamps = []
-    tool_count = 0
-    reasoning_count = 0
-
-    for line in raw_text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("脚本启动"):
-            continue
-        try:
-            obj = json.loads(line)
-        except Exception:
-            continue
-
-        ts = timestamp_ms(obj.get("timestamp"))
-        if ts:
-            timestamps.append(ts)
-
-        ptype = obj.get("type", "")
-        part = obj.get("part", {})
-        event_id = hashlib.sha1(line.encode("utf-8", errors="replace")).hexdigest()[:16]
-
-        if ptype == "reasoning":
-            text = part.get("text", "")
-            if text:
-                reasoning_count += 1
-                events.append({"id": event_id, "type": "reasoning", "text": text[:200], "time": ts})
-        elif ptype == "tool_use":
-            tool = part.get("tool", "")
-            state = part.get("state", {})
-            status = state.get("status", "")
-            inp = state.get("input", {})
-            summary = f"{tool}"
-            if tool == "read" and inp.get("filePath"):
-                summary += f" {inp['filePath'].split('/')[-1]}"
-            elif tool == "write" and inp.get("filePath"):
-                summary += f" {inp['filePath'].split('/')[-1]}"
-            elif tool == "bash" and inp.get("command"):
-                summary += f" {inp['command'][:60]}"
-            elif tool == "edit" and inp.get("filePath"):
-                summary += f" {inp['filePath'].split('/')[-1]}"
-            tool_count += 1
-            events.append({"id": event_id, "type": "tool", "text": summary, "status": status, "time": ts})
-        elif ptype == "step_start":
-            events.append({"id": event_id, "type": "step", "text": "开始执行", "time": ts})
-
-    start = timestamps[0] if timestamps else 0
-    end = timestamps[-1] if timestamps else 0
-    elapsed = max(0, (end - start) // 1000) if start and end else 0
-    return {
-        "startTime": start,
-        "elapsed": elapsed,
-        "events": events[-50:],
-        "eventCount": len(events),
-        "toolCount": tool_count,
-        "reasoningCount": reasoning_count,
-    }
-
-
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
@@ -207,6 +122,12 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             return self._handle_list_tasks(query)
         if resource == "events":
             return self._handle_event_stream(query)
+        if resource == "metrics":
+            if len(parts) >= 3 and parts[2] == "history":
+                return self._handle_metrics_history(query)
+            return self._handle_metrics()
+        if resource == "cost":
+            return self._handle_cost()
         return self._send_json(404, {"error": f"Unknown endpoint: {resource}"})
 
     def do_POST(self):
@@ -406,7 +327,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": str(e)})
 
     def _handle_get_task_log(self, task_id: str):
-        import subprocess
+        import subprocess, json as _json
         from bridge.atomic import read_json_or_none
         from bridge.config import load_registry, get_project
         task_dir = self.bridge_root / "tasks" / task_id
@@ -425,13 +346,68 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         ssh_host = getattr(project, "ssh_host", None)
         remote_root = getattr(project, "remote_bridge_root", None) or getattr(project, "remote_workspace_root", None)
 
+        def parse_log(raw_text):
+            import re
+            raw_text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_text)
+            raw_text = re.sub(r'[\r\x00-\x08\x0b\x0c\x0e-\x1f]', '', raw_text)
+            events = []
+            timestamps = []
+            tool_count = 0
+            reasoning_count = 0
+            for line in raw_text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("脚本启动"):
+                    continue
+                try:
+                    obj = _json.loads(line)
+                except Exception:
+                    continue
+                ts = obj.get("timestamp")
+                if ts:
+                    timestamps.append(ts)
+                ptype = obj.get("type", "")
+                part = obj.get("part", {})
+                if ptype == "reasoning":
+                    text = part.get("text", "")
+                    if text:
+                        reasoning_count += 1
+                        events.append({"type":"reasoning","text":text[:200],"time":ts})
+                elif ptype == "tool_use":
+                    tool = part.get("tool", "")
+                    state = part.get("state", {})
+                    status = state.get("status", "")
+                    inp = state.get("input", {})
+                    summary = f"{tool}"
+                    if tool == "read" and inp.get("filePath"):
+                        summary += f" {inp['filePath'].split('/')[-1]}"
+                    elif tool == "write" and inp.get("filePath"):
+                        summary += f" {inp['filePath'].split('/')[-1]}"
+                    elif tool == "bash" and inp.get("command"):
+                        summary += f" {inp['command'][:60]}"
+                    elif tool == "edit" and inp.get("filePath"):
+                        summary += f" {inp['filePath'].split('/')[-1]}"
+                    tool_count += 1
+                    events.append({"type":"tool","text":summary,"status":status,"time":ts})
+                elif ptype == "step_start":
+                    events.append({"type":"step","text":"开始执行","time":ts})
+            start = timestamps[0] if timestamps else 0
+            end = timestamps[-1] if timestamps else 0
+            elapsed = (end - start) // 1000 if start and end else 0
+            return {
+                "startTime": start,
+                "elapsed": elapsed,
+                "events": events[-50:],
+                "toolCount": tool_count,
+                "reasoningCount": reasoning_count,
+            }
+
         if transport == "local" or not ssh_host:
             log_path = task_dir / "session.log"
             if not log_path.is_file():
                 return self._send_json(200, {"startTime":0,"elapsed":0,"events":[],"toolCount":0,"reasoningCount":0})
             try:
                 raw = log_path.read_text(encoding="utf-8", errors="replace")
-                return self._send_json(200, _parse_task_session_log(raw))
+                return self._send_json(200, parse_log(raw))
             except Exception as e:
                 return self._send_json(500, {"error": str(e)})
         else:
@@ -445,7 +421,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                    f"tail -n 500 {remote_task}/session.log 2>/dev/null"]
             try:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                return self._send_json(200, _parse_task_session_log(r.stdout or ""))
+                return self._send_json(200, parse_log(r.stdout or ""))
             except Exception as e:
                 return self._send_json(500, {"error": str(e)})
 
@@ -542,6 +518,154 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             })
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
+
+    # ── Metrics ─────────────────────────────────────────────────────────────
+
+    def _handle_metrics(self):
+        import dataclasses
+        from bridge.telemetry import generate_report, collect_all_metrics
+        try:
+            tasks_dir = self.bridge_root / "tasks"
+            report = generate_report(tasks_dir)
+            data = dataclasses.asdict(report)
+            metrics = collect_all_metrics(tasks_dir)
+            data["workerPerformance"] = self._compute_worker_performance(metrics)
+            data["generatedAt"] = time.time()
+            return self._send_json(200, data)
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _compute_worker_performance(self, metrics):
+        perf: dict = {}
+        for m in metrics:
+            wid = m.worker_id or "unknown"
+            p = perf.setdefault(wid, {
+                "workerId": wid, "tasks": 0, "completed": 0,
+                "successCount": 0, "durations": [],
+            })
+            p["tasks"] += 1
+            if m.is_terminal:
+                p["completed"] += 1
+            if m.status == "DONE":
+                p["successCount"] += 1
+            if m.execution_time_seconds is not None:
+                p["durations"].append(m.execution_time_seconds)
+        result = []
+        for wid, p in sorted(perf.items()):
+            durations = p.pop("durations")
+            p["avgDurationSeconds"] = round(sum(durations) / len(durations), 3) if durations else None
+            p["successRate"] = round(p["successCount"] / p["tasks"], 4) if p["tasks"] else 0.0
+            result.append(p)
+        return result
+
+    def _handle_metrics_history(self, query: dict):
+        from bridge.telemetry import collect_all_metrics
+        try:
+            metrics = collect_all_metrics(self.bridge_root / "tasks")
+            try:
+                limit = int(query.get("limit", ["50"])[0])
+            except (ValueError, TypeError):
+                limit = 50
+            if limit < 0:
+                limit = 50
+            recent = metrics[-limit:] if limit else metrics
+            entries = []
+            for m in recent:
+                entries.append({
+                    "taskId": m.task_id,
+                    "status": m.status,
+                    "workerId": m.worker_id,
+                    "role": m.role,
+                    "attempt": m.attempt,
+                    "createdAt": m.created_at,
+                    "doneAt": m.done_at,
+                    "executionTimeSeconds": m.execution_time_seconds,
+                    "cycleTimeSeconds": m.total_cycle_time_seconds,
+                    "queueTimeSeconds": m.queue_time_seconds,
+                    "isFirstPass": m.is_first_pass,
+                    "isTerminal": m.is_terminal,
+                })
+            cycle_times = [e["cycleTimeSeconds"] for e in entries if e["cycleTimeSeconds"] is not None]
+            exec_times = [e["executionTimeSeconds"] for e in entries if e["executionTimeSeconds"] is not None]
+            data = {
+                "entries": entries,
+                "count": len(entries),
+                "avgCycleTimeSeconds": round(sum(cycle_times) / len(cycle_times), 3) if cycle_times else None,
+                "avgExecutionTimeSeconds": round(sum(exec_times) / len(exec_times), 3) if exec_times else None,
+                "generatedAt": time.time(),
+            }
+            return self._send_json(200, data)
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_cost(self):
+        from bridge.telemetry import collect_all_metrics
+        from bridge.atomic import read_json_or_none
+        try:
+            tasks_dir = self.bridge_root / "tasks"
+            metrics = collect_all_metrics(tasks_dir)
+            rates = self._load_cost_rates()
+            rate_per_mtok = float(rates.get("ratePerMTokens", 0.0) or 0.0)
+            role_rates = rates.get("byRole", {}) or {}
+
+            by_project: dict = {}
+            by_worker: dict = {}
+            by_role: dict = {}
+            total_tokens = 0
+            total_cost = 0.0
+
+            for m in metrics:
+                meta = read_json_or_none(tasks_dir / m.task_id / "META.json") or {}
+                project_id = meta.get("projectId", "unknown")
+                worker_id = m.worker_id or "unknown"
+                role = m.role or "unknown"
+                tokens = 0
+                if m.tokens is not None:
+                    try:
+                        tokens = int(m.tokens)
+                    except (ValueError, TypeError):
+                        pass
+                total_tokens += tokens
+                rate = float(role_rates.get(role, rate_per_mtok) or 0.0)
+                cost = tokens / 1_000_000.0 * rate
+                total_cost += cost
+
+                for key, bucket in ((project_id, by_project), (worker_id, by_worker), (role, by_role)):
+                    b = bucket.setdefault(key, {"tasks": 0, "tokens": 0, "estimatedCost": 0.0})
+                    b["tasks"] += 1
+                    b["tokens"] += tokens
+                    b["estimatedCost"] += cost
+
+            def _to_list(d):
+                return [{"key": k, "tasks": v["tasks"], "tokens": v["tokens"],
+                         "estimatedCost": round(v["estimatedCost"], 6)}
+                        for k, v in sorted(d.items())]
+
+            data = {
+                "byProject": _to_list(by_project),
+                "byWorker": _to_list(by_worker),
+                "byRole": _to_list(by_role),
+                "totalTasks": len(metrics),
+                "totalTokens": total_tokens,
+                "totalEstimatedCost": round(total_cost, 6),
+                "costRates": rates,
+                "hasCostData": total_tokens > 0,
+                "generatedAt": time.time(),
+            }
+            return self._send_json(200, data)
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _load_cost_rates(self) -> dict:
+        cf = self.bridge_root / "cost_rates.json"
+        if cf.exists():
+            try:
+                data = json.loads(cf.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+        return {"ratePerMTokens": 0.0, "byRole": {}}
 
     # ── Event Stream (SSE) ──────────────────────────────────────────────────
 

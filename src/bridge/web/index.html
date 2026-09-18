@@ -91,6 +91,7 @@ input,select,textarea{width:100%}
 <a href="#tasks" class="nav-link" data-page="tasks" data-i18n="nav_tasks">任务</a>
 <a href="#workers" class="nav-link" data-page="workers" data-i18n="nav_workers">工作节点</a>
 <a href="#review" class="nav-link" data-page="review" data-i18n="nav_review">审查</a>
+<a href="#metrics" class="nav-link" data-page="metrics" data-i18n="nav_metrics">指标</a>
 <a href="#thinking" class="nav-link" data-page="thinking" data-i18n="nav_thinking">思考回显</a>
 <a href="#settings" class="nav-link" data-page="settings" data-i18n="nav_settings">设置</a>
 <span class="spacer"></span>
@@ -110,6 +111,23 @@ const i18n={
   nav_review:{zh:'审查',en:'Review'},
   nav_thinking:{zh:'思考回显',en:'Thinking'},
   nav_settings:{zh:'设置',en:'Settings'},
+  nav_metrics:{zh:'指标',en:'Metrics'},
+  metrics_summary:{zh:'指标概览',en:'Metrics Summary'},
+  metrics_first_pass_rate:{zh:'首次通过率',en:'First-Pass Rate'},
+  metrics_avg_cycle:{zh:'平均周期',en:'Avg Cycle Time'},
+  metrics_total_tasks:{zh:'总任务数',en:'Total Tasks'},
+  metrics_active_workers:{zh:'活跃节点',en:'Active Workers'},
+  metrics_worker_perf:{zh:'节点绩效',en:'Worker Performance'},
+  metrics_completed:{zh:'已完成',en:'Completed'},
+  metrics_success_rate:{zh:'成功率',en:'Success Rate'},
+  metrics_avg_duration:{zh:'平均耗时',en:'Avg Duration'},
+  metrics_task_dist:{zh:'任务分布',en:'Task Distribution'},
+  metrics_cost_breakdown:{zh:'成本明细',en:'Cost Breakdown'},
+  metrics_total_cost:{zh:'总成本',en:'Total Cost'},
+  metrics_total_tokens:{zh:'总 Token',en:'Total Tokens'},
+  metrics_tokens:{zh:'Token',en:'Tokens'},
+  metrics_est_cost:{zh:'估算成本',en:'Est. Cost'},
+  metrics_no_cost_data:{zh:'无 Token/成本数据',en:'No token/cost data'},
   bridge_status:{zh:'桥接状态',en:'Bridge Status'},
   version:{zh:'版本',en:'Version'},
   root_dir:{zh:'根目录',en:'Root'},
@@ -345,7 +363,7 @@ function initThinking(){
 if(thinkingPoll)clearInterval(thinkingPoll);
 if(window._timerTick)clearInterval(window._timerTick);
 const slotData={};
-const seenEventIds={};
+const shownCount={};
 let historyLoaded=false;
 
 async function pollLogs(){
@@ -354,22 +372,14 @@ try{
 const r=await api('/tasks');
 console.log('[poll] tasks:', (r.tasks||[]).length, 'active:', (r.tasks||[]).filter(t=>mapState(t.state||'')!=='done').length);
 const activeByWorker={};
-const activityRank={RUNNING:3,STARTING:2,QUEUED:1};
 for(const task of(r.tasks||[])){
+if(mapState(task.state||'')==='done')continue;
 const tid=task.taskId;
-let wid=task.workerId||(task.meta&&task.meta.workerId)||'';
-let taskState=String(task.state||'').toUpperCase();
-if(!activityRank[taskState])continue;
-if(!wid){
 try{
 const st=await api(`/tasks/${tid}`);
-wid=st.workerId||(st.meta&&st.meta.workerId)||'';
-taskState=String(st.state||taskState).toUpperCase();
+const wid=(st.meta&&st.meta.workerId)||(task.meta&&task.meta.workerId)||'';
+if(wid&&!activeByWorker[wid])activeByWorker[wid]={tid,state:st.state||task.state};
 }catch(e){}
-}
-if(!wid||!activityRank[taskState])continue;
-const current=activeByWorker[wid];
-if(!current||activityRank[taskState]>activityRank[current.state])activeByWorker[wid]={tid,state:taskState};
 }
 console.log('[poll] activeByWorker:', JSON.stringify(activeByWorker));
 for(let i=0;i<4;i++){
@@ -390,23 +400,14 @@ const events=log.events||[];
 const tc=log.toolCount||0;
 const rc=log.reasoningCount||0;
 const ms=mapState(state);
-const taskChanged=slotData[i]&&slotData[i].tid!==tid;
-if(taskChanged)logEl.innerHTML='';
 slotData[i]={host,state,ms,tid,rc,tc,startTime:log.startTime||0,elapsed:log.elapsed||0};
 let elapsed=ms==='thinking'&&log.startTime>0?Math.floor((Date.now()-log.startTime)/1000):(log.elapsed||0);
 hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> ${badge(state)} <span class="monitor-timer">⏱${fmtElapsed(elapsed)}</span> <span class="muted" style="font-size:10px">思考${rc} 工具${tc}</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}">${esc(tid)}</span>`;
-const seen=seenEventIds[tid]||(seenEventIds[tid]=new Set());
-const fresh=[];
-for(const e of events){
-const key=e.id||`${e.time||''}|${e.type||''}|${e.text||''}|${e.status||''}`;
-if(seen.has(key))continue;
-seen.add(key);
-fresh.push(e);
-}
-while(seen.size>300)seen.delete(seen.values().next().value);
-if(fresh.length){
+const prev=shownCount[tid]||0;
+if(events.length>prev){
 let html='';
-for(const e of fresh){
+for(let j=prev;j<events.length;j++){
+const e=events[j];
 let icon='',cls='log-line log-fadein';
 if(e.type==='reasoning'){icon='💭';cls+=' log-info';}
 else if(e.type==='tool'){icon='🔧';cls+=' log-tool';}
@@ -415,19 +416,14 @@ let txt=(e.text||'').slice(0,150);
 if((e.text||'').length>150)txt+=' …';
 html+=`<div class="${cls}">${icon} ${esc(txt)}</div>`;
 }
-if(logEl.childElementCount===0)logEl.innerHTML=html;else logEl.insertAdjacentHTML('beforeend',html);
+shownCount[tid]=events.length;
+if(prev===0)logEl.innerHTML=html;else logEl.insertAdjacentHTML('beforeend',html);
 logEl.scrollTop=logEl.scrollHeight;
 }
 }catch(e){}
-}else{
-if(slotData[i]){
-const lastTid=slotData[i].tid||'';
-slotData[i].ms='done';
-hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> <span class="muted" style="font-size:11px">空闲</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}">${esc(lastTid)}</span>`;
-}else{
+}else if(!slotData[i]){
 hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> <span class="muted" style="font-size:11px">空闲</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}"></span>`;
 logEl.innerHTML='';
-}
 }
 }
 }catch(e){console.error('[poll] error:',e)}
@@ -440,13 +436,8 @@ const r=await api('/tasks');
 for(const task of(r.tasks||[])){
 if(mapState(task.state||'')!=='done')continue;
 try{
-let wid=task.workerId||(task.meta&&task.meta.workerId)||'';
-let taskState=task.state;
-if(!wid){
 const st=await api(`/tasks/${task.taskId}`);
-wid=st.workerId||(st.meta&&st.meta.workerId)||'';
-taskState=st.state||taskState;
-}
+const wid=(st.meta&&st.meta.workerId)||'';
 if(!wid)continue;
 for(let i=0;i<4;i++){
 const wEl=document.querySelector(`#monitor-${i} .monitor-tid`);
@@ -456,11 +447,11 @@ const events=log.events||[];
 if(!events.length)continue;
 const tid=task.taskId;
 const hostEl=document.querySelector(`#monitor-${i} .monitor-host`);
-slotData[i]={host:hostEl?hostEl.textContent:'?',state:taskState,ms:'完成',tid,rc:log.reasoningCount||0,tc:log.toolCount||0,startTime:0,elapsed:log.elapsed||0};
-seenEventIds[tid]=new Set(events.map(e=>e.id||`${e.time||''}|${e.type||''}|${e.text||''}|${e.status||''}`));
+slotData[i]={host:hostEl?hostEl.textContent:'?',state:st.state,ms:'完成',tid,rc:log.reasoningCount||0,tc:log.toolCount||0,startTime:0,elapsed:log.elapsed||0};
+shownCount[tid]=events.length;
 const hdr=document.querySelector(`#monitor-${i} .monitor-header`);
 const logEl=document.getElementById('log-'+i);
-if(hdr)hdr.innerHTML=`<span class="monitor-host">${esc(slotData[i].host)}</span> ${badge(taskState)} <span class="monitor-timer">⏱${fmtElapsed(log.elapsed||0)}</span> <span class="muted" style="font-size:10px">思考${slotData[i].rc} 工具${slotData[i].tc}</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}">${esc(tid)}</span>`;
+if(hdr)hdr.innerHTML=`<span class="monitor-host">${esc(slotData[i].host)}</span> ${badge(st.state)} <span class="monitor-timer">⏱${fmtElapsed(log.elapsed||0)}</span> <span class="muted" style="font-size:10px">思考${slotData[i].rc} 工具${slotData[i].tc}</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}">${esc(tid)}</span>`;
 if(logEl)logEl.innerHTML=events.map(e=>{
 let icon='',cls='log-line';
 if(e.type==='reasoning'){icon='💭';cls+=' log-info';}
@@ -490,12 +481,58 @@ hdr.innerHTML=`<span class="monitor-host">${esc(d.host)}</span> ${badge(d.state)
 }
 }
 function schedulePoll(){pollLogs().finally(()=>{thinkingPoll=setTimeout(schedulePoll,2000)})}
-loadHistory();
 schedulePoll();
 window._timerTick=setInterval(tickTimers,1000);
 }
 
 function clearThinkingLog(){for(let i=0;i<4;i++){const log=document.getElementById('log-'+i);if(log)log.innerHTML=''}}
+
+async function loadMetrics(){
+const m=await api('/metrics');
+const c=await api('/cost');
+const w=await api('/workers');
+const activeWorkers=(w.workers||[]).filter(x=>x.enabled).length;
+const fpr=(m.first_pass_rate||0)*100;
+const avgCycle=m.avg_total_cycle_time_seconds;
+const totalTasks=m.total_tasks||0;
+const fmtSec=s=>s==null?'N/A':(s<60?`${s.toFixed(1)}s`:`${(s/60).toFixed(1)}m`);
+let html=`
+<div class="card"><h2>${t('metrics_summary')}</h2><div class="grid">
+<div class="stat"><div class="num" style="color:#3fb950">${fpr.toFixed(1)}%</div><div class="label">${t('metrics_first_pass_rate')}</div></div>
+<div class="stat"><div class="num">${fmtSec(avgCycle)}</div><div class="label">${t('metrics_avg_cycle')}</div></div>
+<div class="stat"><div class="num">${totalTasks}</div><div class="label">${t('metrics_total_tasks')}</div></div>
+<div class="stat"><div class="num" style="color:#58a6ff">${activeWorkers}</div><div class="label">${t('metrics_active_workers')}</div></div>
+</div></div>`;
+const wp=m.workerPerformance||[];
+html+=`
+<div class="card"><h2>${t('metrics_worker_perf')}</h2>
+<table><tr><th>${t('worker')}</th><th>${t('total')}</th><th>${t('metrics_completed')}</th><th>${t('metrics_success_rate')}</th><th>${t('metrics_avg_duration')}</th></tr>
+${wp.length?wp.map(p=>`<tr><td>${esc(p.workerId)}</td><td>${p.tasks}</td><td>${p.completed}</td><td>${(p.successRate*100).toFixed(1)}%</td><td>${fmtSec(p.avgDurationSeconds)}</td></tr>`).join(''):`<tr><td colspan="5" class="muted">${t('no_tasks')}</td></tr>`}
+</table></div>`;
+const roles=m.role_task_counts||{};
+const roleVals=Object.values(roles);
+const maxRole=roleVals.length?Math.max(...roleVals):1;
+html+=`
+<div class="card"><h2>${t('metrics_task_dist')}</h2>
+${roleVals.length?Object.entries(roles).map(([r,n])=>{
+const pct=Math.round(n/maxRole*100);
+return `<div style="margin:6px 0"><span style="display:inline-block;width:100px;font-size:13px">${esc(r)}</span><span style="display:inline-block;vertical-align:middle;width:${pct}%;max-width:300px;height:14px;background:#1f6feb;border-radius:3px"></span> <span style="font-size:12px;color:#8b949e">${n}</span></div>`;
+}).join(''):`<p class="muted">${t('no_tasks')}</p>`}
+</div>`;
+const byRole=c.byRole||[];
+const byProject=c.byProject||[];
+html+=`
+<div class="card"><h2>${t('metrics_cost_breakdown')}</h2>
+${c.hasCostData?`<p class="muted">${t('metrics_total_cost')}: $${(c.totalEstimatedCost||0).toFixed(4)} · ${t('metrics_total_tokens')}: ${c.totalTokens||0}</p>`:`<p class="muted">${t('metrics_no_cost_data')}</p>`}
+<table><tr><th>${t('role')}</th><th>${t('total')}</th><th>${t('metrics_tokens')}</th><th>${t('metrics_est_cost')}</th></tr>
+${byRole.length?byRole.map(r=>`<tr><td>${esc(r.key)}</td><td>${r.tasks}</td><td>${r.tokens}</td><td>$${(r.estimatedCost||0).toFixed(4)}</td></tr>`).join(''):`<tr><td colspan="4" class="muted">${t('no_tasks')}</td></tr>`}
+</table>
+<h3 style="margin:12px 0 6px;font-size:13px;color:#8b949e">${t('project')}</h3>
+<table><tr><th>${t('project')}</th><th>${t('total')}</th><th>${t('metrics_tokens')}</th><th>${t('metrics_est_cost')}</th></tr>
+${byProject.length?byProject.map(p=>`<tr><td>${esc(p.key)}</td><td>${p.tasks}</td><td>${p.tokens}</td><td>$${(p.estimatedCost||0).toFixed(4)}</td></tr>`).join(''):`<tr><td colspan="4" class="muted">${t('no_tasks')}</td></tr>`}
+</table></div>`;
+return html;
+}
 
 async function loadSettings(){
 const h=await api('/health');
@@ -516,7 +553,7 @@ return `
 </div>`;
 }
 
-const pages={dashboard:loadDashboard,projects:loadProjects,tasks:loadTasks,workers:loadWorkers,review:loadReview,thinking:loadThinking,settings:loadSettings};
+const pages={dashboard:loadDashboard,projects:loadProjects,tasks:loadTasks,workers:loadWorkers,review:loadReview,metrics:loadMetrics,thinking:loadThinking,settings:loadSettings};
 
 async function navigate(page){
 document.querySelectorAll('.nav-link').forEach(a=>a.classList.remove('active'));
