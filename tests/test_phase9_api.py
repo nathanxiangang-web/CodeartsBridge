@@ -323,6 +323,51 @@ class TestReviewAPI:
         code, data = _post(api_server, "/api/tasks/t1/review/fix", {"reviewerId": "w2"})
         assert code == 200
 
+    def test_review_fix_comment_becomes_fix_instruction(self, api_server, tmp_path):
+        self._setup_task_in_review(tmp_path)
+        code, data = _post(api_server, "/api/tasks/t1/review/fix", {
+            "reviewerId": "web",
+            "comment": "Please add a regression test for the failing path.",
+        })
+        assert code == 200
+        assert data["success"] is True
+        assert data["newState"] == "FIX_REQUIRED"
+
+        fix_path = tmp_path / "tasks" / "t1" / "inbox" / "001-FIX.md"
+        assert fix_path.is_file()
+        assert "Please add a regression test for the failing path." in fix_path.read_text(encoding="utf-8")
+
+    def test_review_pass_wrong_state_returns_conflict(self, api_server, tmp_path):
+        from bridge.core.state import set_state, CREATED, READY
+
+        task_dir = tmp_path / "tasks" / "wrong-state"
+        task_dir.mkdir(parents=True)
+        set_state(task_dir, CREATED)
+        set_state(task_dir, READY)
+
+        code, data = _post(api_server, "/api/tasks/wrong-state/review/pass", {
+            "reviewerId": "web",
+        })
+        assert code == 409
+        assert data["success"] is False
+        assert "Cannot review-pass" in data["error"]
+
+    def test_review_fix_wrong_state_returns_conflict(self, api_server, tmp_path):
+        from bridge.core.state import set_state, CREATED, READY
+
+        task_dir = tmp_path / "tasks" / "wrong-fix-state"
+        (task_dir / "inbox").mkdir(parents=True)
+        set_state(task_dir, CREATED)
+        set_state(task_dir, READY)
+
+        code, data = _post(api_server, "/api/tasks/wrong-fix-state/review/fix", {
+            "reviewerId": "web",
+            "comment": "fix this",
+        })
+        assert code == 409
+        assert data["success"] is False
+        assert "Cannot review-fix" in data["error"]
+
 
 class TestIntegrationAPI:
     def test_integrate_missing_task_id(self, api_server):
