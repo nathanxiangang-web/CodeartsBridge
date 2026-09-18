@@ -80,6 +80,7 @@ def _run_successful_worker(tmp_path, monkeypatch, task_id: str, review_required:
         role="implement",
         task_id=task_id,
         task_file=None,
+        workspace="existing",
         review_required=review_required,
     )
 
