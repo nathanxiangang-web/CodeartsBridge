@@ -363,7 +363,7 @@ if(!activityRank[taskState])continue;
 if(!wid){
 try{
 const st=await api(`/tasks/${tid}`);
-wid=(st.meta&&st.meta.workerId)||'';
+wid=st.workerId||(st.meta&&st.meta.workerId)||'';
 taskState=String(st.state||taskState).toUpperCase();
 }catch(e){}
 }
@@ -440,8 +440,13 @@ const r=await api('/tasks');
 for(const task of(r.tasks||[])){
 if(mapState(task.state||'')!=='done')continue;
 try{
+let wid=task.workerId||(task.meta&&task.meta.workerId)||'';
+let taskState=task.state;
+if(!wid){
 const st=await api(`/tasks/${task.taskId}`);
-const wid=(st.meta&&st.meta.workerId)||'';
+wid=st.workerId||(st.meta&&st.meta.workerId)||'';
+taskState=st.state||taskState;
+}
 if(!wid)continue;
 for(let i=0;i<4;i++){
 const wEl=document.querySelector(`#monitor-${i} .monitor-tid`);
@@ -451,11 +456,11 @@ const events=log.events||[];
 if(!events.length)continue;
 const tid=task.taskId;
 const hostEl=document.querySelector(`#monitor-${i} .monitor-host`);
-slotData[i]={host:hostEl?hostEl.textContent:'?',state:st.state,ms:'完成',tid,rc:log.reasoningCount||0,tc:log.toolCount||0,startTime:0,elapsed:log.elapsed||0};
+slotData[i]={host:hostEl?hostEl.textContent:'?',state:taskState,ms:'完成',tid,rc:log.reasoningCount||0,tc:log.toolCount||0,startTime:0,elapsed:log.elapsed||0};
 seenEventIds[tid]=new Set(events.map(e=>e.id||`${e.time||''}|${e.type||''}|${e.text||''}|${e.status||''}`));
 const hdr=document.querySelector(`#monitor-${i} .monitor-header`);
 const logEl=document.getElementById('log-'+i);
-if(hdr)hdr.innerHTML=`<span class="monitor-host">${esc(slotData[i].host)}</span> ${badge(st.state)} <span class="monitor-timer">⏱${fmtElapsed(log.elapsed||0)}</span> <span class="muted" style="font-size:10px">思考${slotData[i].rc} 工具${slotData[i].tc}</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}">${esc(tid)}</span>`;
+if(hdr)hdr.innerHTML=`<span class="monitor-host">${esc(slotData[i].host)}</span> ${badge(taskState)} <span class="monitor-timer">⏱${fmtElapsed(log.elapsed||0)}</span> <span class="muted" style="font-size:10px">思考${slotData[i].rc} 工具${slotData[i].tc}</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}">${esc(tid)}</span>`;
 if(logEl)logEl.innerHTML=events.map(e=>{
 let icon='',cls='log-line';
 if(e.type==='reasoning'){icon='💭';cls+=' log-info';}
