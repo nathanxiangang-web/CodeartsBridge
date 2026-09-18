@@ -38,3 +38,32 @@ workers.json
 .env
 .env.*
 !.env.example
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE / runtime
+.arts/
+.merkle-snapshot.json
+.office-claw/
+coding_memory/
+todo/
+
+# Temporary scripts
+check_events.sh
+check_run.sh
+create_test_tasks.sh
+debug_log.sh
+debug_ok3.sh
+fix_ok4.sh
+run_tasks.sh
+restart_remote.py
+stop_all.py
+
+# Build artifacts
+bridge-deploy.tar.gz
+*.tar.gz
+
+# Prompt attachments
+prompt_attachment/
