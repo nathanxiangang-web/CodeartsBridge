@@ -36,6 +36,7 @@ from .state import (
     set_state,
     REVIEW_REQUIRED,
     FIX_REQUIRED,
+    CANCELLED,
     DONE,
     READY,
 )
@@ -326,6 +327,11 @@ def _create_fix_task(
 
     original_meta = read_json_or_none(original_task_dir / "META.json") or {}
     project_id = original_meta.get("projectId", "bridge-dev")
+    original_execution = (
+        original_meta.get("execution")
+        if isinstance(original_meta.get("execution"), dict)
+        else {}
+    )
 
     fix_dir = bridge_root / "tasks" / fix_task_id
     (fix_dir / "inbox").mkdir(parents=True)
@@ -337,14 +343,22 @@ def _create_fix_task(
         "projectId": project_id,
         "workerId": None,
         "role": "implement",
-        "requiredSkills": [],
+        "requiredSkills": list(original_meta.get("requiredSkills", [])),
+        # The original task is superseded to CANCELLED after this child is
+        # created. Dependency resolution already treats CANCELLED as settled,
+        # so the link remains auditable without deadlocking the FIX task.
         "dependsOn": [original_task_id],
-        "priority": 10,
+        "priority": int(original_meta.get("priority", 50)),
         "parentTaskId": original_task_id,
         "createdAt": datetime.now(timezone.utc).isoformat(),
+        "baseline": original_meta.get("baseline"),
         "execution": {
             "preferredWorker": None,
-            "excludedWorkers": [],
+            "excludedWorkers": list(original_execution.get("excludedWorkers", [])),
+            "workspace": original_execution.get("workspace", "auto"),
+            "targetMinutes": int(original_execution.get("targetMinutes", 10)),
+            "softTimeoutMinutes": int(original_execution.get("softTimeoutMinutes", 12)),
+            "hardTimeoutMinutes": int(original_execution.get("hardTimeoutMinutes", 15)),
         },
         "review": {
             "required": True,
@@ -452,7 +466,11 @@ def review_task(
 
         current = get_state(task_dir).get("state", "")
         if current == REVIEW_REQUIRED:
-            set_state(task_dir, FIX_REQUIRED)
+            set_state(
+                task_dir,
+                CANCELLED,
+                message=f"superseded by fix task {fix_task_id}",
+            )
 
     return verdict
 
