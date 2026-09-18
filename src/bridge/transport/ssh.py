@@ -132,6 +132,13 @@ class SshTransport(TransportBase):
             while True:
                 try:
                     stdout, stderr = proc.communicate(timeout=poll_interval)
+                    result = TransportResult(
+                        exit_code=proc.returncode,
+                        stdout=stdout,
+                        stderr=stderr,
+                        soft_checkpointed=soft_checkpointed,
+                        session_mode=session_mode,
+                    )
                     break
                 except subprocess.TimeoutExpired:
                     elapsed += poll_interval
@@ -157,14 +164,6 @@ class SshTransport(TransportBase):
                             session_mode=session_mode,
                         )
                         break
-            else:
-                result = TransportResult(
-                    exit_code=proc.returncode,
-                    stdout=stdout,
-                    stderr=stderr,
-                    soft_checkpointed=soft_checkpointed,
-                    session_mode=session_mode,
-                )
         except Exception as e:
             result = TransportResult(
                 exit_code=-1,
