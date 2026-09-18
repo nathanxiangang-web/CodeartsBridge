@@ -224,10 +224,10 @@ class TestGenerateReport:
     def test_structured_tokens_and_json_report(self, tmp_path):
         task_dir = _make_task(tmp_path, "t1", [READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED])
         state = get_state(task_dir)
-        state["tokens"] = {"input_tokens": 120, "output_tokens": 80}
+        state["tokens"] = {"input_tokens": 120, "output_tokens": 80, "reasoning_tokens": 50}
         atomic_write_json(task_dir / "state.json", state)
         data = report_to_dict(generate_report(tmp_path / "tasks"))
-        assert data["total_tokens"] == 200
+        assert data["total_tokens"] == 250
         assert data["evaluated_tasks"] == 1
         assert "worker_utilization" in data
 
