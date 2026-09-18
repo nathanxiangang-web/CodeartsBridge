@@ -264,13 +264,12 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                                 running += 1
                         except Exception:
                             pass
-        workers_file = self.bridge_root / "workers.json"
         worker_count = 0
-        if workers_file.exists():
-            try:
-                worker_count = len(json.loads(workers_file.read_text()))
-            except Exception:
-                pass
+        try:
+            from bridge.application.workers import list_workers
+            worker_count = len(list_workers(self.bridge_root))
+        except Exception:
+            pass
         from bridge import __version__
         self._send_json(200, {
             "status": "healthy",
@@ -285,72 +284,65 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     # ── Projects ────────────────────────────────────────────────────────────
 
     def _handle_list_projects(self):
-        pf = self.bridge_root / "projects.json"
-        if not pf.exists():
-            return self._send_json(200, {"projects": []})
+        from bridge.application.projects import list_projects
         try:
-            data = json.loads(pf.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and "projects" in data:
-                projects = data["projects"]
-            elif isinstance(data, list) and len(data) == 3 and isinstance(data[2], list):
-                projects = data[2]
-            elif isinstance(data, list):
-                projects = data
-            else:
-                projects = list(data.values())
-            return self._send_json(200, {"projects": projects})
+            return self._send_json(200, {"projects": list_projects(self.bridge_root)})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
     def _handle_create_project(self):
+        from bridge.application.projects import register_project
+
         body = self._read_body()
-        if not body.get("projectId"):
-            return self._send_json(400, {"error": "projectId required"})
-        pf = self.bridge_root / "projects.json"
-        projects = []
-        if pf.exists():
-            try:
-                projects = json.loads(pf.read_text(encoding="utf-8"))
-                if isinstance(projects, dict):
-                    projects = list(projects.values())
-            except Exception:
-                pass
-        projects.append(body)
-        pf.write_text(json.dumps(projects, indent=2, ensure_ascii=False), encoding="utf-8")
-        self._send_json(201, body)
+        project_id = body.get("projectId") or body.get("project_id") or body.get("id")
+        if not project_id:
+            return self._send_json(400, {"error": "projectId/project_id/id required"})
+
+        project = dict(body)
+        project["id"] = project_id
+        # Keep projectId in the API response for backward compatibility.
+        project.setdefault("projectId", project_id)
+        project.pop("project_id", None)
+
+        aliases = {
+            "project_root": "projectRoot",
+            "run_mode": "runMode",
+            "repo_url": "repoUrl",
+            "timeout_minutes": "timeoutMinutes",
+            "ssh_host": "sshHost",
+            "remote_bridge_root": "remoteBridgeRoot",
+            "remote_workspace_root": "remoteWorkspaceRoot",
+            "remote_cli_path": "remoteCliPath",
+        }
+        for source, target in aliases.items():
+            if source in project:
+                project.setdefault(target, project[source])
+                project.pop(source, None)
+
+        try:
+            register_project(self.bridge_root, project)
+            return self._send_json(201, project)
+        except ValueError as e:
+            return self._send_json(409, {"error": str(e)})
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
 
     # ── Workers ─────────────────────────────────────────────────────────────
 
     def _handle_list_workers(self):
-        wf = self.bridge_root / "workers.json"
-        if not wf.exists():
-            return self._send_json(200, {"workers": []})
+        from bridge.application.workers import list_workers
         try:
-            data = json.loads(wf.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and "workers" in data:
-                workers = data["workers"]
-            elif isinstance(data, list) and len(data) == 3 and isinstance(data[2], list):
-                workers = data[2]
-            elif isinstance(data, list):
-                workers = data
-            else:
-                workers = list(data.values())
-            return self._send_json(200, {"workers": workers})
+            return self._send_json(200, {"workers": list_workers(self.bridge_root)})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
     def _handle_get_worker(self, worker_id: str):
-        wf = self.bridge_root / "workers.json"
-        if not wf.exists():
-            return self._send_json(404, {"error": "Worker not found"})
+        from bridge.application.workers import get_worker
         try:
-            data = json.loads(wf.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                data = list(data.values())
-            for w in data:
-                if w.get("id") == worker_id:
-                    return self._send_json(200, w)
-            return self._send_json(404, {"error": f"Worker {worker_id} not found"})
+            worker = get_worker(self.bridge_root, worker_id)
+            if worker is None:
+                return self._send_json(404, {"error": f"Worker {worker_id} not found"})
+            return self._send_json(200, worker)
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
