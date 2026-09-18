@@ -58,6 +58,23 @@ def check_worker_transport_compatibility(worker_transport: str, project_transpor
     return project_transport == "remote-worktree" and worker_transport == "ssh"
 
 
+def check_host_affinity(worker: WorkerConfig, project: ProjectConfig) -> bool:
+    """Verify worker host is compatible with project's sshHost.
+
+    Rules:
+    - local project: any worker transport OK (host not checked)
+    - ssh/remote-worktree project with sshHost: worker.host must match sshHost
+    - project without sshHost: no affinity check (backward compat)
+    """
+    if project.transport == "local":
+        return True
+    if not project.ssh_host:
+        return True
+    if not worker.host:
+        return False
+    return worker.host == project.ssh_host
+
+
 def select_dispatch_plan(
     tasks_root: str | Path,
     bridge_root: str | Path,
@@ -182,9 +199,14 @@ def select_dispatch_plan(
             if not check_worker_transport_compatibility(worker.transport, project.transport):
                 skipped.append(SkippedItem(c["taskId"], f"explicit worker transport mismatch: {worker.transport}/{project.transport}"))
                 continue
+            if not check_host_affinity(worker, project):
+                skipped.append(SkippedItem(c["taskId"], f"explicit worker host mismatch: {worker.host}/{project.ssh_host}"))
+                continue
         else:
             candidates_w = sorted(
-                [w for w in workers if w.enabled and check_worker_transport_compatibility(w.transport, project.transport)],
+                [w for w in workers if w.enabled
+                 and check_worker_transport_compatibility(w.transport, project.transport)
+                 and check_host_affinity(w, project)],
                 key=lambda w: w.id,
             )
             chosen = None
