@@ -26,6 +26,7 @@ def test_workspace_policy_auto_is_transport_aware():
     assert resolve_workspace_mode("auto", "ssh") == "existing"
     assert resolve_workspace_mode("auto", "ssh-shell") == "existing"
     assert resolve_workspace_mode("auto", "remote-worktree") == "remote-worktree"
+    assert resolve_workspace_mode("existing", "remote-worktree") == "remote-worktree"
 
 
 def test_workspace_policy_never_silently_downgrades_isolation():
