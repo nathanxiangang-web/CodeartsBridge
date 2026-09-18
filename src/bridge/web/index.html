@@ -341,8 +341,10 @@ return `${sec}秒`;
 
 function initThinking(){
 if(thinkingPoll)clearInterval(thinkingPoll);
+if(window._timerTick)clearInterval(window._timerTick);
 const workerSlots={};
 for(let i=0;i<4;i++){const w=document.getElementById('monitor-'+i);if(w){const tidEl=w.querySelector('.monitor-tid');if(tidEl){const wid=tidEl.getAttribute('data-worker');if(wid)workerSlots[wid]=i}}}
+const slotData={};
 
 async function pollLogs(){
 try{
@@ -372,6 +374,7 @@ const events=log.events||[];
 const tc=log.toolCount||0;
 const rc=log.reasoningCount||0;
 const ms=mapState(state);
+slotData[i]={host,state,ms,tid,rc,tc,startTime:log.startTime||0,elapsed:log.elapsed||0};
 let elapsed;
 if(ms==='thinking'&&log.startTime>0){elapsed=Math.floor((Date.now()-log.startTime)/1000)}
 else if(ms==='完成'){elapsed=log.elapsed||0}
@@ -392,14 +395,26 @@ return `<div class="${cls}">${icon} ${esc(txt)}</div>`;
 if(!html)html=`<span class="muted">${ms==='排队'?'排队中…':'思考中…'}</span>`;
 logEl.innerHTML=html;
 }else{
+delete slotData[i];
 hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> <span class="muted" style="font-size:11px">空闲</span>`;
 logEl.innerHTML='';
 }
 }
 }catch(e){}
 }
+function tickTimers(){
+for(let i=0;i<4;i++){
+const d=slotData[i];
+if(!d||d.ms!=='thinking'||!d.startTime)continue;
+const hdr=document.querySelector(`#monitor-${i} .monitor-header`);
+if(!hdr)continue;
+const elapsed=Math.floor((Date.now()-d.startTime)/1000);
+hdr.innerHTML=`<span class="monitor-host">${esc(d.host)}</span> ${badge(d.state)} <span class="monitor-timer">⏱${fmtElapsed(elapsed)}</span> <span class="muted" style="font-size:10px">思考${d.rc} 工具${d.tc}</span> <span class="monitor-tid muted" style="font-size:10px">${esc(d.tid)}</span>`;
+}
+}
 pollLogs();
 thinkingPoll=setInterval(pollLogs,5000);
+window._timerTick=setInterval(tickTimers,1000);
 }
 
 function clearThinkingLog(){for(let i=0;i<4;i++){const log=document.getElementById('log-'+i);if(log)log.innerHTML=''}}
