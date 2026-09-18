@@ -1,6 +1,6 @@
 # CodeartsBridge 任务交接书
 
-> 交接时间: 2026-09-18 22:18
+> 交接时间: 2026-09-19
 > 交出人: 小通 (glm-5.2)
 > 项目: CodeartsBridge — AI 任务调度桥
 
@@ -16,7 +16,7 @@
 | **API 地址** | `http://192.168.178.50:8080/api/health` |
 | **GitHub 仓库** | `https://github.com/nathanxiangang-web/CodeartsBridge` |
 | **分支** | `master` = `main`（已同步） |
-| **当前 HEAD** | `f44e7f8` feat(P2-04,P2-05): conflict resolution + pipeline orchestrator |
+| **当前 HEAD** | `7f3870b` config: unify worker environment |
 
 ### SSH 连接信息
 
@@ -197,7 +197,7 @@ tests/e2e/              # E2E 测试（121 个）
 
 | 环境 | E2E 测试 | Unit 测试 | 总计 |
 |------|----------|-----------|------|
-| 178.50 (Linux) | 300 | — | **300 passed** (P0+P1+P2+P3 全量) |
+| 178.50 (Linux) | 304 | — | **304 passed** (P0+P1+P2+P3 全量) |
 
 ---
 

@@ -118,30 +118,62 @@ class SshTransport(TransportBase):
 
         session_mode = "resume" if session_id else "new"
 
-        # Run via SSH
+        # Run via SSH with two-phase timeout (soft checkpoint + hard kill)
+        soft_checkpointed = False
         try:
-            r = subprocess.run(
+            proc = subprocess.Popen(
                 ["ssh", "-o", "BatchMode=yes", host_name, full_cmd],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout_seconds,
             )
-            result = TransportResult(
-                exit_code=r.returncode,
-                stdout=r.stdout,
-                stderr=r.stderr,
-                session_mode=session_mode,
-            )
-        except subprocess.TimeoutExpired as e:
+            elapsed = 0
+            poll_interval = 5  # seconds
+            while True:
+                try:
+                    stdout, stderr = proc.communicate(timeout=poll_interval)
+                    break
+                except subprocess.TimeoutExpired:
+                    elapsed += poll_interval
+                    # Soft timeout: checkpoint (fetch outbox) but let worker continue
+                    if (
+                        not soft_checkpointed
+                        and soft_timeout_seconds > 0
+                        and elapsed >= soft_timeout_seconds
+                    ):
+                        soft_checkpointed = True
+                        self._fetch_outbox(host_name, remote_outbox, task_dir)
+                    # Hard timeout: kill and trigger assistance
+                    if timeout_seconds > 0 and elapsed >= timeout_seconds:
+                        proc.kill()
+                        stdout, stderr = proc.communicate(timeout=10)
+                        result = TransportResult(
+                            exit_code=-1,
+                            stdout=stdout or "",
+                            stderr=stderr or "",
+                            timed_out=True,
+                            assistance_requested=True,
+                            soft_checkpointed=soft_checkpointed,
+                            session_mode=session_mode,
+                        )
+                        break
+            else:
+                result = TransportResult(
+                    exit_code=proc.returncode,
+                    stdout=stdout,
+                    stderr=stderr,
+                    soft_checkpointed=soft_checkpointed,
+                    session_mode=session_mode,
+                )
+        except Exception as e:
             result = TransportResult(
                 exit_code=-1,
-                stdout=e.stdout or "",
-                stderr=e.stderr or "",
-                timed_out=True,
+                stdout="",
+                stderr=str(e),
                 session_mode=session_mode,
             )
 
-        # Fetch outbox
+        # Fetch outbox (final fetch after process completes)
         local_outbox = task_dir / "outbox"
         local_outbox.mkdir(parents=True, exist_ok=True)
         self.run_captured(
@@ -151,6 +183,16 @@ class SshTransport(TransportBase):
 
         self._write_logs(task_dir, task_id, attempt, result)
         return result
+
+    @staticmethod
+    def _fetch_outbox(host_name: str, remote_outbox: str, task_dir: Path) -> None:
+        """Fetch outbox from remote (soft checkpoint)."""
+        local_outbox = task_dir / "outbox"
+        local_outbox.mkdir(parents=True, exist_ok=True)
+        SshTransport.run_captured(
+            ["scp", "-q", "-r", f"{host_name}:{remote_outbox}/.", str(local_outbox)],
+            timeout=60,
+        )
 
     @staticmethod
     def _get_instructions(task_dir: Path) -> list[str]:

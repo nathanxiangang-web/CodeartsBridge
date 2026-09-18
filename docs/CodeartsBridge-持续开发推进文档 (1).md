@@ -2093,48 +2093,34 @@ Bridge 本身保持简单。
 当前 Phase：
 
 ```text
-P0
+P0 ✅ → P1 ✅ → P2 ✅ → P3 ✅ → 全部完成
 ```
 
 当前 Wave：
 
 ```text
-Wave 1
+无（等待用户定义 P4 或后续方向）
 ```
 
-立即派发：
+P0-P3 全部任务已完成，304 个测试通过。
+
+当前状态：
 
 ```text
-W01
-→ P0-01
-control-plane: unify CLI and daemon dispatch execution semantics
-
-W02
-→ P0-02
-state: persist attempt lifecycle and prevent evidence/log overwrite
-
-W03
-→ P0-03
-dispatch: fix workspace isolation semantics for remote-worktree
-
-W04
-→ P0-09 Stage 1
-qa: build E2E / CI scaffold，并提前建立 UI 回显专项测试骨架
+HEAD: 7f3870b config: unify worker environment
+Tests: 304 passed
+Bridge 服务: 178.50:8080 healthy
+Workers: 4 个全部可用 (178.50/178.52/178.53/178.51)
 ```
 
-当前禁止提前执行：
+后续方向待用户确认。可能的方向：
 
 ```text
-P0-04
-P0-05
-P0-06
-P0-07
-P0-08
-P0-10
-P1-*
+A. 定义 P4 阶段（新功能扩展）
+B. 端到端真实集成测试（用真实 Worker 跑完整流水线）
+C. 维护/优化阶段（不再新增功能，聚焦稳定性）
+D. 用户指定其他方向
 ```
-
-除非其依赖已经满足，并且 Architect 更新本文件状态。
 
 ---
 
@@ -2242,10 +2228,10 @@ Validated Patch
 # 23. 当前状态记录
 
 ```text
-Phase: P1
-Wave: P1-03 进行中
+Phase: P0-P3 全部完成
+Wave: 无（等待 P4 定义）
 Baseline:
-c190fc8 feat(P1-02): priority, estimated duration and critical-path scheduling
+7f3870b config: unify worker environment
 
 P0-01: DONE  # 0cf338c 统一 CLI/daemon dispatch
 P0-02: DONE  # 0cf338c attempt 持久化
@@ -2265,6 +2251,17 @@ P1-04: DONE  # c1bf53c 策略门控
 P1-05: DONE  # 上下文包（纯文档）
 P1-06: DONE  # 272f7e7 遥测统计
 
+P2-01: DONE  # 41f0bab auto-dispatch 引擎
+P2-02: DONE  # 140fee2 architect AI loop
+P2-03: DONE  # 23c81bb integration automation
+P2-04: DONE  # f44e7f8 conflict resolution
+P2-05: DONE  # f44e7f8 pipeline orchestrator
+
+P3-01: DONE  # 2d6c249 自适应调度策略
+P3-02: DONE  # d9ebaaa 成本追踪与优化
+P3-03: DONE  # 0dc9741 性能仪表盘 API + UI
+
+Tests: 304 passed
 ```
 
 ---

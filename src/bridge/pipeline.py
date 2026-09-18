@@ -121,16 +121,27 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
     result = CycleResult(cycle=state.cycle_count + 1)
 
     # Step 1: Architect review (review REVIEW_REQUIRED tasks)
-    try:
-        ar = architect_loop(bridge_root=bridge_root)
-        result.reviewed = ar.reviewed
-        state.total_reviewed += ar.reviewed
-        state.first_pass_count += ar.passed
-        state.total_pass_count += ar.passed
-        if ar.errors:
-            result.errors.extend(ar.errors)
-    except Exception as e:
-        result.errors.append(f"architect_loop: {e}")
+    if config.dry_run:
+        from .state import REVIEW_REQUIRED, get_state
+        tasks_root = bridge_root / "tasks"
+        if tasks_root.exists():
+            review_count = sum(
+                1 for td in tasks_root.iterdir()
+                if td.is_dir() and (get_state(td).get("status") or get_state(td).get("state", "")) == REVIEW_REQUIRED
+            )
+            result.reviewed = review_count
+            state.total_reviewed += review_count
+    else:
+        try:
+            ar = architect_loop(bridge_root=bridge_root)
+            result.reviewed = ar.reviewed
+            state.total_reviewed += ar.reviewed
+            state.first_pass_count += ar.passed
+            state.total_pass_count += ar.passed
+            if ar.errors:
+                result.errors.extend(ar.errors)
+        except Exception as e:
+            result.errors.append(f"architect_loop: {e}")
 
     # Step 2: Auto-dispatch (dispatch READY tasks)
     try:
@@ -143,15 +154,26 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
         result.errors.append(f"auto_dispatch: {e}")
 
     # Step 3: Integrate DONE tasks
-    try:
-        results = integrate_loop(bridge_root)
-        result.integrated = len(results)
-        state.total_integrated += len(results)
-        for r in results:
-            if hasattr(r, "errors") and r.errors:
-                result.errors.extend(r.errors)
-    except Exception as e:
-        result.errors.append(f"integrate_loop: {e}")
+    if config.dry_run:
+        from .state import DONE, get_state
+        tasks_root = bridge_root / "tasks"
+        if tasks_root.exists():
+            done_count = sum(
+                1 for td in tasks_root.iterdir()
+                if td.is_dir() and (get_state(td).get("status") or get_state(td).get("state", "")) == DONE
+            )
+            result.integrated = done_count
+            state.total_integrated += done_count
+    else:
+        try:
+            results = integrate_loop(bridge_root)
+            result.integrated = len(results)
+            state.total_integrated += len(results)
+            for r in results:
+                if hasattr(r, "errors") and r.errors:
+                    result.errors.extend(r.errors)
+        except Exception as e:
+            result.errors.append(f"integrate_loop: {e}")
 
     # Step 4: Conflict detection for integrated tasks
     try:
@@ -164,9 +186,10 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
                 tid = task_dir.name
                 cr = detect_conflict(tid, bridge_root)
                 if cr.conflict:
-                    handle_conflict(tid, bridge_root)
                     result.conflicts += 1
                     state.total_conflicts += 1
+                    if not config.dry_run:
+                        handle_conflict(tid, bridge_root)
     except Exception as e:
         result.errors.append(f"conflict_check: {e}")
 

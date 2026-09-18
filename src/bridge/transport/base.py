@@ -29,6 +29,7 @@ class TransportResult:
     salvage_path: str | None = None
     import_error: str | None = None
     assistance_requested: bool = False
+    soft_checkpointed: bool = False
 
 
 class TransportBase:

@@ -241,12 +241,17 @@ def _run_worker_inner(
             session_mode=session_mode,
         )
     elif result.timed_out:
+        timeout_msg = "hard timeout — assistance required (re-plan needed)"
+        if result.soft_checkpointed:
+            timeout_msg = "hard timeout after soft checkpoint — assistance required (re-plan needed)"
         set_state(
-            task_dir, RUNNING,
-            message="hard timeout",
+            task_dir, ASSISTANCE_REQUIRED,
+            message=timeout_msg,
             exit_code=result.exit_code,
             session_id=new_session_id,
             session_mode=session_mode,
+            last_event_at=telemetry.get("lastEventAt"),
+            tokens=telemetry.get("tokens"),
         )
     elif result.exit_code == 0:
         # Check deliverables
