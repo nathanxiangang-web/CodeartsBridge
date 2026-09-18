@@ -90,6 +90,28 @@ class TestHealthAPI:
         assert data["workers"] == 2
 
 
+    def test_health_exposes_daemon_and_pipeline_state(self, api_server, tmp_path):
+        daemon_dir = tmp_path / "runtime" / "daemon"
+        daemon_dir.mkdir(parents=True)
+        (daemon_dir / "health.json").write_text(json.dumps({
+            "status": "idle",
+            "updatedAt": "2026-09-18T17:30:00+00:00",
+            "pid": 1234,
+        }), encoding="utf-8")
+        (tmp_path / "runtime" / "pipeline-state.json").write_text(json.dumps({
+            "status": "RUNNING",
+            "cycleCount": 7,
+            "totalDispatched": 12,
+        }), encoding="utf-8")
+
+        code, data = _get(api_server, "/api/health")
+        assert code == 200
+        assert data["daemon"]["status"] == "idle"
+        assert data["daemon"]["pid"] == 1234
+        assert data["pipeline"]["status"] == "RUNNING"
+        assert data["pipeline"]["cycleCount"] == 7
+
+
 class TestProjectsAPI:
     def test_create_without_worker_or_task_file_keeps_auto_assignment(self, api_server, tmp_path):
         code, data = _post(api_server, "/api/tasks", {
