@@ -15,7 +15,7 @@ from ..core.models import (
     WorkersRegistry, Registry,
 )
 from ..core.ids import generate_assignment_id
-from ..core.state import READY, QUEUED, DONE, CANCELLED, get_state
+from ..core.state import READY, QUEUED, DONE, CANCELLED, get_state, set_state
 from ..atomic import atomic_write_json, read_json_or_none
 
 from .matcher import filter_candidates, filter_project_candidates, score_worker
@@ -221,7 +221,11 @@ def reconcile_assignments(
     leases_dir: Path,
     tasks_root: Path,
 ) -> int:
-    """Close stale assignments left behind by crashes, restarts, or terminal tasks."""
+    """Close stale assignments left behind by crashes, restarts, or terminal tasks.
+
+    Also auto-repairs task state: if a task is RUNNING but its lease expired,
+    check outbox for deliverables and transition to REVIEW_REQUIRED or FAILED.
+    """
     assignments_dir = Path(assignments_dir)
     leases_dir = Path(leases_dir)
     tasks_root = Path(tasks_root)
@@ -237,7 +241,8 @@ def reconcile_assignments(
             continue
 
         task_id = data.get("taskId", "")
-        task_state = get_state(tasks_root / task_id).get("state", "") if task_id else ""
+        task_dir = tasks_root / task_id if task_id else None
+        task_state = get_state(task_dir).get("state", "") if task_id and task_dir else ""
         lease_id = data.get("leaseId")
         lease_data = read_json_or_none(leases_dir / f"{lease_id}.json") if lease_id else None
         lease_expired = True
@@ -251,6 +256,27 @@ def reconcile_assignments(
             if lease_id:
                 release_lease(leases_dir, lease_id)
             reconciled += 1
+
+            # Auto-repair: task stuck in RUNNING with expired lease
+            if task_state == "RUNNING" and task_dir and task_dir.is_dir():
+                outbox = task_dir / "outbox"
+                has_deliverables = (
+                    (outbox / "RESULT.md").is_file()
+                    and (outbox / "TESTS.md").is_file()
+                )
+                # Direct write to bypass state transition validation
+                # (this is a repair path, not a normal transition)
+                repair_state = "REVIEW_REQUIRED" if has_deliverables else "FAILED"
+                repair_msg = "auto-repaired: RUNNING with expired lease, " + (
+                    "outbox has deliverables" if has_deliverables else "no deliverables"
+                )
+                current = read_json_or_none(task_dir / "state.json") or {}
+                current["status"] = repair_state
+                current["state"] = repair_state
+                current["message"] = repair_msg
+                from datetime import datetime, timezone
+                current["updatedAt"] = datetime.now(timezone.utc).isoformat()
+                atomic_write_json(task_dir / "state.json", current)
 
     return reconciled
 

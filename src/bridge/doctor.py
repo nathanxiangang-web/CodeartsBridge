@@ -168,6 +168,40 @@ def check_codearts_auth(cli_path: str | None) -> CheckResult:
     return CheckResult("codearts_auth", False, AUTH_REQUIRED, "not authenticated")
 
 
+def check_stale_tasks(bridge_root: Path) -> CheckResult:
+    """Detect tasks in RUNNING state with no live worker process."""
+    from .state import get_state
+    tasks_root = Path(bridge_root) / "tasks"
+    if not tasks_root.exists():
+        return CheckResult("stale_tasks", True, READY, "no tasks directory")
+
+    stale = []
+    for task_dir in tasks_root.iterdir():
+        if not task_dir.is_dir():
+            continue
+        state = get_state(task_dir)
+        status = state.get("status") or state.get("state", "")
+        if status != "RUNNING":
+            continue
+        pid = state.get("processId")
+        if pid and _is_process_alive(int(pid)):
+            continue
+        stale.append(task_dir.name)
+
+    if stale:
+        return CheckResult("stale_tasks", False, DEGRADED, f"{len(stale)} stale RUNNING task(s): {', '.join(stale[:5])}")
+    return CheckResult("stale_tasks", True, READY, "no stale tasks")
+
+
+def _is_process_alive(pid: int) -> bool:
+    """Check if a process is still running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
 def run_doctor(
     bridge_root: Path,
     workers: list,
@@ -183,6 +217,7 @@ def run_doctor(
     # Global checks
     results["checks"].append(check_git_available())
     results["checks"].append(check_workspace_writable(str(bridge_root / "workspace")))
+    results["checks"].append(check_stale_tasks(bridge_root))
 
     # Per-worker checks
     for w in workers:
