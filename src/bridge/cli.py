@@ -265,11 +265,13 @@ def cmd_run(args) -> int:
     project = get_project(registry, meta["projectId"])
 
     worker = None
-    if meta.get("workerId"):
+    state_data = get_state(tdir)
+    worker_id = meta.get("workerId") or state_data.get("assignedWorkerId")
+    if worker_id:
         workers_path = root / "workers.json"
         if workers_path.is_file():
             wr = load_workers_registry(workers_path)
-            worker = get_worker(wr, meta["workerId"])
+            worker = get_worker(wr, worker_id)
 
     state = run_worker(tdir, project, worker, root, quiet=args.quiet)
     print(f"Task {args.task_id}: {state.get('status')} - {state.get('message', '')}")
