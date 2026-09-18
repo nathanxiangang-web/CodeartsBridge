@@ -134,7 +134,13 @@ const i18n={
   workers_title:{zh:'工作节点',en:'Workers'},
   online:{zh:'在线',en:'Online'},
   offline:{zh:'离线',en:'Offline'},
+  disabled:{zh:'禁用',en:'Disabled'},
   total:{zh:'总计',en:'Total'},
+  daemon_status:{zh:'调度守护进程',en:'Dispatch Daemon'},
+  pipeline_status:{zh:'流水线',en:'Pipeline'},
+  runtime_updated:{zh:'最后更新',en:'Last Updated'},
+  not_started:{zh:'未启动 / 无状态记录',en:'Not started / no state record'},
+  settings_readonly:{zh:'此页仅展示真实运行状态。调度并发由 daemon/pipeline 启动参数控制；任务超时由每个任务的 execution 配置控制。',en:'This page is read-only. Dispatch concurrency is controlled by daemon/pipeline launch arguments; task timeouts are controlled by each task execution config.'},
   tasks_title:{zh:'任务',en:'Tasks'},
   no_tasks:{zh:'暂无任务',en:'No tasks'},
   recent_tasks:{zh:'最近任务',en:'Recent Tasks'},
@@ -239,13 +245,23 @@ const tasks=await api('/tasks');
 const workers=await api('/workers');
 const byState={};
 (tasks.tasks||[]).forEach(t=>{byState[t.state]=(byState[t.state]||0)+1});
-const online=(workers.workers||[]).filter(w=>w.enabled).length;
-const offline=(workers.workers||[]).filter(w=>!w.enabled).length;
+const enabled=(workers.workers||[]).filter(w=>w.enabled!==false).length;
+const disabled=(workers.workers||[]).filter(w=>w.enabled===false).length;
+const daemon=h.daemon||null;
+const pipeline=h.pipeline||null;
 return `
-<div class="card"><h2>${t('bridge_status')}</h2><p class="muted">${t('version')} ${esc(h.version||'?')} · ${t('root_dir')}: ${esc(h.bridge_root||'?')}</p></div>
+<div class="card"><h2>${t('bridge_status')}</h2>
+<p class="muted">${t('version')} ${esc(h.version||'?')} · ${t('root_dir')}: ${esc(h.bridge_root||'?')}</p>
+<div class="grid">
+<div class="stat"><div class="num">${esc(daemon&&daemon.status||'-')}</div><div class="label">${t('daemon_status')}</div></div>
+<div class="stat"><div class="num">${esc(pipeline&&pipeline.status||'-')}</div><div class="label">${t('pipeline_status')}</div></div>
+<div class="stat"><div class="num">${h.running||0}</div><div class="label">RUNNING tasks</div></div>
+</div>
+${daemon&&daemon.updatedAt?`<p class="muted" style="margin-top:10px">${t('daemon_status')} · ${t('runtime_updated')}: ${esc(daemon.updatedAt)}</p>`:''}
+</div>
 <div class="card"><h2>${t('workers_title')}</h2><div class="grid">
-<div class="stat"><div class="num" style="color:#3fb950">${online}</div><div class="label">${t('online')}</div></div>
-<div class="stat"><div class="num" style="color:#8b949e">${offline}</div><div class="label">${t('offline')}</div></div>
+<div class="stat"><div class="num" style="color:#3fb950">${enabled}</div><div class="label">${t('enabled')}</div></div>
+<div class="stat"><div class="num" style="color:#8b949e">${disabled}</div><div class="label">${t('disabled')}</div></div>
 <div class="stat"><div class="num">${(workers.workers||[]).length}</div><div class="label">${t('total')}</div></div>
 </div></div>
 <div class="card"><h2>${t('tasks_title')}</h2><div class="grid">
@@ -637,6 +653,8 @@ return html;
 
 async function loadSettings(){
 const h=await api('/health');
+const daemon=h.daemon||null;
+const pipeline=h.pipeline||null;
 return `
 <div class="card"><h2>${t('bridge_config')}</h2>
 <p class="muted">${t('version')}: ${esc(h.version||'?')}</p>
@@ -644,13 +662,12 @@ return `
 <p class="muted">${t('api_status')}: ${esc(h.status||'?')}</p>
 </div>
 <div class="card"><h2>${t('runtime_settings')}</h2>
-<div class="form-row"><label>${t('max_workers')}</label><input type="number" value="4" id="cfg-max-workers"></div>
-<div class="form-row"><label>${t('soft_timeout')}</label><input type="number" value="12" id="cfg-soft-timeout"><span class="muted">${t('minutes')}</span></div>
-<div class="form-row"><label>${t('hard_timeout')}</label><input type="number" value="15" id="cfg-hard-timeout"><span class="muted">${t('minutes')}</span></div>
-<button class="btn btn-primary" onclick="alert('${t('saved_demo')}')">${t('save')}</button>
-</div>
-<div class="card"><h2>${t('logging')}</h2>
-<div class="form-row"><label>${t('log_level')}</label><select><option>${t('debug')}</option><option selected>${t('info')}</option><option>${t('warning')}</option><option>${t('error_level')}</option></select></div>
+<p class="muted">${t('settings_readonly')}</p>
+<table style="margin-top:12px">
+<tr><th>${t('daemon_status')}</th><td>${esc(daemon&&daemon.status||t('not_started'))}</td><td>${esc(daemon&&daemon.updatedAt||'-')}</td></tr>
+<tr><th>${t('pipeline_status')}</th><td>${esc(pipeline&&pipeline.status||t('not_started'))}</td><td>cycle ${esc(pipeline&&pipeline.cycleCount??'-')}</td></tr>
+<tr><th>RUNNING tasks</th><td>${h.running||0}</td><td>${t('total')}: ${h.tasks||0}</td></tr>
+</table>
 </div>`;
 }
 
