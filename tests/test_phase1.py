@@ -155,9 +155,10 @@ class TestConfig:
         wr = load_workers_registry(root / "workers.json")
         assert wr.schema_version == 1
         assert len(wr.workers) == 4
-        w = get_worker(wr, "bus-w04-qa")
-        assert "implement" not in w.capabilities
+        w = get_worker(wr, "bus-w04-dev")
+        assert "implement" in w.capabilities
         assert "review" in w.capabilities
+        assert "test" in w.capabilities
 
     def test_project_registry_defaults_are_inherited_and_overridable(self, tmp_path):
         pf = tmp_path / "projects.json"
