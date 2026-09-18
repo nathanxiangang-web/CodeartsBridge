@@ -51,6 +51,45 @@ def load_profile_for_project(
         return None
 
 
+def evaluate_pre_checks(
+    profile: Profile,
+    task_dir: Path,
+    project_root: Path,
+    role: str = "implement",
+    env: dict[str, str] | None = None,
+) -> PolicyEvaluationResult:
+    """Evaluate pre-execution checks (phase.id == 'preCheck').
+
+    Runs before the worker starts. If any preCheck phase with onFailure=block
+    fails, the task should be BLOCKED and not dispatched to the worker.
+    """
+    phases = PolicyEngine.select_phases_for_role(profile, role)
+    pre_phases = [p for p in phases if p.id == "pre-check"]
+    phase_results: list[PhaseResult] = []
+    warnings: list[str] = []
+    errors: list[str] = []
+    blocked = False
+
+    for phase in pre_phases:
+        result = evaluate_phase(phase, task_dir, project_root, role, env)
+        phase_results.append(result)
+        if not result.passed:
+            if phase.on_failure == "block":
+                blocked = True
+                errors.append(f"PreCheck phase '{phase.id}' failed (onFailure=block)")
+            elif phase.on_failure == "warn":
+                warnings.append(f"PreCheck phase '{phase.id}' failed (onFailure=warn)")
+
+    all_passed = all(r.passed for r in phase_results) if phase_results else True
+    return PolicyEvaluationResult(
+        passed=all_passed and not blocked,
+        phase_results=phase_results,
+        blocked=blocked,
+        warnings=warnings,
+        errors=errors,
+    )
+
+
 def evaluate_task_policy(
     profile: Profile,
     task_dir: Path,
@@ -61,14 +100,16 @@ def evaluate_task_policy(
     """Evaluate all policy phases for a completed task.
 
     This runs after the worker finishes execution, before review.
+    PreCheck phases (id == 'preCheck') are skipped here since they run pre-execution.
     """
     phases = PolicyEngine.select_phases_for_role(profile, role)
+    post_phases = [p for p in phases if p.id != "pre-check"]
     phase_results: list[PhaseResult] = []
     warnings: list[str] = []
     errors: list[str] = []
     blocked = False
 
-    for phase in phases:
+    for phase in post_phases:
         result = evaluate_phase(phase, task_dir, project_root, role, env)
         phase_results.append(result)
 

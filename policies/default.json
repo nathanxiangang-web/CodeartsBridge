@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "profileId": "default",
+  "projectId": "default",
+  "description": "Default policy profile with minimal post-execution checks",
+  "riskLevel": "low",
+  "roles": ["implement", "review", "test"],
+  "defaultTimeoutSeconds": 60,
+  "phases": [
+    {
+      "id": "post-check",
+      "description": "Verify worker outbox deliverables exist",
+      "roles": ["implement"],
+      "riskLevel": "low",
+      "onFailure": "warn",
+      "checks": [
+        {
+          "id": "outbox-result",
+          "description": "RESULT.md exists in outbox",
+          "roles": ["implement"],
+          "requiredEvidence": ["RESULT.md"],
+          "expectExitCode": 0
+        }
+      ],
+      "finallyChecks": []
+    }
+  ]
+}
