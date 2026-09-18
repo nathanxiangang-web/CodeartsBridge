@@ -51,7 +51,7 @@
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 15,
-      "sshHost": "root@192.168.5.15",
+      "sshHost": "root@192.168.178.53",
       "remoteWorkspaceRoot": "/root/.codex-glm-bridge/workspaces",
       "remoteCliPath": "codearts"
     },
@@ -95,7 +95,7 @@
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 120,
-      "sshHost": "root@192.168.5.15",
+      "sshHost": "root@192.168.178.53",
       "remoteBridgeRoot": "/root/.codex-glm-bridge",
       "remoteCliPath": "codearts"
     },
@@ -139,7 +139,7 @@
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 30,
-      "sshHost": "root@192.168.5.15",
+      "sshHost": "root@192.168.178.53",
       "remoteWorkspaceRoot": "/root/.codex-glm-bridge/workspaces",
       "remoteCliPath": "codearts"
     },
