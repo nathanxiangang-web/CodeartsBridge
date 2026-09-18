@@ -190,7 +190,7 @@ const stateMap={
   queued:{zh:'排队',en:'Queued'},thinking:{zh:'思考中',en:'Thinking'},done:{zh:'完成',en:'Done'}
 };
 function t(k){return(i18n[k]&&i18n[k][lang])||k}
-function mapState(s){const k=String(s).toLowerCase();const q=['created','ready','queued','starting','fix_required','fixing','retryable'];const th=['running','verifying','review_required','assistance_required','integrating','blocked'];const d=['done','review_passed','integrated','cancelled','failed','auth_required','approved'];if(q.includes(k))return'queued';if(th.includes(k))return'thinking';if(d.includes(k))return'done';return'queued'}
+function mapState(s){const k=String(s).toLowerCase();const q=['created','ready','queued','starting','fix_required','fixing','retryable'];const th=['running','assistance_required','integrating'];const d=['done','review_required','review_passed','verifying','integrated','cancelled','failed','blocked','auth_required','approved'];if(q.includes(k))return'queued';if(th.includes(k))return'thinking';if(d.includes(k))return'done';return'queued'}
 function ts(s){const m=mapState(s);return(stateMap[m]&&stateMap[m][lang])||s}
 function toggleLang(){lang=lang==='zh'?'en':'zh';document.querySelector('.lang-btn').textContent=lang==='zh'?'EN':'中文';document.querySelectorAll('[data-i18n]').forEach(e=>{e.textContent=t(e.dataset.i18n)});navigate(location.hash.slice(1)||'dashboard')}
 async function api(path,opts){const r=await fetch(API+path,opts);try{return await r.json()}catch(e){return{error:String(e)}}}
