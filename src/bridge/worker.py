@@ -77,9 +77,15 @@ def _run_worker_inner(
         process_id=__import__("os").getpid(),
     )
 
-    # Calculate timeouts
-    timeout_seconds = int(meta.get("hardTimeoutMinutes", 15)) * 60
-    soft_timeout_seconds = int(meta.get("softTimeoutMinutes", 12)) * 60
+    # Calculate timeouts from META v2 execution config.
+    # Top-level fields remain a compatibility fallback for legacy tasks.
+    execution = meta.get("execution") or {}
+    timeout_seconds = int(
+        execution.get("hardTimeoutMinutes", meta.get("hardTimeoutMinutes", 15))
+    ) * 60
+    soft_timeout_seconds = int(
+        execution.get("softTimeoutMinutes", meta.get("softTimeoutMinutes", 12))
+    ) * 60
     mode = project.run_mode or "auto"
     baseline = meta.get("baseline")
     role = meta.get("role", "implement")
