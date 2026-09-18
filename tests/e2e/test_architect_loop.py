@@ -256,6 +256,62 @@ class TestFixTaskLinking:
         assert fix_meta["projectId"] == "my-project"
 
 
+    def test_fix_task_dependency_is_ready_after_original_is_superseded(self, bridge_root):
+        from bridge.scheduler.dependency import is_dependency_ready
+
+        task_dir = _create_task_with_state(
+            bridge_root, "t1", state="REVIEW_REQUIRED"
+        )
+        _write_outbox(task_dir, result_md=None)
+
+        verdict = review_task("t1", bridge_root)
+        fix_meta = json.loads(
+            (bridge_root / "tasks" / verdict.fix_task_id / "META.json").read_text()
+        )
+
+        assert _get_task_state(bridge_root, "t1") == CANCELLED
+        assert is_dependency_ready(
+            fix_meta["dependsOn"], bridge_root / "tasks"
+        ) is True
+
+    def test_fix_task_inherits_execution_context(self, bridge_root):
+        task_dir = _create_task_with_state(
+            bridge_root, "t1", state="REVIEW_REQUIRED"
+        )
+        meta_path = task_dir / "META.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta.update({
+            "requiredSkills": ["python"],
+            "priority": 88,
+            "baseline": "abc123",
+            "execution": {
+                "preferredWorker": "old-worker",
+                "excludedWorkers": ["w4"],
+                "workspace": "worktree",
+                "targetMinutes": 7,
+                "softTimeoutMinutes": 9,
+                "hardTimeoutMinutes": 12,
+            },
+        })
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        _write_outbox(task_dir, result_md=None)
+
+        verdict = review_task("t1", bridge_root)
+        fix_meta = json.loads(
+            (bridge_root / "tasks" / verdict.fix_task_id / "META.json").read_text()
+        )
+
+        assert fix_meta["requiredSkills"] == ["python"]
+        assert fix_meta["priority"] == 88
+        assert fix_meta["baseline"] == "abc123"
+        assert fix_meta["execution"]["preferredWorker"] is None
+        assert fix_meta["execution"]["excludedWorkers"] == ["w4"]
+        assert fix_meta["execution"]["workspace"] == "worktree"
+        assert fix_meta["execution"]["targetMinutes"] == 7
+        assert fix_meta["execution"]["softTimeoutMinutes"] == 9
+        assert fix_meta["execution"]["hardTimeoutMinutes"] == 12
+
+
 class TestPlanningMode:
     """Test 4: Planning mode creates well-formed META.json + inbox/TASK.md."""
 
