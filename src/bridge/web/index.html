@@ -148,6 +148,15 @@ const i18n={
   projects_list:{zh:'项目列表',en:'Projects'},
   add_project:{zh:'添加项目',en:'Add Project'},
   project_id:{zh:'项目 ID',en:'Project ID'},
+  project_root:{zh:'项目根目录',en:'Project Root'},
+  transport:{zh:'传输方式',en:'Transport'},
+  run_mode:{zh:'运行模式',en:'Run Mode'},
+  model:{zh:'模型',en:'Model'},
+  timeout_minutes:{zh:'超时分钟',en:'Timeout Minutes'},
+  ssh_host:{zh:'SSH 主机',en:'SSH Host'},
+  remote_bridge_root:{zh:'远端桥目录',en:'Remote Bridge Root'},
+  remote_workspace_root:{zh:'远端工作区',en:'Remote Workspace Root'},
+  remote_cli_path:{zh:'远端 CLI',en:'Remote CLI Path'},
   repo_url:{zh:'仓库地址',en:'Repo URL'},
   add:{zh:'添加',en:'Add'},
   tasks_list:{zh:'任务列表',en:'Tasks'},
@@ -161,6 +170,7 @@ const i18n={
   task_file:{zh:'任务文件',en:'Task File'},
   optional:{zh:'可选',en:'optional'},
   create:{zh:'创建',en:'Create'},
+  architect:{zh:'架构',en:'architect'},
   implement:{zh:'实现',en:'implement'},
   review:{zh:'审查',en:'review'},
   test:{zh:'测试',en:'test'},
@@ -170,6 +180,9 @@ const i18n={
   enabled:{zh:'启用',en:'Enabled'},
   roles:{zh:'角色',en:'Roles'},
   skills:{zh:'技能',en:'Skills'},
+  capabilities:{zh:'能力',en:'Capabilities'},
+  concurrency:{zh:'并发',en:'Concurrency'},
+  cli_path:{zh:'CLI 路径',en:'CLI Path'},
   agent_type:{zh:'代理类型',en:'Agent'},
   host:{zh:'主机',en:'Host'},
   local:{zh:'本地',en:'local'},
@@ -247,26 +260,52 @@ async function loadProjects(){
 const r=await api('/projects');
 return `
 <div class="card"><h2>${t('projects_list')}</h2>
-<table><tr><th>${t('id')}</th><th>${t('name')}</th><th>${t('repo')}</th><th>${t('branch')}</th></tr>
-${(r.projects||[]).map(p=>`<tr><td>${esc(p.project_id||p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.repo_url||p.repo||'-')}</td><td>${esc(p.branch||'-')}</td></tr>`).join('')}
+<table><tr><th>${t('id')}</th><th>${t('transport')}</th><th>${t('project_root')}</th><th>${t('ssh_host')}</th><th>${t('run_mode')}</th><th>${t('model')}</th></tr>
+${(r.projects||[]).map(p=>`<tr><td>${esc(p.id||p.projectId)}</td><td>${esc(p.transport||'local')}</td><td>${esc(p.projectRoot||'-')}</td><td>${esc(p.sshHost||'-')}</td><td>${esc(p.runMode||'auto')}</td><td>${esc(p.model||'-')}</td></tr>`).join('')}
 </table></div>
 <div class="card"><h2>${t('add_project')}</h2>
-<div class="form-row"><label>${t('project_id')}</label><input id="pj-id"></div>
-<div class="form-row"><label>${t('name')}</label><input id="pj-name"></div>
-<div class="form-row"><label>${t('repo_url')}</label><input id="pj-repo"></div>
-<div class="form-row"><label>${t('branch')}</label><input id="pj-branch" value="main"></div>
+<div class="form-row"><label>${t('project_id')}</label><input id="pj-id" placeholder="bridge-dev"></div>
+<div class="form-row"><label>${t('project_root')}</label><input id="pj-root" placeholder="/path/to/project"></div>
+<div class="form-row"><label>${t('transport')}</label><select id="pj-transport"><option value="local">local</option><option value="ssh">ssh</option><option value="ssh-shell">ssh-shell</option><option value="remote-worktree">remote-worktree</option></select></div>
+<div class="form-row"><label>${t('ssh_host')}</label><input id="pj-host" placeholder="user@host · ${t('optional')}"></div>
+<div class="form-row"><label>${t('remote_bridge_root')}</label><input id="pj-remote-root" placeholder="/remote/bridge · ${t('optional')}"></div>
+<div class="form-row"><label>${t('remote_workspace_root')}</label><input id="pj-workspace-root" placeholder="/remote/workspaces · ${t('optional')}"></div>
+<div class="form-row"><label>${t('remote_cli_path')}</label><input id="pj-cli" placeholder="codearts · ${t('optional')}"></div>
+<div class="form-row"><label>${t('run_mode')}</label><select id="pj-mode"><option value="auto">auto</option><option value="manual">manual</option><option value="sandbox">sandbox</option></select></div>
+<div class="form-row"><label>${t('model')}</label><input id="pj-model" placeholder="${t('optional')}"></div>
+<div class="form-row"><label>${t('timeout_minutes')}</label><input id="pj-timeout" type="number" min="1" value="60"></div>
 <button class="btn btn-primary" onclick="addProject()">${t('add')}</button>
 </div>`;
 }
 
 async function addProject(){
-const body={project_id:document.getElementById('pj-id').value,name:document.getElementById('pj-name').value,repo_url:document.getElementById('pj-repo').value,branch:document.getElementById('pj-branch').value};
-await api('/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+const id=document.getElementById('pj-id').value.trim();
+const projectRoot=document.getElementById('pj-root').value.trim();
+if(!id||!projectRoot){alert('Project ID / Project Root required');return}
+const body={
+id,
+projectRoot,
+transport:document.getElementById('pj-transport').value,
+runMode:document.getElementById('pj-mode').value,
+timeoutMinutes:Number(document.getElementById('pj-timeout').value)||60
+};
+const optional={
+sshHost:document.getElementById('pj-host').value.trim(),
+remoteBridgeRoot:document.getElementById('pj-remote-root').value.trim(),
+remoteWorkspaceRoot:document.getElementById('pj-workspace-root').value.trim(),
+remoteCliPath:document.getElementById('pj-cli').value.trim(),
+model:document.getElementById('pj-model').value.trim()
+};
+for(const[k,v]of Object.entries(optional))if(v)body[k]=v;
+const result=await api('/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+if(result.error){alert(result.error);return}
 location.reload();
 }
 
 async function loadTasks(){
-const r=await api('/tasks');
+const [r,projectsResult,workersResult]=await Promise.all([api('/tasks'),api('/projects'),api('/workers')]);
+const projects=projectsResult.projects||[];
+const workers=workersResult.workers||[];
 return `
 <div class="card"><h2>${t('tasks_list')}</h2>
 <table><tr><th>${t('id')}</th><th>${t('state')}</th><th>${t('project')}</th><th>${t('worker')}</th><th>${t('role')}</th><th>${t('attempt')}</th><th>${t('actions')}</th></tr>
@@ -275,19 +314,23 @@ ${(r.tasks||[]).map(task=>`<tr><td>${esc(task.taskId)}</td><td>${badge(task.stat
 </table></div>
 <div class="card"><h2>${t('create_task')}</h2>
 <div class="form-row"><label>${t('task_id')}</label><input id="tk-id"></div>
-<div class="form-row"><label>${t('project')}</label><input id="tk-project"></div>
-<div class="form-row"><label>${t('worker')}</label><input id="tk-worker" placeholder="${t('auto')}"></div>
-<div class="form-row"><label>${t('role')}</label><select id="tk-role"><option value="implement">${t('implement')}</option><option value="review">${t('review')}</option><option value="test">${t('test')}</option><option value="integration">${t('integration')}</option><option value="ops">${t('ops')}</option></select></div>
+<div class="form-row"><label>${t('project')}</label><select id="tk-project"><option value="">-- ${t('project')} --</option>${projects.map(p=>{const id=p.id||p.projectId||'';return `<option value="${esc(id)}">${esc(id)}</option>`}).join('')}</select></div>
+<div class="form-row"><label>${t('worker')}</label><select id="tk-worker"><option value="">${t('auto')}</option>${workers.filter(w=>w.enabled!==false).map(w=>`<option value="${esc(w.id)}">${esc(w.id)} · ${esc((w.capabilities||[]).join('/'))}</option>`).join('')}</select></div>
+<div class="form-row"><label>${t('role')}</label><select id="tk-role"><option value="architect">${t('architect')}</option><option value="implement" selected>${t('implement')}</option><option value="review">${t('review')}</option><option value="test">${t('test')}</option></select></div>
 <div class="form-row"><label>${t('task_file')}</label><input id="tk-file" placeholder="${t('optional')}"></div>
 <button class="btn btn-primary" onclick="createTask()">${t('create')}</button>
 </div>`;
 }
 
 async function createTask(){
-const body={task_id:document.getElementById('tk-id').value,project_id:document.getElementById('tk-project').value,role:document.getElementById('tk-role').value};
-const w=document.getElementById('tk-worker').value;if(w)body.worker_id=w;
-const f=document.getElementById('tk-file').value;if(f)body.task_file=f;
-await api('/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+const taskId=document.getElementById('tk-id').value.trim();
+const projectId=document.getElementById('tk-project').value.trim();
+if(!taskId||!projectId){alert('Task ID / Project required');return}
+const body={task_id:taskId,project_id:projectId,role:document.getElementById('tk-role').value};
+const w=document.getElementById('tk-worker').value.trim();if(w)body.worker_id=w;
+const f=document.getElementById('tk-file').value.trim();if(f)body.task_file=f;
+const result=await api('/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+if(result.error){alert(result.error);return}
 location.reload();
 }
 
@@ -300,8 +343,8 @@ async function loadWorkers(){
 const r=await api('/workers');
 return `
 <div class="card"><h2>${t('workers_list')}</h2>
-<table><tr><th>${t('id')}</th><th>${t('enabled')}</th><th>${t('roles')}</th><th>${t('skills')}</th><th>${t('agent_type')}</th><th>${t('host')}</th></tr>
-${(r.workers||[]).map(w=>`<tr><td>${esc(w.id)}</td><td>${w.enabled?'✅':'❌'}</td><td>${esc((w.roles||[]).join(', '))}</td><td>${esc((w.skills||[]).join(', '))}</td><td>${esc(w.agent_type||'-')}</td><td>${esc(w.host||t('local'))}</td></tr>`).join('')}
+<table><tr><th>${t('id')}</th><th>${t('enabled')}</th><th>${t('transport')}</th><th>${t('host')}</th><th>${t('capabilities')}</th><th>${t('concurrency')}</th><th>${t('model')}</th><th>${t('cli_path')}</th></tr>
+${(r.workers||[]).map(w=>`<tr><td>${esc(w.id)}</td><td>${w.enabled!==false?'✅':'❌'}</td><td>${esc(w.transport||'ssh')}</td><td>${esc(w.host||t('local'))}</td><td>${esc((w.capabilities||[]).join(', ')||'-')}</td><td>${esc(w.concurrencyLimit??1)}</td><td>${esc(w.model||'-')}</td><td>${esc(w.cliPath||'-')}</td></tr>`).join('')}
 </table></div>`;
 }
 
