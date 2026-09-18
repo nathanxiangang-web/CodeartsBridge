@@ -65,3 +65,17 @@ def test_project_form_no_longer_posts_repo_branch_as_runtime_config():
     assert "runMode:" in add_project
     assert "repo_url" not in add_project
     assert "branch:" not in add_project
+
+
+def test_task_form_selects_registered_projects_and_workers():
+    html = _html()
+    start = html.index("async function loadTasks(){")
+    end = html.index("async function cancelTask(id){", start)
+    tasks = html[start:end]
+
+    assert "Promise.all([api('/tasks'),api('/projects'),api('/workers')])" in tasks
+    assert '<select id="tk-project">' in tasks
+    assert '<select id="tk-worker">' in tasks
+    assert "workers.filter(w=>w.enabled!==false)" in tasks
+    assert "body.worker_id=w" in tasks
+    assert "if(result.error){alert(result.error);return}" in tasks
