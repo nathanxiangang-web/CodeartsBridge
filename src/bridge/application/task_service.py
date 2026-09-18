@@ -17,6 +17,7 @@ from ..atomic import atomic_write_text, atomic_write_json, read_json_or_none
 from ..core.state import get_state, set_state, CREATED, READY, CANCELLED
 from ..core.ids import generate_assignment_id
 from ..core.errors import TaskNotFoundError
+from ..config import assert_safe_id, VALID_ROLES
 
 
 def _now_iso() -> str:
@@ -32,14 +33,42 @@ def create_task(
     task_file: str | None,
     required_skills: list[str] | None = None,
     depends_on: list[str] | None = None,
-    priority: int = 0,
+    priority: int = 50,
     preferred_worker: str | None = None,
     excluded_workers: list[str] | None = None,
     review_required: bool = True,
     independent_review: bool = True,
+    baseline: str | None = None,
+    workspace: str | None = None,
+    target_minutes: int = 10,
+    soft_timeout_minutes: int = 12,
+    hard_timeout_minutes: int = 15,
 ) -> dict:
     """Create a new task with v2 META schema."""
     bridge_root = Path(bridge_root)
+
+    assert_safe_id(task_id, "taskId")
+    assert_safe_id(project_id, "projectId")
+    if worker_id:
+        assert_safe_id(worker_id, "workerId")
+    if preferred_worker:
+        assert_safe_id(preferred_worker, "preferredWorker")
+    for dep in depends_on or []:
+        assert_safe_id(dep, "dependsOn")
+    for excluded in excluded_workers or []:
+        assert_safe_id(excluded, "excludedWorker")
+    if role not in VALID_ROLES:
+        raise ValueError(f"Unsupported role: {role}; expected one of {', '.join(VALID_ROLES)}")
+
+    target_minutes = int(target_minutes)
+    soft_timeout_minutes = int(soft_timeout_minutes)
+    hard_timeout_minutes = int(hard_timeout_minutes)
+    priority = int(priority)
+    if target_minutes <= 0 or soft_timeout_minutes <= 0 or hard_timeout_minutes <= 0:
+        raise ValueError("Task execution timeouts must be positive")
+    if soft_timeout_minutes > hard_timeout_minutes:
+        raise ValueError("softTimeoutMinutes cannot exceed hardTimeoutMinutes")
+
     task_dir = bridge_root / "tasks" / task_id
     if task_dir.exists():
         raise ValueError(f"Task already exists: {task_id}")
@@ -68,9 +97,14 @@ def create_task(
         "dependsOn": depends_on or [],
         "priority": priority,
         "createdAt": _now_iso(),
+        "baseline": baseline,
         "execution": {
             "preferredWorker": preferred_worker,
             "excludedWorkers": excluded_workers or [],
+            "workspace": workspace or "isolated",
+            "targetMinutes": target_minutes,
+            "softTimeoutMinutes": soft_timeout_minutes,
+            "hardTimeoutMinutes": hard_timeout_minutes,
         },
         "review": {
             "required": review_required,
@@ -105,6 +139,7 @@ def get_task_status(bridge_root: Path, task_id: str) -> dict:
         "taskId": task_id,
         "state": state,
         "workerId": worker_id,
+        "attempt": int(state_data.get("attempt", 0)),
         "meta": meta,
     }
 
@@ -157,5 +192,6 @@ def list_tasks(bridge_root: Path, state_filter: str | None = None) -> list[dict]
             "projectId": meta.get("projectId") if meta else None,
             "workerId": worker_id,
             "role": meta.get("role") if meta else None,
+            "attempt": int(state_data.get("attempt", 0)),
         })
     return results
