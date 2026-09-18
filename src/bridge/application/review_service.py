@@ -76,9 +76,10 @@ def review_pass(
 def review_fix(
     bridge_root: Path,
     task_id: str,
-    fix_file: str,
+    fix_file: str = "",
     reviewer_id: str = "",
     comment: str = "",
+    fix_content: str | None = None,
 ) -> ReviewResult:
     """Mark a task as needing fixes.
 
@@ -95,14 +96,15 @@ def review_fix(
             error=f"Cannot review-fix from state {current}",
         )
 
-    # Read fix instructions
-    fix_path = Path(fix_file)
-    if not fix_path.is_file():
-        return ReviewResult(
-            task_id=task_id, success=False,
-            error=f"Fix file not found: {fix_file}",
-        )
-    fix_content = fix_path.read_text(encoding="utf-8")
+    # Read fix instructions, or accept generated content directly.
+    if fix_content is None:
+        fix_path = Path(fix_file)
+        if not fix_path.is_file():
+            return ReviewResult(
+                task_id=task_id, success=False,
+                error=f"Fix file not found: {fix_file}",
+            )
+        fix_content = fix_path.read_text(encoding="utf-8")
 
     # Write fix instructions to inbox
     inbox = task_dir / "inbox"
