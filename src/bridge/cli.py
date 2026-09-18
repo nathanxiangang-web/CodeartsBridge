@@ -529,7 +529,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_integrate.add_argument("--task-id", default=None, help="Integrate specific task")
     p_integrate.add_argument("--loop", action="store_true", help="Continuously integrate all DONE tasks")
     p_integrate.add_argument("--dry-run", action="store_true", help="Show plan without merging")
+
+    p_pipeline = sub.add_parser("pipeline", help="Run full pipeline: plan->dispatch->review->integrate")
+    p_pipeline.add_argument("--config", default=None, help="Config file path")
+    p_pipeline.add_argument("--dry-run", action="store_true", help="Show what each step would do")
+    p_pipeline.add_argument("--once", action="store_true", help="Run single cycle then exit")
+    p_pipeline.add_argument("--interval", type=float, default=10.0, help="Idle interval in seconds")
+    p_pipeline.add_argument("--max-workers", type=int, default=4)
     return parser
+
+
+def cmd_pipeline(args) -> int:
+    from bridge.pipeline import run_pipeline, PipelineConfig
+    root = _bridge_root()
+    config = PipelineConfig(
+        interval=args.interval,
+        max_workers=args.max_workers,
+        dry_run=args.dry_run,
+        once=args.once,
+    )
+    run_pipeline(root, config)
+    return 0
 
 
 COMMAND_MAP = {
@@ -550,6 +570,7 @@ COMMAND_MAP = {
     "workers": cmd_workers,
     "telemetry": cmd_telemetry,
     "integrate": cmd_integrate,
+    "pipeline": cmd_pipeline,
 }
 
 
