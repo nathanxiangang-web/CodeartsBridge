@@ -55,6 +55,7 @@ th{color:#8b949e;font-weight:600}
 .log-info{color:#d29922}
 .log-summary{padding:4px 0;color:#8b949e;font-size:11px;border-bottom:1px solid #21262d;margin-bottom:2px}
 .monitor-timer{font-size:11px;color:#58a6ff;font-variant-numeric:tabular-nums}
+.monitor-host{font-size:12px;color:#f0883e;font-weight:600}
 .thinking-entry{padding:4px 0;border-bottom:1px solid #21262d}
 .evt-time{color:#8b949e;margin-right:8px}
 .evt-type{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600;margin-right:8px}
@@ -341,6 +342,8 @@ function initThinking(){
 if(thinkingPoll)clearInterval(thinkingPoll);
 const taskSlots={};
 for(let i=0;i<4;i++){const w=document.getElementById('monitor-'+i);if(w){const tid=w.querySelector('.monitor-tid');if(tid)taskSlots[tid.textContent]=i}}
+let workerHosts={};
+api('/workers').then(r=>{(r.workers||[]).forEach(w=>{workerHosts[w.id||w.workerId]=w.host||w.id||'?'})});
 
 async function pollLogs(){
 try{
@@ -352,13 +355,20 @@ if(slotIdx===undefined)continue;
 const st=await api(`/tasks/${tid}`);
 const state=st.state||task.state;
 const log=await api(`/tasks/${tid}/log`);
-const elapsed=log.elapsed||0;
 const events=log.events||[];
 const tc=log.toolCount||0;
 const rc=log.reasoningCount||0;
+const ms=mapState(state);
+const wid=(st.meta&&st.meta.workerId)||(task.meta&&task.meta.workerId)||'';
+const host=workerHosts[wid]||wid||'?';
+const shortHost=host.replace(/^[^@]+@/,'');
+let elapsed;
+if(ms==='thinking'&&log.startTime>0){elapsed=Math.floor((Date.now()-log.startTime)/1000)}
+else if(ms==='完成'){elapsed=log.elapsed||0}
+else{elapsed=0}
 const hdr=document.querySelector(`#monitor-${slotIdx} .monitor-header`);
 if(hdr){
-hdr.innerHTML=`<span class="monitor-tid">${esc(tid)}</span> ${badge(state)} <span class="monitor-timer">⏱${fmtElapsed(elapsed)}</span> <span class="muted" style="font-size:10px">思考${rc} 工具${tc}</span>`;
+hdr.innerHTML=`<span class="monitor-host">${esc(shortHost)}</span> ${badge(state)} <span class="monitor-timer">⏱${fmtElapsed(elapsed)}</span> <span class="muted" style="font-size:10px">思考${rc} 工具${tc}</span> <span class="monitor-tid muted" style="font-size:10px">${esc(tid)}</span>`;
 }
 const logEl=document.getElementById('log-'+slotIdx);
 if(logEl){
