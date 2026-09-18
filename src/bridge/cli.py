@@ -32,6 +32,7 @@ from .state import get_state, set_state, READY, QUEUED, DONE, REVIEW_REQUIRED, F
 from .task import create_task, write_review_pass, write_review_fix, read_outbox_summary
 from .dispatch import select_dispatch_plan, execute_dispatch
 from .auto_dispatch import auto_dispatch, AutoDispatchResult
+from .architect_loop import architect_loop as arch_loop_fn, ArchitectResult
 from .worker import run_worker
 from .codearts import find_codearts_cli, REQUIRED_MODEL
 
@@ -422,6 +423,51 @@ def cmd_telemetry(args) -> int:
     return 0
 
 
+
+def cmd_architect_loop(args) -> int:
+    """Architect AI loop: plan tasks and review completed work."""
+    root = _bridge_root()
+    _ensure_layout(root)
+
+    if args.plan:
+        result = arch_loop_fn(
+            bridge_root=root,
+            plan=True,
+            requirement=args.plan,
+            project_id=args.project,
+        )
+        print(f"Planned: {result.planned}")
+        if result.errors:
+            for e in result.errors:
+                print(f"  ERROR: {e}")
+            return 1
+        return 0
+
+    if args.loop:
+        import time
+        print("Architect loop: polling every 10s")
+        try:
+            while True:
+                result = arch_loop_fn(bridge_root=root)
+                if result.reviewed > 0:
+                    print(f"Reviewed: {result.reviewed}, Passed: {result.passed}, Fixed: {result.fixed}")
+                if result.errors:
+                    for e in result.errors:
+                        print(f"  ERROR: {e}")
+                time.sleep(10)
+        except KeyboardInterrupt:
+            print("\nArchitect loop stopped.")
+            return 0
+
+    result = arch_loop_fn(bridge_root=root)
+    print(f"Reviewed: {result.reviewed}, Passed: {result.passed}, Fixed: {result.fixed}")
+    if result.errors:
+        for e in result.errors:
+            print(f"  ERROR: {e}")
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bridge", description=f"Codex-GLM Bridge v{__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -477,6 +523,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("projects", help="List registered projects")
     sub.add_parser("workers", help="List registered workers")
+
+    p_arch = sub.add_parser("architect-loop", help="Architect AI loop: plan and review tasks")
+    p_arch.add_argument("--loop", action="store_true", help="Run continuously, polling every 10s")
+    p_arch.add_argument("--plan", default=None, help="Planning mode: create task from requirement text")
+    p_arch.add_argument("--project", default="bridge-dev", help="Target project for planning")
+
     sub.add_parser("telemetry", help="Show telemetry and statistics report")
 
     return parser
@@ -498,6 +550,7 @@ COMMAND_MAP = {
     "serve": cmd_serve,
     "projects": cmd_projects,
     "workers": cmd_workers,
+    "architect-loop": cmd_architect_loop,
     "telemetry": cmd_telemetry,
 }
 
