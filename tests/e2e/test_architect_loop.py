@@ -25,6 +25,7 @@ from bridge.state import (
     REVIEW_REQUIRED,
     APPROVED,
     FIX_REQUIRED,
+    CANCELLED,
     DONE,
     READY,
     CREATED,
@@ -180,7 +181,7 @@ class TestReviewInvalidOutput:
 
         assert verdict.decision == "FIX"
         assert verdict.fix_task_id is not None
-        assert _get_task_state(bridge_root, "t1") == FIX_REQUIRED
+        assert _get_task_state(bridge_root, "t1") == CANCELLED
 
     def test_failing_tests_creates_fix(self, bridge_root):
         task_dir = _create_task_with_state(bridge_root, "t1", state="REVIEW_REQUIRED")
@@ -194,7 +195,7 @@ class TestReviewInvalidOutput:
 
         assert verdict.decision == "FIX"
         assert verdict.fix_task_id is not None
-        assert _get_task_state(bridge_root, "t1") == FIX_REQUIRED
+        assert _get_task_state(bridge_root, "t1") == CANCELLED
 
     def test_fix_task_has_ready_state(self, bridge_root):
         task_dir = _create_task_with_state(bridge_root, "t1", state="REVIEW_REQUIRED")
