@@ -467,6 +467,30 @@ def cmd_telemetry(args) -> int:
     return 0
 
 
+
+def cmd_adaptive_dispatch(args) -> int:
+    """Adaptive dispatch: tune timeouts and worker bias from telemetry, then auto-dispatch."""
+    from .adaptive import adaptive_dispatch
+    root = _bridge_root()
+    _ensure_layout(root)
+    result = adaptive_dispatch(
+        bridge_root=root,
+        max_workers=args.max_workers,
+        dry_run=args.dry_run,
+    )
+    tag = "[dry-run] " if args.dry_run else ""
+    print(f"{tag}planned={result.planned} dispatched={result.dispatched} skipped={result.skipped}")
+    for a in result.assignments:
+        print(f"  {a['taskId']} -> {a['workerId']} ({a['role']})")
+    if result.skipped_details:
+        for s in result.skipped_details:
+            print(f"  skip {s.get('taskId', '?')}: {s.get('reason', '?')}")
+    if result.errors:
+        for e in result.errors:
+            print(f"  ERROR: {e}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bridge", description=f"Codex-GLM Bridge v{__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -523,6 +547,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("projects", help="List registered projects")
     sub.add_parser("workers", help="List registered workers")
     sub.add_parser("telemetry", help="Show telemetry and statistics report")
+    p_adaptive = sub.add_parser("adaptive-dispatch", help="Adaptive dispatch with telemetry-tuned parameters")
+    p_adaptive.add_argument("--max-workers", type=int, default=4)
+    p_adaptive.add_argument("--dry-run", action="store_true", help="Show plan without dispatching")
 
 
     p_integrate = sub.add_parser("integrate", help="Integrate DONE tasks into main branch")
@@ -536,7 +563,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_pipeline.add_argument("--once", action="store_true", help="Run single cycle then exit")
     p_pipeline.add_argument("--interval", type=float, default=10.0, help="Idle interval in seconds")
     p_pipeline.add_argument("--max-workers", type=int, default=4)
+
+    p_cost = sub.add_parser("cost", help="Show cost tracking report")
+    p_cost.add_argument("--project", default=None, help="Filter by project ID")
+    p_cost.add_argument("--summary", action="store_true", help="Summary only")
     return parser
+
+
+def cmd_cost(args) -> int:
+    from bridge.cost import format_cost_report
+    root = _bridge_root()
+    print(format_cost_report(root))
+    return 0
 
 
 def cmd_pipeline(args) -> int:
@@ -569,8 +607,10 @@ COMMAND_MAP = {
     "projects": cmd_projects,
     "workers": cmd_workers,
     "telemetry": cmd_telemetry,
+    "adaptive-dispatch": cmd_adaptive_dispatch,
     "integrate": cmd_integrate,
     "pipeline": cmd_pipeline,
+    "cost": cmd_cost,
 }
 
 
