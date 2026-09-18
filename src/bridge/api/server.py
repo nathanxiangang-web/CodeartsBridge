@@ -33,6 +33,91 @@ from urllib.parse import urlparse, parse_qs
 logger = logging.getLogger(__name__)
 
 
+def _parse_task_session_log(raw_text: str) -> dict:
+    """Parse a CodeArts session log into a bounded, cursor-safe UI payload."""
+    import hashlib
+    import re
+    from datetime import datetime
+
+    raw_text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_text)
+    raw_text = re.sub(r'[\r\x00-\x08\x0b\x0c\x0e-\x1f]', '', raw_text)
+
+    def timestamp_ms(value):
+        if value is None:
+            return 0
+        if isinstance(value, (int, float)):
+            # Accept both epoch seconds and epoch milliseconds.
+            return int(value * 1000) if value < 100_000_000_000 else int(value)
+        if isinstance(value, str):
+            try:
+                numeric = float(value)
+                return int(numeric * 1000) if numeric < 100_000_000_000 else int(numeric)
+            except ValueError:
+                try:
+                    return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
+                except ValueError:
+                    return 0
+        return 0
+
+    events = []
+    timestamps = []
+    tool_count = 0
+    reasoning_count = 0
+
+    for line in raw_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("脚本启动"):
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+
+        ts = timestamp_ms(obj.get("timestamp"))
+        if ts:
+            timestamps.append(ts)
+
+        ptype = obj.get("type", "")
+        part = obj.get("part", {})
+        event_id = hashlib.sha1(line.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+        if ptype == "reasoning":
+            text = part.get("text", "")
+            if text:
+                reasoning_count += 1
+                events.append({"id": event_id, "type": "reasoning", "text": text[:200], "time": ts})
+        elif ptype == "tool_use":
+            tool = part.get("tool", "")
+            state = part.get("state", {})
+            status = state.get("status", "")
+            inp = state.get("input", {})
+            summary = f"{tool}"
+            if tool == "read" and inp.get("filePath"):
+                summary += f" {inp['filePath'].split('/')[-1]}"
+            elif tool == "write" and inp.get("filePath"):
+                summary += f" {inp['filePath'].split('/')[-1]}"
+            elif tool == "bash" and inp.get("command"):
+                summary += f" {inp['command'][:60]}"
+            elif tool == "edit" and inp.get("filePath"):
+                summary += f" {inp['filePath'].split('/')[-1]}"
+            tool_count += 1
+            events.append({"id": event_id, "type": "tool", "text": summary, "status": status, "time": ts})
+        elif ptype == "step_start":
+            events.append({"id": event_id, "type": "step", "text": "开始执行", "time": ts})
+
+    start = timestamps[0] if timestamps else 0
+    end = timestamps[-1] if timestamps else 0
+    elapsed = max(0, (end - start) // 1000) if start and end else 0
+    return {
+        "startTime": start,
+        "elapsed": elapsed,
+        "events": events[-50:],
+        "eventCount": len(events),
+        "toolCount": tool_count,
+        "reasoningCount": reasoning_count,
+    }
+
+
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
@@ -321,7 +406,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": str(e)})
 
     def _handle_get_task_log(self, task_id: str):
-        import subprocess, json as _json
+        import subprocess
         from bridge.atomic import read_json_or_none
         from bridge.config import load_registry, get_project
         task_dir = self.bridge_root / "tasks" / task_id
@@ -340,68 +425,13 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         ssh_host = getattr(project, "ssh_host", None)
         remote_root = getattr(project, "remote_bridge_root", None) or getattr(project, "remote_workspace_root", None)
 
-        def parse_log(raw_text):
-            import re
-            raw_text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_text)
-            raw_text = re.sub(r'[\r\x00-\x08\x0b\x0c\x0e-\x1f]', '', raw_text)
-            events = []
-            timestamps = []
-            tool_count = 0
-            reasoning_count = 0
-            for line in raw_text.splitlines():
-                line = line.strip()
-                if not line or line.startswith("脚本启动"):
-                    continue
-                try:
-                    obj = _json.loads(line)
-                except Exception:
-                    continue
-                ts = obj.get("timestamp")
-                if ts:
-                    timestamps.append(ts)
-                ptype = obj.get("type", "")
-                part = obj.get("part", {})
-                if ptype == "reasoning":
-                    text = part.get("text", "")
-                    if text:
-                        reasoning_count += 1
-                        events.append({"type":"reasoning","text":text[:200],"time":ts})
-                elif ptype == "tool_use":
-                    tool = part.get("tool", "")
-                    state = part.get("state", {})
-                    status = state.get("status", "")
-                    inp = state.get("input", {})
-                    summary = f"{tool}"
-                    if tool == "read" and inp.get("filePath"):
-                        summary += f" {inp['filePath'].split('/')[-1]}"
-                    elif tool == "write" and inp.get("filePath"):
-                        summary += f" {inp['filePath'].split('/')[-1]}"
-                    elif tool == "bash" and inp.get("command"):
-                        summary += f" {inp['command'][:60]}"
-                    elif tool == "edit" and inp.get("filePath"):
-                        summary += f" {inp['filePath'].split('/')[-1]}"
-                    tool_count += 1
-                    events.append({"type":"tool","text":summary,"status":status,"time":ts})
-                elif ptype == "step_start":
-                    events.append({"type":"step","text":"开始执行","time":ts})
-            start = timestamps[0] if timestamps else 0
-            end = timestamps[-1] if timestamps else 0
-            elapsed = (end - start) // 1000 if start and end else 0
-            return {
-                "startTime": start,
-                "elapsed": elapsed,
-                "events": events[-50:],
-                "toolCount": tool_count,
-                "reasoningCount": reasoning_count,
-            }
-
         if transport == "local" or not ssh_host:
             log_path = task_dir / "session.log"
             if not log_path.is_file():
                 return self._send_json(200, {"startTime":0,"elapsed":0,"events":[],"toolCount":0,"reasoningCount":0})
             try:
                 raw = log_path.read_text(encoding="utf-8", errors="replace")
-                return self._send_json(200, parse_log(raw))
+                return self._send_json(200, _parse_task_session_log(raw))
             except Exception as e:
                 return self._send_json(500, {"error": str(e)})
         else:
@@ -415,7 +445,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                    f"tail -n 500 {remote_task}/session.log 2>/dev/null"]
             try:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                return self._send_json(200, parse_log(r.stdout or ""))
+                return self._send_json(200, _parse_task_session_log(r.stdout or ""))
             except Exception as e:
                 return self._send_json(500, {"error": str(e)})
 
