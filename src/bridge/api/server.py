@@ -108,7 +108,12 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             return self._handle_list_workers()
         if resource == "tasks":
             if len(parts) >= 3:
-                return self._handle_get_task(parts[2])
+                task_id = parts[2]
+                if len(parts) >= 4 and parts[3] == "outbox":
+                    if len(parts) >= 5:
+                        return self._handle_read_outbox_file(task_id, parts[4])
+                    return self._handle_list_outbox(task_id)
+                return self._handle_get_task(task_id)
             return self._handle_list_tasks(query)
         if resource == "events":
             return self._handle_event_stream(query)
@@ -273,6 +278,29 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             if status is None:
                 return self._send_json(404, {"error": f"Task {task_id} not found"})
             return self._send_json(200, status)
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_list_outbox(self, task_id: str):
+        task_dir = self.bridge_root / "tasks" / task_id
+        outbox = task_dir / "outbox"
+        if not outbox.is_dir():
+            return self._send_json(200, {"files": []})
+        files = []
+        for f in sorted(outbox.rglob("*")):
+            if f.is_file():
+                rel = str(f.relative_to(outbox))
+                files.append({"name": rel, "size": f.stat().st_size})
+        return self._send_json(200, {"files": files})
+
+    def _handle_read_outbox_file(self, task_id: str, filename: str):
+        task_dir = self.bridge_root / "tasks" / task_id
+        filepath = task_dir / "outbox" / filename
+        if not filepath.is_file():
+            return self._send_json(404, {"error": f"File not found: {filename}"})
+        try:
+            content = filepath.read_text(encoding="utf-8")
+            return self._send_json(200, {"name": filename, "content": content})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 

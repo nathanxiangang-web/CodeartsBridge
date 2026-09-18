@@ -41,6 +41,16 @@ th{color:#8b949e;font-weight:600}
 .badge-done{background:#3fb95033;color:#3fb950}
 .badge-cancelled{background:#6e768133;color:#8b949e}
 .badge-failed{background:#f8514933;color:#f85149}
+.outbox-row td{padding:0}
+.outbox-box{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;margin:4px 0}
+.outbox-box h3{margin:0 0 8px;font-size:13px;color:#8b949e}
+.outbox-file{cursor:pointer;padding:4px 8px;border-radius:4px;display:inline-block;margin:2px;font-size:13px;color:#58a6ff}
+.outbox-file:hover{background:#1f6feb33}
+.file-icon{font-size:14px}
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;justify-content:center;align-items:center}
+.modal-content{background:#0d1117;border:1px solid #30363d;border-radius:8px;max-width:80%;max-height:80%;overflow:auto;padding:16px}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.file-content{background:#161b22;padding:12px;border-radius:6px;overflow:auto;white-space:pre-wrap;font-size:13px;max-height:60vh}
 .btn{padding:6px 14px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;cursor:pointer;font-size:13px}
 .btn:hover{background:#30363d}
 .btn-primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
@@ -127,6 +137,8 @@ const i18n={
   local:{zh:'本地',en:'local'},
   review_queue:{zh:'审查队列',en:'Review Queue'},
   no_review:{zh:'暂无待审查任务',en:'No tasks pending review'},
+  output_files:{zh:'输出文件',en:'Output Files'},
+  no_output_files:{zh:'暂无输出文件',en:'No output files'},
   pass:{zh:'通过',en:'Pass'},
   fix:{zh:'需修复',en:'Fix'},
   bridge_config:{zh:'桥接配置',en:'Bridge Configuration'},
@@ -251,16 +263,34 @@ ${(r.workers||[]).map(w=>`<tr><td>${esc(w.id)}</td><td>${w.enabled?'✅':'❌'}<
 async function loadReview(){
 const r=await api('/tasks');
 const reviewTasks=(r.tasks||[]).filter(task=>task.state==='review_required'||task.state==='fix_required');
+const rows=await Promise.all(reviewTasks.map(async task=>{
+const ob=await api(`/tasks/${task.task_id}/outbox`);
+const files=ob.files||[];
+const fileList=files.length===0?`<p class="muted">${t('no_output_files')}</p>`:
+files.map(f=>`<div class="outbox-file" onclick="viewOutboxFile('${esc(task.task_id)}','${esc(f.name)}')"><span class="file-icon">📄</span> ${esc(f.name)} <span class="muted">(${f.size}B)</span></div>`).join('');
+return `<tr><td>${esc(task.task_id)}</td><td>${badge(task.state)}</td><td>${esc(task.project_id)}</td><td>${esc(task.role)}</td>
+<td>
+<button class="btn btn-primary" onclick="reviewPass('${esc(task.task_id)}')">${t('pass')}</button>
+<button class="btn btn-danger" onclick="reviewFix('${esc(task.task_id)}')">${t('fix')}</button>
+</td></tr>
+<tr class="outbox-row"><td colspan="5"><div class="outbox-box"><h3>${t('output_files')}</h3>${fileList}</div></td></tr>`;
+}));
 return `
 <div class="card"><h2>${t('review_queue')}</h2>
 ${reviewTasks.length===0?`<p class="muted">${t('no_review')}</p>`:''}
 <table><tr><th>${t('id')}</th><th>${t('state')}</th><th>${t('project')}</th><th>${t('role')}</th><th>${t('actions')}</th></tr>
-${reviewTasks.map(task=>`<tr><td>${esc(task.task_id)}</td><td>${badge(task.state)}</td><td>${esc(task.project_id)}</td><td>${esc(task.role)}</td>
-<td>
-<button class="btn btn-primary" onclick="reviewPass('${esc(task.task_id)}')">${t('pass')}</button>
-<button class="btn btn-danger" onclick="reviewFix('${esc(task.task_id)}')">${t('fix')}</button>
-</td></tr>`).join('')}
-</table></div>`;
+${rows.join('')}
+</table></div>
+<div id="fileModal" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+<div class="modal-content"><div class="modal-header"><h3 id="modalFileName"></h3><button class="btn" onclick="document.getElementById('fileModal').style.display='none'">✕</button></div><pre id="modalFileContent" class="file-content"></pre></div>
+</div>`;
+}
+
+async function viewOutboxFile(taskId,filename){
+const r=await api(`/tasks/${taskId}/outbox/${encodeURIComponent(filename)}`);
+document.getElementById('modalFileName').textContent=filename;
+document.getElementById('modalFileContent').textContent=r.content||r.error||'';
+document.getElementById('fileModal').style.display='flex';
 }
 
 async function reviewPass(id){
