@@ -150,6 +150,23 @@ class TestQueryService:
         from bridge.application.queries import get_task_assignments
         assert get_task_assignments(tmp_path, "t1") == []
 
+    def test_task_assignments_reads_scheduler_runtime_store(self, tmp_path):
+        from bridge.application.queries import get_task_assignments
+
+        runtime = tmp_path / "runtime" / "assignments"
+        runtime.mkdir(parents=True)
+        (runtime / "a-runtime.json").write_text(json.dumps({
+            "assignmentId": "a-runtime",
+            "taskId": "t-runtime",
+            "workerId": "w1",
+            "role": "implement",
+            "finishedAt": None,
+        }), encoding="utf-8")
+
+        result = get_task_assignments(tmp_path, "t-runtime")
+        assert len(result) == 1
+        assert result[0]["assignmentId"] == "a-runtime"
+
     def test_worker_assignments(self, tmp_path):
         from bridge.application.queries import get_worker_assignments
         af = tmp_path / "assignments.json"
@@ -174,6 +191,22 @@ class TestAssignmentService:
         a = get_assignment(tmp_path, "a1")
         assert a is not None and a["workerId"] == "w1"
 
+    def test_save_writes_canonical_runtime_file(self, tmp_path):
+        from bridge.application.assignments import save_assignment
+
+        save_assignment(tmp_path, {
+            "assignmentId": "runtime-a1",
+            "workerId": "w1",
+            "taskId": "t1",
+            "finishedAt": None,
+        })
+
+        path = tmp_path / "runtime" / "assignments" / "runtime-a1.json"
+        assert path.is_file()
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        assert raw["workerId"] == "w1"
+        assert not (tmp_path / "assignments.json").exists()
+
     def test_save_updates_existing(self, tmp_path):
         from bridge.application.assignments import save_assignment, list_assignments
         save_assignment(tmp_path, {"assignmentId": "a1", "status": "active"})
@@ -188,6 +221,25 @@ class TestAssignmentService:
         save_assignment(tmp_path, {"assignmentId": "a2", "workerId": "w1", "status": "completed"})
         active = get_active_assignments_for_worker(tmp_path, "w1")
         assert len(active) == 1 and active[0]["assignmentId"] == "a1"
+
+    def test_active_worker_assignments_use_finished_at(self, tmp_path):
+        from bridge.application.assignments import save_assignment, get_active_assignments_for_worker
+
+        save_assignment(tmp_path, {
+            "assignmentId": "active-v2",
+            "workerId": "w1",
+            "taskId": "t1",
+            "finishedAt": None,
+        })
+        save_assignment(tmp_path, {
+            "assignmentId": "finished-v2",
+            "workerId": "w1",
+            "taskId": "t2",
+            "finishedAt": "2026-09-18T00:00:00+00:00",
+        })
+
+        active = get_active_assignments_for_worker(tmp_path, "w1")
+        assert [a["assignmentId"] for a in active] == ["active-v2"]
 
     def test_count_for_worker(self, tmp_path):
         from bridge.application.assignments import save_assignment, get_assignment_count_for_worker
