@@ -53,6 +53,11 @@ th{color:#8b949e;font-weight:600}
 .file-content{background:#161b22;padding:12px;border-radius:6px;overflow:auto;white-space:pre-wrap;font-size:13px;max-height:60vh}
 .thinking-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .thinking-log{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px;max-height:70vh;overflow-y:auto;font-family:monospace;font-size:12px}
+.monitor-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;height:75vh}
+.monitor-window{background:#0d1117;border:1px solid #30363d;border-radius:6px;display:flex;flex-direction:column;overflow:hidden}
+.monitor-header{padding:6px 10px;background:#161b22;border-bottom:1px solid #30363d;font-size:12px;display:flex;align-items:center;gap:6px}
+.monitor-tid{color:#58a6ff;font-weight:600}
+.monitor-log{flex:1;overflow-y:auto;padding:8px;font-family:monospace;font-size:11px}
 .thinking-entry{padding:4px 0;border-bottom:1px solid #21262d}
 .evt-time{color:#8b949e;margin-right:8px}
 .evt-type{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600;margin-right:8px}
@@ -317,21 +322,36 @@ document.getElementById('fileModal').style.display='flex';
 
 let thinkingES=null,thinkingPoll=null;
 async function loadThinking(){
+const r=await api('/tasks');
+const allTasks=(r.tasks||[]).sort((a,b)=>String(a.state).localeCompare(String(b.state)));
+const slots=[];
+for(let i=0;i<4;i++){const task=allTasks[i];slots.push(task||null)}
 return `
-<div class="card"><h2>${t('thinking_title')}</h2><p class="muted">${t('thinking_hint')}</p></div>
-<div class="card"><div class="thinking-toolbar"><span id="thinkingStatus" class="muted">${t('disconnected')}</span><button class="btn" onclick="clearThinkingLog()">${t('clear_log')}</button></div>
-<div id="thinkingLog" class="thinking-log"><p class="muted">${t('no_events')}</p></div></div>`;
+<div class="card"><div class="thinking-toolbar"><span id="thinkingStatus" class="muted">${t('disconnected')}</span><button class="btn" onclick="clearThinkingLog()">${t('clear_log')}</button></div></div>
+<div class="monitor-grid">
+${slots.map((task,i)=>`<div class="monitor-window" id="monitor-${i}">
+<div class="monitor-header">${task?`<span class="monitor-tid">${esc(task.taskId)}</span> ${badge(task.state)}`:`<span class="muted">${t('no_events')}</span>`}</div>
+<div class="monitor-log" id="log-${i}"></div>
+</div>`).join('')}
+</div>`;
 }
 
 function initThinking(){
 if(thinkingES)thinkingES.close();
 if(thinkingPoll)clearInterval(thinkingPoll);
-const log=document.getElementById('thinkingLog');
-if(!log)return;
-log.innerHTML='';
 const status=document.getElementById('thinkingStatus');
-const addEntry=(cls,html)=>{const d=document.createElement('div');d.className='thinking-entry '+cls;d.innerHTML=html;log.appendChild(d);log.scrollTop=log.scrollHeight};
 const fmtTime=(ts)=>{try{return new Date(ts).toLocaleTimeString()}catch(e){return ts||''}};
+const taskSlots={};
+for(let i=0;i<4;i++){const w=document.getElementById('monitor-'+i);if(w){const tid=w.querySelector('.monitor-tid');if(tid)taskSlots[tid.textContent]=i}}
+
+function addEntry(slotIdx,cls,html){
+const log=document.getElementById('log-'+slotIdx);
+if(!log)return;
+const d=document.createElement('div');d.className='thinking-entry '+cls;d.innerHTML=html;
+log.appendChild(d);
+while(log.childNodes.length>200)log.removeChild(log.firstChild);
+log.scrollTop=log.scrollHeight;
+}
 
 thinkingES=new EventSource(API+'/events');
 thinkingES.onopen=()=>{if(status){status.textContent=t('connected');status.style.color='#3fb950'}};
@@ -339,20 +359,22 @@ thinkingES.onerror=()=>{if(status){status.textContent=t('disconnected');status.s
 thinkingES.addEventListener('keepalive',()=>{});
 thinkingES.onmessage=e=>{
 try{const evt=JSON.parse(e.data);const type=evt.type||'event';const tid=evt.taskId||'-';const payload=JSON.stringify(evt.payload||{},null,2);
+const slotIdx=taskSlots[tid]!==undefined?taskSlots[tid]:0;
 const typeClass={'task_state_changed':'evt-state','task_dispatched':'evt-dispatch','task_completed':'evt-done','task_failed':'evt-error','heartbeat':'evt-hb'}[type]||'evt-default';
-addEntry(typeClass,`<span class="evt-time">${fmtTime(evt.timestamp||Date.now())}</span> <span class="evt-type">${esc(type)}</span> <span class="evt-task">${esc(tid)}</span><pre class="evt-payload">${esc(payload)}</pre>`)}catch(err){}
+addEntry(slotIdx,typeClass,`<span class="evt-time">${fmtTime(evt.timestamp||Date.now())}</span> <span class="evt-type">${esc(type)}</span><pre class="evt-payload">${esc(payload)}</pre>`)}catch(err){}
 };
 
 thinkingPoll=setInterval(async()=>{
 try{const r=await api('/tasks');const running=(r.tasks||[]).filter(t=>String(t.state).toLowerCase()==='running');
 for(const task of running){const st=await api(`/tasks/${task.task_id}`);
 const summary=st.heartbeatSummary||(st.meta&&st.meta.heartbeatSummary);
-if(summary){addEntry('evt-hb',`<span class="evt-time">${fmtTime(Date.now())}</span> <span class="evt-type">${t('heartbeat')}</span> <span class="evt-task">${esc(task.task_id)}</span><pre class="evt-payload">${esc(summary)}</pre>`)}}
+if(summary){const slotIdx=taskSlots[task.taskId]!==undefined?taskSlots[task.taskId]:0;
+addEntry(slotIdx,'evt-hb',`<span class="evt-time">${fmtTime(Date.now())}</span> <span class="evt-type">${t('heartbeat')}</span><pre class="evt-payload">${esc(summary)}</pre>`)}}
 }catch(e){}
 },3000);
 }
 
-function clearThinkingLog(){const log=document.getElementById('thinkingLog');if(log)log.innerHTML=''}
+function clearThinkingLog(){for(let i=0;i<4;i++){const log=document.getElementById('log-'+i);if(log)log.innerHTML=''}}
 
 async function loadSettings(){
 const h=await api('/health');
