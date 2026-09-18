@@ -30,7 +30,7 @@ from .atomic import atomic_write_text, read_json_or_none
 from .config import load_registry, load_workers_registry, get_project, get_worker
 from .state import get_state, set_state, READY, QUEUED, DONE, REVIEW_REQUIRED, FIX_REQUIRED
 from .task import create_task, write_review_pass, write_review_fix, read_outbox_summary
-from .dispatch import select_dispatch_plan
+from .dispatch import select_dispatch_plan, execute_dispatch
 from .worker import run_worker
 from .codearts import find_codearts_cli, REQUIRED_MODEL
 
@@ -157,7 +157,12 @@ def cmd_dispatch(args) -> int:
     root = _bridge_root()
     tasks_root = root / "tasks"
 
-    plan = select_dispatch_plan(tasks_root, root, max_workers=args.max_workers)
+    result = execute_dispatch(
+        tasks_root, root,
+        max_workers=args.max_workers,
+        dry_run=args.dry_run,
+    )
+    plan = result.plan
 
     if args.dry_run:
         print("=== Dry Run ===")
@@ -180,14 +185,14 @@ def cmd_dispatch(args) -> int:
                 print(f"  {s.task_id}: {s.reason}")
         return 0
 
-    # Queue and dispatch
-    for item in plan.plan:
-        tdir = Path(item.directory)
-        set_state(tdir, QUEUED, message=f"dispatched to {item.worker_id}")
+    print(f"Dispatched {len(result.spawned)} task(s):")
+    for tid in result.spawned:
+        print(f"  {tid} spawned")
 
-    print(f"Dispatched {len(plan.plan)} task(s):")
-    for item in plan.plan:
-        print(f"  {item.task_id} -> worker={item.worker_id}, project={item.project_id}")
+    if result.failed:
+        print(f"\nFailed {len(result.failed)}:")
+        for tid, err in result.failed:
+            print(f"  {tid}: {err}")
 
     if plan.skipped:
         print(f"\nSkipped {len(plan.skipped)}:")

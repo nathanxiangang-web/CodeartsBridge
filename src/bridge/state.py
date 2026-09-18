@@ -83,6 +83,7 @@ def set_state(
     heartbeat_think: int | None = None,
     heartbeat_tool: int | None = None,
     tokens: Any = None,
+    attempt: int | None = None,
 ) -> dict[str, Any]:
     """Merge-update state.json, preserving existing fields.
 
@@ -105,8 +106,10 @@ def set_state(
     state["status"] = status
     state["state"] = status
 
-    # Attempt: preserve from old or default to 0
-    if old and "attempt" in old:
+    # Attempt: preserve from old or default to 0, or use provided value
+    if attempt is not None:
+        state["attempt"] = attempt
+    elif old and "attempt" in old:
         state["attempt"] = int(old["attempt"])
     elif "attempt" not in state:
         state["attempt"] = 0

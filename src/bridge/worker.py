@@ -53,7 +53,7 @@ def run_worker(
     archive_previous_outbox(task_dir, attempt)
 
     # Set STARTING
-    set_state(task_dir, STARTING, message=f"attempt {attempt} starting")
+    set_state(task_dir, STARTING, message=f"attempt {attempt} starting", attempt=attempt)
 
     # Get transport
     transport_cls = TRANSPORT_MAP.get(project.transport)

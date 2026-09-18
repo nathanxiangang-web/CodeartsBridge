@@ -21,7 +21,7 @@ from . import __version__
 from .atomic import atomic_write_json, atomic_write_text, read_json_or_none
 from .locks import file_lock, try_file_lock
 from .state import get_state, set_state, QUEUED, ACTIVE_STATES
-from .dispatch import select_dispatch_plan
+from .dispatch import select_dispatch_plan, execute_dispatch
 
 
 DAEMON_VERSION = "2.0.0"
@@ -92,23 +92,12 @@ def cmd_run(args) -> int:
 
         # Dispatch
         try:
-            plan = select_dispatch_plan(root / "tasks", root, max_workers=max_workers)
+            result = execute_dispatch(root / "tasks", root, max_workers=max_workers)
+            plan = result.plan
 
-            if plan.plan:
-                for item in plan.plan:
-                    tdir = Path(item.directory)
-                    set_state(tdir, QUEUED, message=f"dispatched to {item.worker_id}")
-
-                    # Launch worker process
-                    subprocess.Popen(
-                        [sys.executable, "-m", "bridge.cli", "run", "-t", item.task_id],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-
+            if result.spawned:
                 write_health(state_dir, "running", {
-                    "dispatched": len(plan.plan),
+                    "dispatched": len(result.spawned),
                     "active": len(plan.active),
                     "skipped": len(plan.skipped),
                 })
@@ -137,7 +126,8 @@ def cmd_run(args) -> int:
 def cmd_once(args) -> int:
     """Run a single dispatch cycle."""
     root = _bridge_root()
-    plan = select_dispatch_plan(root / "tasks", root, max_workers=args.max_workers)
+    result = execute_dispatch(root / "tasks", root, max_workers=args.max_workers, dry_run=args.dry_run)
+    plan = result.plan
 
     if args.dry_run:
         print(f"Active: {len(plan.active)}, Plan: {len(plan.plan)}, Skipped: {len(plan.skipped)}")
@@ -145,16 +135,8 @@ def cmd_once(args) -> int:
             print(f"  {item.task_id} -> {item.worker_id}")
         return 0
 
-    for item in plan.plan:
-        tdir = Path(item.directory)
-        set_state(tdir, QUEUED, message=f"dispatched to {item.worker_id}")
-        subprocess.Popen(
-            [sys.executable, "-m", "bridge.cli", "run", "-t", item.task_id],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        print(f"Dispatched {item.task_id} -> {item.worker_id}")
+    for tid in result.spawned:
+        print(f"Dispatched {tid}")
 
     return 0
 

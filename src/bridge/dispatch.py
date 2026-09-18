@@ -6,6 +6,8 @@ Mirrors PowerShell Select-DispatchPlan.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,7 @@ from .config import (
     load_registry, load_workers_registry, get_project,
 )
 from .state import (
+    get_state, set_state,
     READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED, DONE,
     FIX_REQUIRED, RETRYABLE, FAILED, BLOCKED, AUTH_REQUIRED,
     CANDIDATE_STATES, ACTIVE_STATES,
@@ -197,11 +200,14 @@ def select_dispatch_plan(
                 continue
             worker = chosen
 
-        # Resolve workspace mode
+        # Resolve workspace mode — isolation determined by transport
         mode = meta.get("workspaceMode")
         if not mode:
-            mode = "shared-readonly" if role in ("review", "test") else "worktree"
-            if mode == "worktree" and project.transport != "local":
+            if role in ("review", "test"):
+                mode = "shared-readonly"
+            elif project.transport in ("local", "remote-worktree"):
+                mode = "worktree"
+            else:
                 mode = "existing"
 
         project_root = str(Path(project.project_root).resolve()) if project.transport == "local" else project.project_root
@@ -212,11 +218,15 @@ def select_dispatch_plan(
         skip_reason = None
 
         if mode == "worktree":
-            if project.transport != "local":
-                skip_reason = f"worktree mode only supported for local transport: {project.transport}"
-            else:
+            if project.transport == "local":
                 working_dir = str(Path(bridge_root) / "runtime" / "worktrees" / c["taskId"])
                 worktree_path = working_dir
+            elif project.transport == "remote-worktree":
+                # remote-worktree handles isolation via remote workspace root
+                working_dir = project.project_root
+                worktree_path = None
+            else:
+                skip_reason = f"worktree mode not supported for transport: {project.transport}"
         elif mode == "existing":
             if active_any.get(idle_key, 0) > 0:
                 skip_reason = f"existing mode requires idle project: {idle_key}"
@@ -256,3 +266,62 @@ def select_dispatch_plan(
             active_writes[idle_key] = active_writes.get(idle_key, 0) + 1
 
     return DispatchPlan(plan=plan, skipped=skipped, active=active)
+
+
+@dataclass
+class DispatchExecutionResult:
+    """Result of executing a dispatch plan."""
+    plan: DispatchPlan
+    spawned: list[str] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
+
+
+def execute_dispatch(
+    tasks_root: str | Path,
+    bridge_root: str | Path,
+    max_workers: int = 4,
+    dry_run: bool = False,
+    spawn_workers: bool = True,
+) -> DispatchExecutionResult:
+    """Unified dispatch execution service.
+
+    Both CLI and daemon call this function. It:
+    1. Plans dispatch via select_dispatch_plan
+    2. Sets QUEUED state for each planned task
+    3. Spawns worker processes (unless dry_run or spawn_workers=False)
+    4. On spawn failure, reverts to READY to avoid permanent QUEUED
+    """
+    plan = select_dispatch_plan(tasks_root, bridge_root, max_workers=max_workers)
+
+    if dry_run or not plan.plan:
+        return DispatchExecutionResult(plan=plan)
+
+    result = DispatchExecutionResult(plan=plan)
+
+    for item in plan.plan:
+        tdir = Path(item.directory)
+
+        # Race protection: skip if no longer candidate
+        current = get_state(tdir)
+        if current.get("status") not in CANDIDATE_STATES:
+            result.failed.append((item.task_id, f"no longer candidate: {current.get('status')}"))
+            continue
+
+        # Set QUEUED
+        set_state(tdir, QUEUED, message=f"dispatched to {item.worker_id}")
+
+        if spawn_workers:
+            try:
+                subprocess.Popen(
+                    [sys.executable, "-m", "bridge.cli", "run", "-t", item.task_id],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                result.spawned.append(item.task_id)
+            except Exception as e:
+                # Spawn failed: revert to READY to avoid permanent QUEUED
+                set_state(tdir, READY, message=f"spawn failed: {e}")
+                result.failed.append((item.task_id, str(e)))
+
+    return result
