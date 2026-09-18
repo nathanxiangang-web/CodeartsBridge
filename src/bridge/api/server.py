@@ -630,6 +630,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
 
     def _handle_cost(self):
         from bridge.telemetry import collect_all_metrics
+        from bridge.cost import token_total
         from bridge.atomic import read_json_or_none
         try:
             tasks_dir = self.bridge_root / "tasks"
@@ -649,12 +650,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                 project_id = meta.get("projectId", "unknown")
                 worker_id = m.worker_id or "unknown"
                 role = m.role or "unknown"
-                tokens = 0
-                if m.tokens is not None:
-                    try:
-                        tokens = int(m.tokens)
-                    except (ValueError, TypeError):
-                        pass
+                tokens = token_total(m.tokens)
                 total_tokens += tokens
                 rate = float(role_rates.get(role, rate_per_mtok) or 0.0)
                 cost = tokens / 1_000_000.0 * rate
