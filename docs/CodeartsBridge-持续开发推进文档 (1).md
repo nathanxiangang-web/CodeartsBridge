@@ -2260,10 +2260,11 @@ P0-10: DONE  # 531eb5e docs truth reset
 
 P1-01: DONE  # 53fde7d doctor 探针
 P1-02: DONE  # c190fc8 优先级调度
-P1-03: IN_PROGRESS  # 模型路由
-P1-04: TODO  # 策略门控（接入旧版链 worker.py）
-P1-05: TODO  # 上下文包（纯文档路径 A）
-P1-06: TODO  # 遥测统计
+P1-03: DONE  # d2fa279 模型路由
+P1-04: DONE  # c1bf53c 策略门控
+P1-05: DONE  # 上下文包（纯文档）
+P1-06: DONE  # 272f7e7 遥测统计
+
 ```
 
 ---
