@@ -79,3 +79,18 @@ def test_task_form_selects_registered_projects_and_workers():
     assert "workers.filter(w=>w.enabled!==false)" in tasks
     assert "body.worker_id=w" in tasks
     assert "if(result.error){alert(result.error);return}" in tasks
+
+
+def test_review_queue_only_contains_review_required_and_has_actions():
+    html = _html()
+    start = html.index("async function loadReview(){")
+    end = html.index("async function viewOutboxFile", start)
+    review = html[start:end]
+
+    assert "toUpperCase()==='REVIEW_REQUIRED'" in review
+    assert "mapState(task.state||'')==='done'" not in review
+    assert "reviewPass(" in review
+    assert "reviewFix(" in review
+    assert "/review/pass" in review
+    assert "/review/fix" in review
+    assert "comment" in review

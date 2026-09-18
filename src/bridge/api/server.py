@@ -503,8 +503,19 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         from bridge.application.review_service import review_pass
         body = self._read_body()
         try:
-            result = review_pass(self.bridge_root, task_id, reviewer_id=body.get("reviewerId", "api"))
-            return self._send_json(200, {"success": result.success, "newState": result.new_state})
+            result = review_pass(
+                self.bridge_root,
+                task_id,
+                reviewer_id=body.get("reviewerId", "api"),
+                comment=body.get("comment", ""),
+            )
+            if not result.success:
+                return self._send_json(409, {
+                    "success": False,
+                    "newState": result.new_state,
+                    "error": result.error,
+                })
+            return self._send_json(200, {"success": True, "newState": result.new_state})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
@@ -512,14 +523,28 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         from bridge.application.review_service import review_fix
         body = self._read_body()
         fix_file = body.get("fixFile") or body.get("fix_file") or ""
+        comment = str(body.get("comment") or "").strip()
         try:
             if not fix_file:
                 fix_path = self.bridge_root / "tasks" / task_id / "inbox" / "REVIEW_FIX.md"
                 fix_path.parent.mkdir(parents=True, exist_ok=True)
-                fix_path.write_text("# FIX\n\nPlease fix the issues.\n", encoding="utf-8")
+                instruction = comment or "Please fix the issues."
+                fix_path.write_text(f"# FIX\n\n{instruction}\n", encoding="utf-8")
                 fix_file = str(fix_path)
-            result = review_fix(self.bridge_root, task_id, fix_file, reviewer_id=body.get("reviewerId", "api"))
-            return self._send_json(200, {"success": result.success, "newState": result.new_state})
+            result = review_fix(
+                self.bridge_root,
+                task_id,
+                fix_file,
+                reviewer_id=body.get("reviewerId", "api"),
+                comment=comment,
+            )
+            if not result.success:
+                return self._send_json(409, {
+                    "success": False,
+                    "newState": result.new_state,
+                    "error": result.error,
+                })
+            return self._send_json(200, {"success": True, "newState": result.new_state})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
