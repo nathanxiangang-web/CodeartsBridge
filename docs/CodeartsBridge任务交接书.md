@@ -16,7 +16,7 @@
 | **API 地址** | `http://192.168.178.50:8080/api/health` |
 | **GitHub 仓库** | `https://github.com/nathanxiangang-web/CodeartsBridge` |
 | **分支** | `master` = `main`（已同步） |
-| **当前 HEAD** | `f9699cd` feat(P1-05): context packs and ADR system (pure docs, path A) |
+| **当前 HEAD** | `f44e7f8` feat(P2-04,P2-05): conflict resolution + pipeline orchestrator |
 
 ### SSH 连接信息
 
@@ -75,11 +75,22 @@ PYTHONPATH=src python3 -m pytest tests/e2e/ -q
 | `c1bf53c` | P1-04 | 策略门控（preChecks/postChecks/approvalGate 接入 worker.py） |
 | `f9699cd` | P1-05 | 上下文包（11 个文档 + ADR 系统，纯文档路径 A） |
 
+### P2 全部完成（5 个任务）
+
+| Commit | 任务 | 说明 | 状态 |
+|--------|------|------|------|
+| `d930610` | P2-roadmap | P2 roadmap 文档 | DONE |
+| `41f0bab` | P2-01 | auto-dispatch 引擎 + CLI | DONE |
+| `140fee2` | P2-02 | architect AI loop（规划+审查） | DONE |
+| `23c81bb` | P2-03 | integration automation | DONE |
+| `f44e7f8` | P2-04 | conflict resolution | DONE |
+| `f44e7f8` | P2-05 | pipeline orchestrator | DONE |
+
 ---
 
 ## 三、未完成任务
 
-无。P0 和 P1 全部完成。
+P0、P1、P2 全部完成。P3（数据驱动优化）待规划。
 
 #### P1-03: 模型配置和角色路由（W02）
 
@@ -178,7 +189,7 @@ tests/e2e/              # E2E 测试（121 个）
 
 | 环境 | E2E 测试 | Unit 测试 | 总计 |
 |------|----------|-----------|------|
-| 178.50 (Linux) | 411 | — | **411 passed** (P0+P1 全量) |
+| 178.50 (Linux) | 267 | — | **267 passed** (P0+P1+P2 全量) |
 
 ---
 
