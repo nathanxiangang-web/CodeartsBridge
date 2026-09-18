@@ -225,7 +225,7 @@ class Worker:
 class TaskExecution:
     preferred_worker: str | None = None
     excluded_workers: list[str] = field(default_factory=list)
-    workspace: str = "isolated"
+    workspace: str = "auto"
     target_minutes: int = 10
     soft_timeout_minutes: int = 12
     hard_timeout_minutes: int = 15
@@ -236,7 +236,7 @@ class TaskExecution:
         return cls(
             preferred_worker=d.get("preferredWorker"),
             excluded_workers=d.get("excludedWorkers", []),
-            workspace=d.get("workspace", "isolated"),
+            workspace=d.get("workspace", "auto"),
             target_minutes=d.get("targetMinutes", 10),
             soft_timeout_minutes=d.get("softTimeoutMinutes", 12),
             hard_timeout_minutes=d.get("hardTimeoutMinutes", 15),

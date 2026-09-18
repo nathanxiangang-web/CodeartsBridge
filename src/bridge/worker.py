@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import subprocess
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from .codearts import parse_codearts_json_lines, REQUIRED_MODEL, resolve_model
+from .atomic import atomic_write_text
 from .config import ProjectConfig, WorkerConfig
 from .state import (
     get_state, set_state, READY, QUEUED, STARTING, RUNNING,
@@ -20,6 +22,8 @@ from .state import (
 )
 from .task import get_meta, get_instruction_context, archive_previous_outbox
 from .transport import LocalTransport, SshTransport, SshShellTransport, RemoteWorktreeTransport
+from .workspace import LocalWorktreeWorkspace
+from .workspace.policy import resolve_workspace_mode
 from .policy.integration import (
     load_profile_for_project,
     evaluate_pre_checks,
@@ -34,6 +38,47 @@ TRANSPORT_MAP = {
     "ssh-shell": SshShellTransport,
     "remote-worktree": RemoteWorktreeTransport,
 }
+
+
+def _capture_isolated_commit(
+    task_dir: Path,
+    effective_project: ProjectConfig,
+    workspace_mode: str,
+    result: Any,
+    workspace_baseline: str | None,
+) -> tuple[str | None, str | None]:
+    """Capture the commit that integration must consume for isolated workspaces."""
+    if getattr(result, "import_error", None):
+        return None, f"workspace result import failed: {result.import_error}"
+
+    commit_sha = getattr(result, "imported_sha", None)
+
+    if workspace_mode == "local-worktree":
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(effective_project.project_root), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return None, f"cannot resolve local worktree commit: {exc}"
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return None, "cannot resolve local worktree commit"
+        commit_sha = proc.stdout.strip()
+        if workspace_baseline and commit_sha == workspace_baseline:
+            return None, "isolated local workspace produced no new commit"
+
+    elif workspace_mode == "remote-worktree":
+        if not commit_sha:
+            return None, "remote-worktree completed without an imported result commit"
+
+    if commit_sha:
+        outbox = task_dir / "outbox"
+        outbox.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(outbox / "COMMIT.sha", f"{commit_sha}\n")
+
+    return commit_sha, None
 
 
 def _run_worker_inner(
@@ -70,36 +115,82 @@ def _run_worker_inner(
 
     transport = transport_cls()
 
-    # Set RUNNING
+    # Resolve the task workspace before execution. Explicit isolation requests
+    # must never be silently downgraded to a shared project directory.
+    execution = meta.get("execution") or {}
+    requested_workspace = execution.get(
+        "workspace", meta.get("workspaceMode", "auto")
+    )
+    baseline = meta.get("baseline")
+    workspace_baseline = baseline
+    try:
+        workspace_mode = resolve_workspace_mode(
+            requested_workspace, project.transport
+        )
+    except ValueError as exc:
+        set_state(
+            task_dir, BLOCKED,
+            message=f"workspace policy blocked: {exc}",
+            attempt=attempt,
+        )
+        return get_state(task_dir)
+
+    effective_project = project
+    workspace_path = project.project_root
+    if workspace_mode == "local-worktree":
+        try:
+            workspace = LocalWorktreeWorkspace(
+                worktree_root=Path(bridge_root) / "runtime" / "worktrees"
+            ).prepare(
+                project=project,
+                task_id=task_id,
+                task_dir=task_dir,
+                baseline=baseline,
+            )
+            effective_project = replace(project, project_root=workspace.repo_path)
+            workspace_path = workspace.repo_path
+            workspace_baseline = workspace.baseline_sha
+        except Exception as exc:
+            set_state(
+                task_dir, BLOCKED,
+                message=f"workspace preparation failed: {exc}",
+                attempt=attempt,
+                workspace_mode=workspace_mode,
+            )
+            return get_state(task_dir)
+
+    # Set RUNNING only after the execution location is resolved.
     set_state(
         task_dir, RUNNING,
         message=f"attempt {attempt} running",
         process_id=__import__("os").getpid(),
+        workspace_mode=workspace_mode,
+        workspace_path=str(workspace_path),
     )
 
     # Calculate timeouts from META v2 execution config.
     # Top-level fields remain a compatibility fallback for legacy tasks.
-    execution = meta.get("execution") or {}
     timeout_seconds = int(
         execution.get("hardTimeoutMinutes", meta.get("hardTimeoutMinutes", 15))
     ) * 60
     soft_timeout_seconds = int(
         execution.get("softTimeoutMinutes", meta.get("softTimeoutMinutes", 12))
     ) * 60
-    mode = project.run_mode or "auto"
-    baseline = meta.get("baseline")
+    mode = effective_project.run_mode or "auto"
     role = meta.get("role", "implement")
-    resolved_model = resolve_model(role=role, worker=worker, project=project)
+    resolved_model = resolve_model(
+        role=role, worker=worker, project=effective_project
+    )
 
     # Load policy profile (optional)
     policy_profile = load_profile_for_project(
-        Path(bridge_root), project.id
+        Path(bridge_root), effective_project.id
     )
 
     # PreChecks: run before worker execution
     if policy_profile is not None:
         pre_result = evaluate_pre_checks(
-            policy_profile, task_dir, Path(project.project_root), role
+            policy_profile, task_dir, Path(effective_project.project_root), role
         )
         if should_block_task(pre_result):
             set_state(
@@ -111,7 +202,7 @@ def _run_worker_inner(
 
     # Run
     result = transport.run(
-        project=project,
+        project=effective_project,
         worker=worker,
         task_dir=task_dir,
         task_id=task_id,
@@ -165,10 +256,29 @@ def _run_worker_inner(
         has_diff = (outbox / "DIFF.stat").is_file()
 
         if has_result and has_tests and has_diff:
+            commit_sha, commit_error = _capture_isolated_commit(
+                task_dir=task_dir,
+                effective_project=effective_project,
+                workspace_mode=workspace_mode,
+                result=result,
+                workspace_baseline=(
+                    getattr(result, "baseline_sha", None) or workspace_baseline
+                ),
+            )
+            if commit_error:
+                set_state(
+                    task_dir, FAILED,
+                    message=commit_error,
+                    exit_code=0,
+                    session_id=new_session_id,
+                    session_mode=session_mode,
+                )
+                return get_state(task_dir)
+
             # PostChecks: run policy evaluation after deliverables confirmed
             if policy_profile is not None:
                 post_result = evaluate_task_policy(
-                    policy_profile, task_dir, Path(project.project_root), role
+                    policy_profile, task_dir, Path(effective_project.project_root), role
                 )
                 if should_block_task(post_result):
                     set_state(
@@ -188,6 +298,7 @@ def _run_worker_inner(
                         session_mode=session_mode,
                         last_event_at=telemetry.get("lastEventAt"),
                         tokens=telemetry.get("tokens"),
+                        commit_sha=commit_sha,
                     )
                     return get_state(task_dir)
 
@@ -207,6 +318,7 @@ def _run_worker_inner(
                 session_mode=session_mode,
                 last_event_at=telemetry.get("lastEventAt"),
                 tokens=telemetry.get("tokens"),
+                commit_sha=commit_sha,
             )
         else:
             set_state(

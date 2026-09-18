@@ -43,12 +43,42 @@ class LocalWorktreeWorkspace(WorkspaceManager):
         wt_root.mkdir(parents=True, exist_ok=True)
         wt_path = wt_root / task_id
 
-        # Create worktree
-        cmd = [
-            "git", "-C", str(project_root),
-            "worktree", "add", "-b", branch,
-            str(wt_path), baseline_sha,
-        ]
+        # Reuse an existing task worktree on retry/restart. A task keeps one
+        # stable isolated branch until integration succeeds and cleans it up.
+        if wt_path.is_dir() and is_git_repo(wt_path):
+            head = subprocess.run(
+                ["git", "-C", str(wt_path), "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10,
+            )
+            current_sha = head.stdout.strip() if head.returncode == 0 else baseline_sha
+            return WorkspaceResult(
+                workspace_path=str(wt_path),
+                branch=branch,
+                baseline_sha=current_sha or baseline_sha,
+                repo_path=str(wt_path),
+                is_remote=False,
+                extra={"transport": "local", "reused": True, "project_root": str(project_root)},
+            )
+
+        # If a previous worktree was pruned but the task branch remains, attach
+        # the existing branch rather than trying to recreate it with -b.
+        branch_check = subprocess.run(
+            ["git", "-C", str(project_root), "show-ref", "--verify", "--quiet",
+             f"refs/heads/{branch}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if branch_check.returncode == 0:
+            cmd = [
+                "git", "-C", str(project_root),
+                "worktree", "add", str(wt_path), branch,
+            ]
+        else:
+            cmd = [
+                "git", "-C", str(project_root),
+                "worktree", "add", "-b", branch,
+                str(wt_path), baseline_sha,
+            ]
+
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise ValueError(f"Worktree creation failed: {r.stderr}")
@@ -59,7 +89,7 @@ class LocalWorktreeWorkspace(WorkspaceManager):
             baseline_sha=baseline_sha,
             repo_path=str(wt_path),
             is_remote=False,
-            extra={"transport": "local"},
+            extra={"transport": "local", "reused": False, "project_root": str(project_root)},
         )
 
     def cleanup(
@@ -72,14 +102,19 @@ class LocalWorktreeWorkspace(WorkspaceManager):
         if not wt_path:
             return
 
-        # Remove worktree
+        project_root = workspace_result.extra.get("project_root", "")
+        git_prefix = ["git"]
+        if project_root:
+            git_prefix += ["-C", str(project_root)]
+
+        # Remove worktree from the owning repository, not from bridge cwd.
         subprocess.run(
-            ["git", "worktree", "remove", "--force", wt_path],
+            git_prefix + ["worktree", "remove", "--force", wt_path],
             capture_output=True, timeout=15,
         )
-        # Delete branch
+        # Delete the task branch only after the worktree is detached.
         if branch:
             subprocess.run(
-                ["git", "branch", "-D", branch],
+                git_prefix + ["branch", "-D", branch],
                 capture_output=True, timeout=10,
             )

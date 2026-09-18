@@ -103,7 +103,6 @@ def _resolve_task_commit(task_dir: Path, state: dict, meta: dict) -> str:
         or state.get("headSha")
         or meta.get("commitSha")
         or meta.get("headSha")
-        or meta.get("baseline")
     )
     if sha:
         return sha
@@ -162,6 +161,40 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _cleanup_integrated_local_worktree(
+    task_id: str,
+    project_root: Path,
+    state: dict,
+) -> str | None:
+    """Remove an integrated local task worktree and branch.
+
+    Cleanup is intentionally post-integration only. Failed or reverted
+    integrations keep the isolated workspace intact for diagnosis/retry.
+    """
+    if state.get("workspaceMode") != "local-worktree":
+        return None
+    workspace_path = str(state.get("workspacePath") or "").strip()
+    if not workspace_path:
+        return "local-worktree state is missing workspacePath"
+
+    try:
+        from .workspace.base import WorkspaceResult
+        from .workspace.local_worktree import LocalWorktreeWorkspace
+
+        LocalWorktreeWorkspace().cleanup(
+            task_id,
+            WorkspaceResult(
+                workspace_path=workspace_path,
+                repo_path=workspace_path,
+                branch=f"task/{task_id}",
+                extra={"project_root": str(project_root)},
+            ),
+        )
+        return None
+    except Exception as exc:
+        return str(exc)
+
+
 def integrate_task(
     task_id: str,
     bridge_root: Path,
@@ -203,7 +236,7 @@ def integrate_task(
     if not commit_sha:
         return IntegrationResult(
             task_id=task_id, success=False,
-            error="No commit SHA found for task (set commitSha in state.json or META.json)",
+            error="No result commit SHA found for task (worker must persist commitSha or outbox/COMMIT.sha)",
         )
 
     project_root = _resolve_project_root(bridge_root, meta)
@@ -259,6 +292,16 @@ def integrate_task(
 
     state["integratedSha"] = merged_sha
     state["integratedAt"] = _now_iso()
+
+    cleanup_error = _cleanup_integrated_local_worktree(
+        task_id, project_root, state
+    )
+    if cleanup_error:
+        state["workspaceCleanupError"] = cleanup_error
+    elif state.get("workspaceMode") == "local-worktree":
+        state["workspaceCleanedAt"] = _now_iso()
+        state.pop("workspaceCleanupError", None)
+
     atomic_write_json(task_dir / "state.json", state)
 
     return IntegrationResult(

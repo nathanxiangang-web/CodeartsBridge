@@ -23,6 +23,7 @@ from .state import (
     FIX_REQUIRED, RETRYABLE, FAILED, BLOCKED, AUTH_REQUIRED,
     CANDIDATE_STATES, ACTIVE_STATES,
 )
+from .workspace.policy import resolve_workspace_mode
 
 
 @dataclass
@@ -222,15 +223,16 @@ def select_dispatch_plan(
                 continue
             worker = chosen
 
-        # Resolve workspace mode — isolation determined by transport
-        mode = meta.get("workspaceMode")
-        if not mode:
-            if role in ("review", "test"):
-                mode = "shared-readonly"
-            elif project.transport in ("local", "remote-worktree"):
-                mode = "worktree"
-            else:
-                mode = "existing"
+        # Resolve the same workspace contract used by Worker runtime.
+        execution = meta.get("execution") if isinstance(meta.get("execution"), dict) else {}
+        requested_workspace = execution.get(
+            "workspace", meta.get("workspaceMode", "auto")
+        )
+        try:
+            mode = resolve_workspace_mode(requested_workspace, project.transport)
+        except ValueError as exc:
+            skipped.append(SkippedItem(c["taskId"], f"workspace policy: {exc}"))
+            continue
 
         project_root = str(Path(project.project_root).resolve()) if project.transport == "local" else project.project_root
         idle_key = f"{project.ssh_host}::{project_root}" if project.ssh_host else project_root
@@ -239,28 +241,19 @@ def select_dispatch_plan(
         worktree_path = None
         skip_reason = None
 
-        if mode == "worktree":
-            if project.transport == "local":
-                working_dir = str(Path(bridge_root) / "runtime" / "worktrees" / c["taskId"])
-                worktree_path = working_dir
-            elif project.transport == "remote-worktree":
-                # remote-worktree handles isolation via remote workspace root
-                working_dir = project.project_root
-                worktree_path = None
-            else:
-                skip_reason = f"worktree mode not supported for transport: {project.transport}"
+        if mode == "local-worktree":
+            working_dir = str(Path(bridge_root) / "runtime" / "worktrees" / c["taskId"])
+            worktree_path = working_dir
+        elif mode == "remote-worktree":
+            # RemoteWorktreeTransport owns remote workspace preparation.
+            working_dir = project.project_root
         elif mode == "existing":
             if active_any.get(idle_key, 0) > 0:
                 skip_reason = f"existing mode requires idle project: {idle_key}"
             else:
                 working_dir = project_root
-        elif mode == "shared-readonly":
-            if active_writes.get(idle_key, 0) > 0:
-                skip_reason = f"shared-readonly refused: active write on {idle_key}"
-            else:
-                working_dir = project_root
         else:
-            skip_reason = f"unsupported workspaceMode: {mode}"
+            skip_reason = f"unsupported effective workspaceMode: {mode}"
 
         if skip_reason:
             skipped.append(SkippedItem(c["taskId"], skip_reason))
@@ -284,7 +277,7 @@ def select_dispatch_plan(
         worker_usage[worker.id] = worker_usage.get(worker.id, 0) + 1
         if mode == "existing":
             active_any[idle_key] = active_any.get(idle_key, 0) + 1
-        if role == "implement" and mode != "worktree":
+        if role == "implement" and mode == "existing":
             active_writes[idle_key] = active_writes.get(idle_key, 0) + 1
 
     return DispatchPlan(plan=plan, skipped=skipped, active=active)

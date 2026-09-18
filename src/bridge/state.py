@@ -119,6 +119,9 @@ def set_state(
     tokens: Any = None,
     attempt: int | None = None,
     assigned_worker_id: str | None = None,
+    workspace_mode: str | None = None,
+    workspace_path: str | None = None,
+    commit_sha: str | None = None,
 ) -> dict[str, Any]:
     """Merge-update state.json, preserving existing fields.
 
@@ -176,6 +179,12 @@ def set_state(
         state["tokens"] = tokens
     if assigned_worker_id is not None:
         state["assignedWorkerId"] = assigned_worker_id
+    if workspace_mode is not None:
+        state["workspaceMode"] = workspace_mode
+    if workspace_path is not None:
+        state["workspacePath"] = workspace_path
+    if commit_sha is not None:
+        state["commitSha"] = commit_sha
 
     # Auto-record timestamp for state transitions
     ts_field = _STATE_TIMESTAMPS.get(status)

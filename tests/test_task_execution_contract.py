@@ -23,6 +23,7 @@ def test_worker_uses_nested_v2_execution_timeouts(tmp_path, monkeypatch):
         task_id="runtime-contract",
         task_file=None,
         baseline="baseline-sha",
+        workspace="existing",
         target_minutes=7,
         soft_timeout_minutes=9,
         hard_timeout_minutes=11,
@@ -74,7 +75,7 @@ def test_task_service_defaults_match_v2_task_model(tmp_path):
         (tmp_path / "tasks" / "defaults" / "META.json").read_text(encoding="utf-8")
     )
     assert meta["priority"] == 50
-    assert meta["execution"]["workspace"] == "isolated"
+    assert meta["execution"]["workspace"] == "auto"
     assert meta["execution"]["targetMinutes"] == 10
     assert meta["execution"]["softTimeoutMinutes"] == 12
     assert meta["execution"]["hardTimeoutMinutes"] == 15

@@ -18,6 +18,7 @@ from ..core.state import get_state, set_state, CREATED, READY, CANCELLED
 from ..core.ids import generate_assignment_id
 from ..core.errors import TaskNotFoundError
 from ..config import assert_safe_id, VALID_ROLES
+from ..workspace.policy import normalize_workspace_request
 
 
 def _now_iso() -> str:
@@ -64,6 +65,7 @@ def create_task(
     soft_timeout_minutes = int(soft_timeout_minutes)
     hard_timeout_minutes = int(hard_timeout_minutes)
     priority = int(priority)
+    workspace = normalize_workspace_request(workspace)
     if target_minutes <= 0 or soft_timeout_minutes <= 0 or hard_timeout_minutes <= 0:
         raise ValueError("Task execution timeouts must be positive")
     if soft_timeout_minutes > hard_timeout_minutes:
@@ -101,7 +103,7 @@ def create_task(
         "execution": {
             "preferredWorker": preferred_worker,
             "excludedWorkers": excluded_workers or [],
-            "workspace": workspace or "isolated",
+            "workspace": workspace,
             "targetMinutes": target_minutes,
             "softTimeoutMinutes": soft_timeout_minutes,
             "hardTimeoutMinutes": hard_timeout_minutes,
