@@ -63,15 +63,22 @@ class TestCLIUsesServices:
         args = argparse.Namespace(
             project_id="p1", worker_id="w1", role="implement",
             task_id="t1", task_file=str(task_file),
-            baseline=None, target_minutes=10,
-            soft_timeout_minutes=12, timeout_minutes=15,
-            workspace_mode=None, depends_on=None,
+            baseline="base-sha", target_minutes=8,
+            soft_timeout_minutes=10, timeout_minutes=13,
+            workspace_mode="worktree", depends_on=None,
         )
         rc = cmd_create(args)
         assert rc == 0
         # Verify task was created via service (META.json with schemaVersion 2)
         meta_file = tmp_path / "tasks" / "t1" / "META.json"
         assert meta_file.exists()
+        import json
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        assert meta["baseline"] == "base-sha"
+        assert meta["execution"]["workspace"] == "worktree"
+        assert meta["execution"]["targetMinutes"] == 8
+        assert meta["execution"]["softTimeoutMinutes"] == 10
+        assert meta["execution"]["hardTimeoutMinutes"] == 13
 
     def test_create_without_worker_uses_auto_assignment(self, tmp_path, monkeypatch):
         from bridge.cli import cmd_create

@@ -150,6 +150,11 @@ def cmd_create(args) -> int:
         task_file=args.task_file or "",
         required_skills=[],
         depends_on=args.depends_on or [],
+        baseline=args.baseline,
+        workspace=args.workspace_mode,
+        target_minutes=args.target_minutes,
+        soft_timeout_minutes=args.soft_timeout_minutes,
+        hard_timeout_minutes=args.timeout_minutes,
     )
     print(f"Task {args.task_id} created via TaskService")
     return 0
