@@ -11,8 +11,42 @@ import json
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 REQUIRED_MODEL = "huaweicloud-maas/GLM-5.2"
+
+ROLE_MODEL_MAP: dict[str, str] = {
+    "architect": "huaweicloud-maas/GLM-5.2",
+    "implement": "huaweicloud-maas/GLM-5.2",
+    "review": "huaweicloud-maas/GLM-5.2",
+    "test": "huaweicloud-maas/GLM-5.2",
+}
+
+_MODEL_DEFAULT_SENTINELS = {"default", ""}
+
+
+def resolve_model(
+    role: str | None = None,
+    worker: Any = None,
+    project: Any = None,
+) -> str:
+    """Resolve the effective model for a worker run.
+
+    Priority: worker.model (if explicitly set) > project.model (if explicitly set)
+    > ROLE_MODEL_MAP[role] > REQUIRED_MODEL.
+
+    A model value of "default" or empty string means "use role-based mapping".
+    """
+    for source in (worker, project):
+        if source is not None:
+            m = getattr(source, "model", None)
+            if m and m not in _MODEL_DEFAULT_SENTINELS and m != REQUIRED_MODEL:
+                return m
+    if role and role in ROLE_MODEL_MAP:
+        return ROLE_MODEL_MAP[role]
+    return REQUIRED_MODEL
+
+
 THINK_LANGUAGE_DIRECTIVE = (
     "Use English for all reasoning, analysis, tool summaries, console-visible event text, "
     "and final output. Do not emit Chinese text in Worker-generated content because "

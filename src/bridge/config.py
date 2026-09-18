@@ -17,7 +17,7 @@ _SAFE_SESSION_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 VALID_TRANSPORTS = ("local", "ssh", "ssh-shell", "remote-worktree")
 VALID_RUN_MODES = ("auto", "manual", "sandbox")
-VALID_ROLES = ("implement", "review", "test")
+VALID_ROLES = ("architect", "implement", "review", "test")
 
 
 def assert_safe_id(value: str, label: str = "ID") -> None:

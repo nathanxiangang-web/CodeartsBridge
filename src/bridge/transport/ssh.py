@@ -38,6 +38,7 @@ class SshTransport(TransportBase):
         attempt: int = 0,
         baseline: str | None = None,
         quiet: bool = False,
+        model: str | None = None,
     ) -> TransportResult:
         task_dir = Path(task_dir)
 
@@ -106,7 +107,7 @@ class SshTransport(TransportBase):
         # Build remote command
         mode_flag = get_mode_flag(mode)
         args = new_worker_run_arguments(
-            prompt=prompt, model=REQUIRED_MODEL, mode_flag=mode_flag,
+            prompt=prompt, model=model or REQUIRED_MODEL, mode_flag=mode_flag,
             task_id=task_id, session_id=session_id,
         )
         remote_run_segment = " ".join(quote_posix(a) for a in args)

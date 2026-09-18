@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .codearts import parse_codearts_json_lines, REQUIRED_MODEL
+from .codearts import parse_codearts_json_lines, REQUIRED_MODEL, resolve_model
 from .config import ProjectConfig, WorkerConfig
 from .state import (
     get_state, set_state, READY, QUEUED, STARTING, RUNNING,
@@ -75,6 +75,8 @@ def run_worker(
     soft_timeout_seconds = int(meta.get("softTimeoutMinutes", 12)) * 60
     mode = project.run_mode or "auto"
     baseline = meta.get("baseline")
+    role = meta.get("role", "implement")
+    resolved_model = resolve_model(role=role, worker=worker, project=project)
 
     # Run
     result = transport.run(
@@ -89,6 +91,7 @@ def run_worker(
         attempt=attempt,
         baseline=baseline,
         quiet=quiet,
+        model=resolved_model,
     )
 
     # Parse telemetry

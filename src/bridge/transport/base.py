@@ -47,6 +47,7 @@ class TransportBase:
         attempt: int = 0,
         baseline: str | None = None,
         quiet: bool = False,
+        model: str | None = None,
     ) -> TransportResult:
         raise NotImplementedError
 
