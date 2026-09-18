@@ -87,6 +87,19 @@ def select_plan(
             })
             continue
 
+        # An explicit META.workerId is a hard routing constraint.
+        # It must never silently fall back to another worker. Role/skill
+        # validation above and capacity/anti-affinity validation below still apply.
+        if task.worker_id:
+            candidates = [w for w in candidates if w.id == task.worker_id]
+            if not candidates:
+                plan.skipped.append({
+                    "taskId": task.task_id,
+                    "reason": "explicit_worker_unavailable",
+                    "workerId": task.worker_id,
+                })
+                continue
+
         # Filter by capacity
         candidates = filter_with_capacity(candidates, existing_assignments + plan.assignments)
         if not candidates:
