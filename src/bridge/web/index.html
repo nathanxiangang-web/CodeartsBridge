@@ -51,6 +51,19 @@ th{color:#8b949e;font-weight:600}
 .modal-content{background:#0d1117;border:1px solid #30363d;border-radius:8px;max-width:80%;max-height:80%;overflow:auto;padding:16px}
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .file-content{background:#161b22;padding:12px;border-radius:6px;overflow:auto;white-space:pre-wrap;font-size:13px;max-height:60vh}
+.thinking-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.thinking-log{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px;max-height:70vh;overflow-y:auto;font-family:monospace;font-size:12px}
+.thinking-entry{padding:4px 0;border-bottom:1px solid #21262d}
+.evt-time{color:#8b949e;margin-right:8px}
+.evt-type{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600;margin-right:8px}
+.evt-task{color:#58a6ff;margin-right:8px}
+.evt-payload{margin:4px 0 0 20px;color:#c9d1d3;white-space:pre-wrap;font-size:11px;max-height:200px;overflow:auto}
+.evt-default .evt-type{background:#1f6feb33;color:#58a6ff}
+.evt-state .evt-type{background:#d2992233;color:#d29922}
+.evt-dispatch .evt-type{background:#a371f733;color:#a371f7}
+.evt-done .evt-type{background:#3fb95033;color:#3fb950}
+.evt-error .evt-type{background:#f8514933;color:#f85149}
+.evt-hb .evt-type{background:#6e768133;color:#8b949e}
 .btn{padding:6px 14px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;cursor:pointer;font-size:13px}
 .btn:hover{background:#30363d}
 .btn-primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
@@ -73,6 +86,7 @@ input,select,textarea{width:100%}
 <a href="#tasks" class="nav-link" data-page="tasks" data-i18n="nav_tasks">任务</a>
 <a href="#workers" class="nav-link" data-page="workers" data-i18n="nav_workers">工作节点</a>
 <a href="#review" class="nav-link" data-page="review" data-i18n="nav_review">审查</a>
+<a href="#thinking" class="nav-link" data-page="thinking" data-i18n="nav_thinking">思考回显</a>
 <a href="#settings" class="nav-link" data-page="settings" data-i18n="nav_settings">设置</a>
 <span class="spacer"></span>
 <button class="lang-btn" onclick="toggleLang()">EN</button>
@@ -89,6 +103,7 @@ const i18n={
   nav_tasks:{zh:'任务',en:'Tasks'},
   nav_workers:{zh:'工作节点',en:'Workers'},
   nav_review:{zh:'审查',en:'Review'},
+  nav_thinking:{zh:'思考回显',en:'Thinking'},
   nav_settings:{zh:'设置',en:'Settings'},
   bridge_status:{zh:'桥接状态',en:'Bridge Status'},
   version:{zh:'版本',en:'Version'},
@@ -139,6 +154,17 @@ const i18n={
   no_review:{zh:'暂无待审查任务',en:'No tasks pending review'},
   output_files:{zh:'输出文件',en:'Output Files'},
   no_output_files:{zh:'暂无输出文件',en:'No output files'},
+  thinking_title:{zh:'智能体思考回显',en:'Agent Thinking Echo'},
+  thinking_hint:{zh:'实时显示智能体事件、心跳和思考过程',en:'Real-time agent events, heartbeat and thinking process'},
+  no_events:{zh:'等待事件中...',en:'Waiting for events...'},
+  connected:{zh:'已连接',en:'Connected'},
+  disconnected:{zh:'已断开',en:'Disconnected'},
+  event_type:{zh:'类型',en:'Type'},
+  event_task:{zh:'任务',en:'Task'},
+  event_time:{zh:'时间',en:'Time'},
+  event_payload:{zh:'内容',en:'Payload'},
+  heartbeat:{zh:'心跳',en:'Heartbeat'},
+  clear_log:{zh:'清空',en:'Clear'},
   pass:{zh:'通过',en:'Pass'},
   fix:{zh:'需修复',en:'Fix'},
   bridge_config:{zh:'桥接配置',en:'Bridge Configuration'},
@@ -268,17 +294,13 @@ const ob=await api(`/tasks/${task.task_id}/outbox`);
 const files=ob.files||[];
 const fileList=files.length===0?`<p class="muted">${t('no_output_files')}</p>`:
 files.map(f=>`<div class="outbox-file" onclick="viewOutboxFile('${esc(task.task_id)}','${esc(f.name)}')"><span class="file-icon">📄</span> ${esc(f.name)} <span class="muted">(${f.size}B)</span></div>`).join('');
-return `<tr><td>${esc(task.task_id)}</td><td>${badge(task.state)}</td><td>${esc(task.project_id)}</td><td>${esc(task.role)}</td>
-<td>
-<button class="btn btn-primary" onclick="reviewPass('${esc(task.task_id)}')">${t('pass')}</button>
-<button class="btn btn-danger" onclick="reviewFix('${esc(task.task_id)}')">${t('fix')}</button>
-</td></tr>
-<tr class="outbox-row"><td colspan="5"><div class="outbox-box"><h3>${t('output_files')}</h3>${fileList}</div></td></tr>`;
+return `<tr><td>${esc(task.task_id)}</td><td>${badge(task.state)}</td><td>${esc(task.project_id)}</td><td>${esc(task.role)}</td></tr>
+<tr class="outbox-row"><td colspan="4"><div class="outbox-box"><h3>${t('output_files')}</h3>${fileList}</div></td></tr>`;
 }));
 return `
 <div class="card"><h2>${t('review_queue')}</h2>
 ${reviewTasks.length===0?`<p class="muted">${t('no_review')}</p>`:''}
-<table><tr><th>${t('id')}</th><th>${t('state')}</th><th>${t('project')}</th><th>${t('role')}</th><th>${t('actions')}</th></tr>
+<table><tr><th>${t('id')}</th><th>${t('state')}</th><th>${t('project')}</th><th>${t('role')}</th></tr>
 ${rows.join('')}
 </table></div>
 <div id="fileModal" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
@@ -293,15 +315,44 @@ document.getElementById('modalFileContent').textContent=r.content||r.error||'';
 document.getElementById('fileModal').style.display='flex';
 }
 
-async function reviewPass(id){
-await api(`/tasks/${id}/review/pass`,{method:'POST'});
-location.reload();
+let thinkingES=null,thinkingPoll=null;
+async function loadThinking(){
+return `
+<div class="card"><h2>${t('thinking_title')}</h2><p class="muted">${t('thinking_hint')}</p></div>
+<div class="card"><div class="thinking-toolbar"><span id="thinkingStatus" class="muted">${t('disconnected')}</span><button class="btn" onclick="clearThinkingLog()">${t('clear_log')}</button></div>
+<div id="thinkingLog" class="thinking-log"><p class="muted">${t('no_events')}</p></div></div>`;
 }
 
-async function reviewFix(id){
-await api(`/tasks/${id}/review/fix`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fix_file:''})});
-location.reload();
+function initThinking(){
+if(thinkingES)thinkingES.close();
+if(thinkingPoll)clearInterval(thinkingPoll);
+const log=document.getElementById('thinkingLog');
+if(!log)return;
+log.innerHTML='';
+const status=document.getElementById('thinkingStatus');
+const addEntry=(cls,html)=>{const d=document.createElement('div');d.className='thinking-entry '+cls;d.innerHTML=html;log.appendChild(d);log.scrollTop=log.scrollHeight};
+const fmtTime=(ts)=>{try{return new Date(ts).toLocaleTimeString()}catch(e){return ts||''}};
+
+thinkingES=new EventSource(API+'/events');
+thinkingES.onopen=()=>{if(status){status.textContent=t('connected');status.style.color='#3fb950'}};
+thinkingES.onerror=()=>{if(status){status.textContent=t('disconnected');status.style.color='#f85149'}};
+thinkingES.addEventListener('keepalive',()=>{});
+thinkingES.onmessage=e=>{
+try{const evt=JSON.parse(e.data);const type=evt.type||'event';const tid=evt.taskId||'-';const payload=JSON.stringify(evt.payload||{},null,2);
+const typeClass={'task_state_changed':'evt-state','task_dispatched':'evt-dispatch','task_completed':'evt-done','task_failed':'evt-error','heartbeat':'evt-hb'}[type]||'evt-default';
+addEntry(typeClass,`<span class="evt-time">${fmtTime(evt.timestamp||Date.now())}</span> <span class="evt-type">${esc(type)}</span> <span class="evt-task">${esc(tid)}</span><pre class="evt-payload">${esc(payload)}</pre>`)}catch(err){}
+};
+
+thinkingPoll=setInterval(async()=>{
+try{const r=await api('/tasks');const running=(r.tasks||[]).filter(t=>String(t.state).toLowerCase()==='running');
+for(const task of running){const st=await api(`/tasks/${task.task_id}`);
+const summary=st.heartbeatSummary||(st.meta&&st.meta.heartbeatSummary);
+if(summary){addEntry('evt-hb',`<span class="evt-time">${fmtTime(Date.now())}</span> <span class="evt-type">${t('heartbeat')}</span> <span class="evt-task">${esc(task.task_id)}</span><pre class="evt-payload">${esc(summary)}</pre>`)}}
+}catch(e){}
+},3000);
 }
+
+function clearThinkingLog(){const log=document.getElementById('thinkingLog');if(log)log.innerHTML=''}
 
 async function loadSettings(){
 const h=await api('/health');
@@ -322,13 +373,14 @@ return `
 </div>`;
 }
 
-const pages={dashboard:loadDashboard,projects:loadProjects,tasks:loadTasks,workers:loadWorkers,review:loadReview,settings:loadSettings};
+const pages={dashboard:loadDashboard,projects:loadProjects,tasks:loadTasks,workers:loadWorkers,review:loadReview,thinking:loadThinking,settings:loadSettings};
 
 async function navigate(page){
 document.querySelectorAll('.nav-link').forEach(a=>a.classList.remove('active'));
 document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
 const fn=pages[page]||loadDashboard;
 try{document.getElementById('content').innerHTML=await fn()}catch(e){document.getElementById('content').innerHTML=`<div class="card"><p class="muted">${t('error')}: ${esc(e)}</p></div>`}
+if(page==='thinking')initThinking();
 }
 
 window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)||'dashboard'));
