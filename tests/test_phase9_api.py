@@ -79,6 +79,24 @@ class TestHealthAPI:
 
 
 class TestProjectsAPI:
+    def test_create_without_worker_or_task_file_keeps_auto_assignment(self, api_server, tmp_path):
+        code, data = _post(api_server, "/api/tasks", {
+            "projectId": "p1",
+            "role": "implement",
+            "taskId": "auto-task",
+        })
+        assert code == 201
+        assert data["workerId"] is None
+
+        task_md = tmp_path / "tasks" / "auto-task" / "inbox" / "001-TASK.md"
+        assert task_md.is_file()
+        assert "No task file provided" in task_md.read_text(encoding="utf-8")
+
+        code, listed = _get(api_server, "/api/tasks")
+        assert code == 200
+        task = next(t for t in listed["tasks"] if t["taskId"] == "auto-task")
+        assert task["workerId"] is None
+
     def test_list_empty(self, api_server):
         code, data = _get(api_server, "/api/projects")
         assert code == 200

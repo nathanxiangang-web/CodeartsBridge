@@ -144,7 +144,7 @@ def cmd_create(args) -> int:
     v2_create_task(
         bridge_root=root,
         project_id=args.project_id,
-        worker_id=args.worker_id or "default",
+        worker_id=args.worker_id,
         role=args.role,
         task_id=args.task_id,
         task_file=args.task_file or "",

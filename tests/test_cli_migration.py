@@ -73,6 +73,27 @@ class TestCLIUsesServices:
         meta_file = tmp_path / "tasks" / "t1" / "META.json"
         assert meta_file.exists()
 
+    def test_create_without_worker_uses_auto_assignment(self, tmp_path, monkeypatch):
+        from bridge.cli import cmd_create
+        import argparse
+        import json
+
+        monkeypatch.setattr("bridge.cli._bridge_root", lambda: tmp_path)
+
+        args = argparse.Namespace(
+            project_id="p1", worker_id=None, role="implement",
+            task_id="auto-cli", task_file=None,
+            baseline=None, target_minutes=10,
+            soft_timeout_minutes=12, timeout_minutes=15,
+            workspace_mode=None, depends_on=None,
+        )
+        rc = cmd_create(args)
+        assert rc == 0
+
+        meta = json.loads((tmp_path / "tasks" / "auto-cli" / "META.json").read_text(encoding="utf-8"))
+        assert meta["workerId"] is None
+        assert (tmp_path / "tasks" / "auto-cli" / "inbox" / "001-TASK.md").is_file()
+
     def test_cancel_uses_task_service(self, tmp_path, monkeypatch):
         from bridge.cli import cmd_cancel
         from bridge.application.task_service import create_task
