@@ -241,12 +241,12 @@ def _parse_tests_summary(tests_content: str) -> tuple[int, int]:
     passed = 0
     failed = 0
 
-    p_match = re.search(r"(?i)passed\s*[:=]\s*(\d+)", tests_content)
-    f_match = re.search(r"(?i)failed\s*[:=]\s*(\d+)", tests_content)
+    p_match = re.search(r"(?i)(?:passed\s*[:=]\s*(\d+)|(\d+)[ \t]+passed\b)", tests_content)
+    f_match = re.search(r"(?i)(?:failed\s*[:=]\s*(\d+)|(\d+)[ \t]+failed\b)", tests_content)
     if p_match:
-        passed = int(p_match.group(1))
+        passed = int(p_match.group(1) or p_match.group(2))
     if f_match:
-        failed = int(f_match.group(1))
+        failed = int(f_match.group(1) or f_match.group(2))
 
     if passed == 0 and failed == 0:
         for line in tests_content.splitlines():
