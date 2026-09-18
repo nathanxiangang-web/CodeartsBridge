@@ -98,15 +98,15 @@ def _save_state(bridge_root: Path, state: PipelineState) -> None:
 
 
 def _has_active_tasks(bridge_root: Path) -> bool:
-    from .state import get_state, CANDIDATE_STATES, ACTIVE_STATES, REVIEW_REQUIRED
+    from .core.state import get_state, CANDIDATE_STATES, ACTIVE_STATES
     tasks_root = bridge_root / "tasks"
     if not tasks_root.exists():
         return False
     for task_dir in tasks_root.iterdir():
         if not task_dir.is_dir():
             continue
-        status = get_state(task_dir).get("status") or get_state(task_dir).get("state", "")
-        if status in CANDIDATE_STATES or status in ACTIVE_STATES or status == REVIEW_REQUIRED:
+        status = get_state(task_dir).get("state", "")
+        if status in CANDIDATE_STATES or status in ACTIVE_STATES:
             return True
     return False
 
@@ -142,29 +142,29 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
     except Exception as e:
         result.errors.append(f"auto_dispatch: {e}")
 
-    # Step 3: Integrate DONE tasks
+    # Step 3: Integrate APPROVED tasks
     try:
-        results = integrate_loop(bridge_root)
-        result.integrated = len(results)
-        state.total_integrated += len(results)
+        results = integrate_loop(bridge_root, dry_run=config.dry_run)
+        successful = [r for r in results if r.success and not r.dry_run]
+        result.integrated = len(successful)
+        state.total_integrated += len(successful)
         for r in results:
-            if hasattr(r, "errors") and r.errors:
-                result.errors.extend(r.errors)
+            if not r.success:
+                result.errors.append(
+                    f"integration {r.task_id}: {r.error or 'unknown failure'}"
+                )
     except Exception as e:
         result.errors.append(f"integrate_loop: {e}")
 
-    # Step 4: Conflict detection for integrated tasks
+    # Step 4: Record integration conflicts already identified by the engine.
     try:
-        from .state import DONE
+        from .core.state import get_state, CONFLICT
         tasks_root = bridge_root / "tasks"
         if tasks_root.exists():
             for task_dir in tasks_root.iterdir():
                 if not task_dir.is_dir():
                     continue
-                tid = task_dir.name
-                cr = detect_conflict(tid, bridge_root)
-                if cr.conflict:
-                    handle_conflict(tid, bridge_root)
+                if get_state(task_dir).get("state") == CONFLICT:
                     result.conflicts += 1
                     state.total_conflicts += 1
     except Exception as e:
