@@ -317,16 +317,17 @@ document.getElementById('fileModal').style.display='flex';
 
 let thinkingPoll=null,taskStartTimes={};
 async function loadThinking(){
-const r=await api('/tasks');
-const allTasks=(r.tasks||[]).sort((a,b)=>{const order={thinking:0,queued:1,done:2};return (order[mapState(a.state)]??99)-(order[mapState(b.state)]??99)});
-const slots=[];
-for(let i=0;i<4;i++){const task=allTasks[i];slots.push(task||null)}
+const r=await api('/workers');
+const workers=(r.workers||[]).slice(0,4);
 return `
 <div class="monitor-grid">
-${slots.map((task,i)=>`<div class="monitor-window" id="monitor-${i}">
-<div class="monitor-header">${task?`<span class="monitor-tid">${esc(task.taskId)}</span> ${badge(task.state)} <span class="monitor-timer" id="timer-${i}"></span>`:`<span class="muted">${t('no_events')}</span>`}</div>
+${workers.map((w,i)=>{
+const host=(w.host||w.id||'?').replace(/^[^@]+@/,'');
+return `<div class="monitor-window" id="monitor-${i}">
+<div class="monitor-header"><span class="monitor-host">${esc(host)}</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(w.id||'')}"></span></div>
 <div class="monitor-log" id="log-${i}"></div>
-</div>`).join('')}
+</div>`;
+}).join('')}
 </div>`;
 }
 
@@ -340,38 +341,42 @@ return `${sec}秒`;
 
 function initThinking(){
 if(thinkingPoll)clearInterval(thinkingPoll);
-const taskSlots={};
-for(let i=0;i<4;i++){const w=document.getElementById('monitor-'+i);if(w){const tid=w.querySelector('.monitor-tid');if(tid)taskSlots[tid.textContent]=i}}
-let workerHosts={};
-api('/workers').then(r=>{(r.workers||[]).forEach(w=>{workerHosts[w.id||w.workerId]=w.host||w.id||'?'})});
+const workerSlots={};
+for(let i=0;i<4;i++){const w=document.getElementById('monitor-'+i);if(w){const tidEl=w.querySelector('.monitor-tid');if(tidEl){const wid=tidEl.getAttribute('data-worker');if(wid)workerSlots[wid]=i}}}
 
 async function pollLogs(){
 try{
 const r=await api('/tasks');
+const taskByWorker={};
 for(const task of(r.tasks||[])){
 const tid=task.taskId;
-const slotIdx=taskSlots[tid];
-if(slotIdx===undefined)continue;
 const st=await api(`/tasks/${tid}`);
 const state=st.state||task.state;
+if(mapState(state)==='done')continue;
+const wid=(st.meta&&st.meta.workerId)||(task.meta&&task.meta.workerId)||'';
+if(wid&&!taskByWorker[wid])taskByWorker[wid]={tid,state};
+}
+for(let i=0;i<4;i++){
+const hdr=document.querySelector(`#monitor-${i} .monitor-header`);
+const logEl=document.getElementById('log-'+i);
+if(!hdr||!logEl)continue;
+const hostEl=hdr.querySelector('.monitor-host');
+const host=hostEl?hostEl.textContent:'?';
+const wEl=hdr.querySelector('.monitor-tid');
+const wid=wEl?wEl.getAttribute('data-worker'):'';
+const info=taskByWorker[wid];
+if(info){
+const{tid,state}=info;
 const log=await api(`/tasks/${tid}/log`);
 const events=log.events||[];
 const tc=log.toolCount||0;
 const rc=log.reasoningCount||0;
 const ms=mapState(state);
-const wid=(st.meta&&st.meta.workerId)||(task.meta&&task.meta.workerId)||'';
-const host=workerHosts[wid]||wid||'?';
-const shortHost=host.replace(/^[^@]+@/,'');
 let elapsed;
 if(ms==='thinking'&&log.startTime>0){elapsed=Math.floor((Date.now()-log.startTime)/1000)}
 else if(ms==='完成'){elapsed=log.elapsed||0}
 else{elapsed=0}
-const hdr=document.querySelector(`#monitor-${slotIdx} .monitor-header`);
-if(hdr){
-hdr.innerHTML=`<span class="monitor-host">${esc(shortHost)}</span> ${badge(state)} <span class="monitor-timer">⏱${fmtElapsed(elapsed)}</span> <span class="muted" style="font-size:10px">思考${rc} 工具${tc}</span> <span class="monitor-tid muted" style="font-size:10px">${esc(tid)}</span>`;
-}
-const logEl=document.getElementById('log-'+slotIdx);
-if(logEl){
+hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> ${badge(state)} <span class="monitor-timer">⏱${fmtElapsed(elapsed)}</span> <span class="muted" style="font-size:10px">思考${rc} 工具${tc}</span> <span class="monitor-tid muted" style="font-size:10px">${esc(tid)}</span>`;
 let html='';
 if(events.length>0){
 html=events.map(e=>{
@@ -386,6 +391,9 @@ return `<div class="${cls}">${icon} ${esc(txt)}</div>`;
 }
 if(!html)html=`<span class="muted">${t('no_events')}</span>`;
 logEl.innerHTML=html;
+}else{
+hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> <span class="muted" style="font-size:11px">空闲</span>`;
+logEl.innerHTML='';
 }
 }
 }catch(e){}
