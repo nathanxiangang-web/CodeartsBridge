@@ -230,9 +230,13 @@ class TestRunPipelineCycle:
                 ),
             ],
         )
+        conflict_checks = []
         monkeypatch.setattr(
             "bridge.pipeline.detect_conflict",
-            lambda task_id, bridge_root: SimpleNamespace(conflict=False),
+            lambda task_id, bridge_root: (
+                conflict_checks.append(task_id)
+                or SimpleNamespace(conflict=False)
+            ),
         )
 
         state = PipelineState()
@@ -243,6 +247,7 @@ class TestRunPipelineCycle:
         assert result.integrated == 1
         assert state.total_integrated == 1
         assert result.errors == ["integration bad: cherry-pick failed"]
+        assert conflict_checks == ["ok"]
 
     def test_failed_integration_can_block_without_fake_integrated_count(
         self, pipeline_bridge, monkeypatch
@@ -302,14 +307,25 @@ class TestRunPipelineCycle:
             "status": "DONE",
         }))
 
+        historical_dir = bridge / "tasks" / "already-integrated"
+        historical_dir.mkdir(parents=True)
+        (historical_dir / "state.json").write_text(json.dumps({
+            "taskId": "already-integrated",
+            "state": "DONE",
+            "status": "DONE",
+            "integratedSha": "abc123",
+        }))
+
         monkeypatch.setattr(
             "bridge.pipeline.auto_dispatch",
             lambda **kwargs: SimpleNamespace(dispatched=0, errors=[]),
         )
+        conflict_checks = []
         monkeypatch.setattr(
             "bridge.pipeline.detect_conflict",
-            lambda task_id, bridge_root: SimpleNamespace(
-                conflict=(task_id == "done-task")
+            lambda task_id, bridge_root: (
+                conflict_checks.append(task_id)
+                or SimpleNamespace(conflict=(task_id == "done-task"))
             ),
         )
 
@@ -328,6 +344,7 @@ class TestRunPipelineCycle:
         assert state.total_reviewed == 7
         assert state.total_integrated == 5
         assert state.total_conflicts == 3
+        assert conflict_checks == ["done-task"]
 
     def test_cycle_time_positive(self, pipeline_bridge):
         bridge = pipeline_bridge
