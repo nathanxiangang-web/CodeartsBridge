@@ -25,7 +25,7 @@
     {
       "id": "cloudsite-rc1-w01",
       "transport": "remote-worktree",
-      "projectRoot": "/home/nathan/CloudSite-source",
+      "projectRoot": "/home/nathan/CloudSite",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 15,
@@ -36,7 +36,7 @@
     {
       "id": "cloudsite-rc1-w02",
       "transport": "remote-worktree",
-      "projectRoot": "/home/nathan/CloudSite-source",
+      "projectRoot": "/home/nathan/CloudSite",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 15,
@@ -47,7 +47,7 @@
     {
       "id": "cloudsite-rc1-w03",
       "transport": "remote-worktree",
-      "projectRoot": "/home/nathan/CloudSite-source",
+      "projectRoot": "/home/nathan/CloudSite",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 15,
@@ -58,7 +58,7 @@
     {
       "id": "cloudsite-rc1-w04",
       "transport": "remote-worktree",
-      "projectRoot": "/home/nathan/CloudSite-source",
+      "projectRoot": "/home/nathan/CloudSite",
       "runMode": "auto",
       "model": "huaweicloud-maas/GLM-5.2",
       "timeoutMinutes": 15,
@@ -108,6 +108,50 @@
       "timeoutMinutes": 120,
       "sshHost": "nathan@192.168.178.51",
       "remoteBridgeRoot": "/home/nathan/.codex-glm-bridge",
+      "remoteCliPath": "codearts"
+    },
+    {
+      "id": "bus-rc1-w01",
+      "transport": "remote-worktree",
+      "projectRoot": "/home/nathan/agent-bridge",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 30,
+      "sshHost": "nathan@192.168.178.52",
+      "remoteWorkspaceRoot": "/home/nathan/.codex-glm-bridge/workspaces",
+      "remoteCliPath": "codearts"
+    },
+    {
+      "id": "bus-rc1-w02",
+      "transport": "remote-worktree",
+      "projectRoot": "/home/nathan/agent-bridge",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 30,
+      "sshHost": "nathan@192.168.178.50",
+      "remoteWorkspaceRoot": "/home/nathan/.codex-glm-bridge/workspaces",
+      "remoteCliPath": "codearts"
+    },
+    {
+      "id": "bus-rc1-w03",
+      "transport": "remote-worktree",
+      "projectRoot": "/home/nathan/agent-bridge",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 30,
+      "sshHost": "root@192.168.5.15",
+      "remoteWorkspaceRoot": "/root/.codex-glm-bridge/workspaces",
+      "remoteCliPath": "codearts"
+    },
+    {
+      "id": "bus-rc1-w04",
+      "transport": "remote-worktree",
+      "projectRoot": "/home/nathan/agent-bridge",
+      "runMode": "auto",
+      "model": "huaweicloud-maas/GLM-5.2",
+      "timeoutMinutes": 30,
+      "sshHost": "nathan@192.168.178.51",
+      "remoteWorkspaceRoot": "/home/nathan/.codex-glm-bridge/workspaces",
       "remoteCliPath": "codearts"
     }
   ]

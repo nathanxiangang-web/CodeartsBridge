@@ -1,0 +1,17 @@
+[Unit]
+Description=Codex-GLM Bridge Daemon (Python)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m bridge.daemon run
+WorkingDirectory=/home/nathan/bridge
+Environment=BRIDGE_ROOT=/home/nathan/bridge
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
