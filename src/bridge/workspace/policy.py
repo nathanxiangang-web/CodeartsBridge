@@ -58,10 +58,11 @@ def resolve_workspace_mode(requested: str | None, project_transport: str) -> str
         return "remote-worktree"
 
     if request == "existing":
+        # A remote-worktree project can safely provide stronger isolation than
+        # the caller requested; unlike the reverse direction, this does not
+        # weaken any workspace guarantee.
         if transport == "remote-worktree":
-            raise ValueError(
-                "Workspace existing is incompatible with remote-worktree transport"
-            )
+            return "remote-worktree"
         if transport not in {"local", "ssh", "ssh-shell"}:
             raise ValueError(f"Unsupported project transport for existing workspace: {transport}")
         return "existing"
