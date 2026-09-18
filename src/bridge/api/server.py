@@ -361,11 +361,10 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
 
     def _handle_get_task(self, task_id: str):
         from bridge.application.task_service import get_task_status
+        from bridge.core.errors import TaskNotFoundError
         from bridge.state import get_state
         try:
             status = get_task_status(self.bridge_root, task_id)
-            if status is None:
-                return self._send_json(404, {"error": f"Task {task_id} not found"})
             task_dir = self.bridge_root / "tasks" / task_id
             state_data = get_state(task_dir)
             status["heartbeatSummary"] = state_data.get("heartbeatSummary")
@@ -374,6 +373,8 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             status["lastHeartbeat"] = state_data.get("lastHeartbeat")
             status["message"] = state_data.get("message")
             return self._send_json(200, status)
+        except TaskNotFoundError as e:
+            return self._send_json(404, {"error": str(e)})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
@@ -455,10 +456,14 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         worker_id = body.get("workerId") or body.get("worker_id")
         role = body.get("role", "implement")
         task_file = body.get("taskFile") or body.get("task_file") or ""
+        execution = body.get("execution") if isinstance(body.get("execution"), dict) else {}
+        review = body.get("review") if isinstance(body.get("review"), dict) else {}
+
         if not task_id:
             return self._send_json(400, {"error": "taskId required"})
         if not project_id:
             return self._send_json(400, {"error": "projectId required"})
+
         try:
             meta = create_task(
                 bridge_root=self.bridge_root,
@@ -469,17 +474,60 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                 task_file=task_file,
                 required_skills=body.get("requiredSkills", body.get("required_skills", [])),
                 depends_on=body.get("dependsOn", body.get("depends_on", [])),
+                priority=body.get("priority", 50),
+                preferred_worker=execution.get(
+                    "preferredWorker",
+                    body.get("preferredWorker", body.get("preferred_worker")),
+                ),
+                excluded_workers=execution.get(
+                    "excludedWorkers",
+                    body.get("excludedWorkers", body.get("excluded_workers", [])),
+                ),
+                review_required=review.get(
+                    "required",
+                    body.get("reviewRequired", body.get("review_required", True)),
+                ),
+                independent_review=review.get(
+                    "independentWorker",
+                    body.get("independentReview", body.get("independent_review", True)),
+                ),
+                baseline=body.get("baseline"),
+                workspace=execution.get(
+                    "workspace",
+                    body.get("workspace", body.get("workspace_mode")),
+                ),
+                target_minutes=execution.get(
+                    "targetMinutes",
+                    body.get("targetMinutes", body.get("target_minutes", 10)),
+                ),
+                soft_timeout_minutes=execution.get(
+                    "softTimeoutMinutes",
+                    body.get("softTimeoutMinutes", body.get("soft_timeout_minutes", 12)),
+                ),
+                hard_timeout_minutes=execution.get(
+                    "hardTimeoutMinutes",
+                    body.get(
+                        "hardTimeoutMinutes",
+                        body.get("timeoutMinutes", body.get("timeout_minutes", 15)),
+                    ),
+                ),
             )
             return self._send_json(201, meta)
+        except ValueError as e:
+            code = 409 if str(e).startswith("Task already exists:") else 400
+            return self._send_json(code, {"error": str(e)})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
     def _handle_cancel_task(self, task_id: str):
         from bridge.application.task_service import cancel_task
+        from bridge.core.errors import TaskNotFoundError
         body = self._read_body()
         try:
             result = cancel_task(self.bridge_root, task_id, body.get("reason", ""))
             return self._send_json(200, result)
+        except TaskNotFoundError as e:
+            return self._send_json(404, {"error": str(e)})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
