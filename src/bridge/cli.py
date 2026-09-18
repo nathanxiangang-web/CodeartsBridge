@@ -459,13 +459,16 @@ def cmd_workers(args) -> int:
 
 def cmd_telemetry(args) -> int:
     """Show telemetry and statistics report."""
-    from .telemetry import generate_report_text
+    from .telemetry import generate_report, generate_report_text, report_to_dict
     root = _bridge_root()
     tasks_dir = root / "tasks"
     if not tasks_dir.is_dir():
         print("No tasks directory found.")
         return 1
-    print(generate_report_text(tasks_dir))
+    if args.json:
+        print(json.dumps(report_to_dict(generate_report(tasks_dir)), ensure_ascii=False, indent=2))
+    else:
+        print(generate_report_text(tasks_dir))
     return 0
 
 
@@ -548,7 +551,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("projects", help="List registered projects")
     sub.add_parser("workers", help="List registered workers")
-    sub.add_parser("telemetry", help="Show telemetry and statistics report")
+    p_telemetry = sub.add_parser("telemetry", help="Show telemetry and statistics report")
+    p_telemetry.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     p_adaptive = sub.add_parser("adaptive-dispatch", help="Adaptive dispatch with telemetry-tuned parameters")
     p_adaptive.add_argument("--max-workers", type=int, default=4)
     p_adaptive.add_argument("--dry-run", action="store_true", help="Show plan without dispatching")

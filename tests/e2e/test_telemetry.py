@@ -18,6 +18,7 @@ from bridge.telemetry import (
     generate_report,
     format_report_text,
     generate_report_text,
+    report_to_dict,
 )
 from bridge.state import (
     set_state, get_state, READY, QUEUED, STARTING, RUNNING,
@@ -55,6 +56,14 @@ class TestTaskMetrics:
         assert m.queued_at is not None
         assert m.started_at is not None
         assert m.finished_at is not None
+
+    def test_runtime_assigned_worker_overrides_meta_worker(self, tmp_path):
+        d = _make_task(tmp_path, "t1", [READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED], worker_id="default")
+        state = get_state(d)
+        state["assignedWorkerId"] = "w03"
+        atomic_write_json(d / "state.json", state)
+        m = TaskMetrics.from_task_dir(d)
+        assert m.worker_id == "w03"
 
     def test_queue_time_seconds(self, tmp_path):
         d = _make_task(tmp_path, "t1", [READY, QUEUED, STARTING])
@@ -173,6 +182,54 @@ class TestGenerateReport:
         assert 0 <= report.fix_rate <= 1
         assert 0 <= report.retry_rate <= 1
         assert 0 <= report.timeout_rate <= 1
+
+    def test_quality_rates_use_evaluated_denominator(self, tmp_path):
+        _make_task(tmp_path, "t1", [READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED, DONE], attempt=1)
+        _make_task(tmp_path, "t2", [READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED, DONE], attempt=2)
+        _make_task(tmp_path, "t3", [READY], attempt=1)
+
+        report = generate_report(tmp_path / "tasks")
+        assert report.total_tasks == 3
+        assert report.evaluated_tasks == 2
+        assert report.executed_tasks == 2
+        assert report.first_pass_count == 1
+        assert report.first_pass_rate == pytest.approx(0.5)
+        assert report.fix_count == 1
+        assert report.fix_rate == pytest.approx(0.5)
+        assert report.retry_rate == pytest.approx(0.5)
+
+    def test_wall_clock_throughput_and_worker_utilization(self, tmp_path):
+        t1 = _make_task(tmp_path, "t1", [READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED, DONE], worker_id="w01")
+        t2 = _make_task(tmp_path, "t2", [READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED, DONE], worker_id="w02")
+
+        base = datetime(2026, 9, 18, 0, 0, tzinfo=timezone.utc)
+        for task_dir, worker_minutes in ((t1, 30), (t2, 60)):
+            meta = json.loads((task_dir / "META.json").read_text(encoding="utf-8"))
+            meta["createdAt"] = base.isoformat()
+            atomic_write_json(task_dir / "META.json", meta)
+            state = get_state(task_dir)
+            state["startedAt"] = base.isoformat()
+            state["runningAt"] = base.isoformat()
+            state["finishedAt"] = (base + timedelta(minutes=worker_minutes)).isoformat()
+            state["doneAt"] = (base + timedelta(hours=1)).isoformat()
+            atomic_write_json(task_dir / "state.json", state)
+
+        report = generate_report(tmp_path / "tasks")
+        assert report.completed_tasks == 2
+        assert report.tasks_per_hour == pytest.approx(2.0)
+        assert report.worker_utilization["w01"] == pytest.approx(0.5)
+        assert report.worker_utilization["w02"] == pytest.approx(1.0)
+        assert report.avg_worker_utilization == pytest.approx(0.75)
+
+    def test_structured_tokens_and_json_report(self, tmp_path):
+        task_dir = _make_task(tmp_path, "t1", [READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED])
+        state = get_state(task_dir)
+        state["tokens"] = {"input_tokens": 120, "output_tokens": 80, "reasoning_tokens": 50}
+        atomic_write_json(task_dir / "state.json", state)
+        data = report_to_dict(generate_report(tmp_path / "tasks"))
+        assert data["total_tokens"] == 250
+        assert data["evaluated_tasks"] == 1
+        assert "worker_utilization" in data
 
     def test_tokens_aggregation(self, tmp_path):
         d = _make_task(tmp_path, "t1", [READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED])
