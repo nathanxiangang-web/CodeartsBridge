@@ -214,6 +214,19 @@ class TestCollectWorkerStats:
         assert perf.task_count == 3
         assert perf.timeout_rate == pytest.approx(1 / 3)
 
+    def test_filters_stats_by_role_and_project(self, bridge_root):
+        base = datetime.now(timezone.utc)
+        _make_task(bridge_root, "impl-p1", "w1", role="implement", project_id="p1",
+                   duration_seconds=60, started_at=base)
+        _make_task(bridge_root, "review-p1", "w1", role="review", project_id="p1",
+                   duration_seconds=30, started_at=base)
+        _make_task(bridge_root, "impl-p2", "w1", role="implement", project_id="p2",
+                   duration_seconds=120, started_at=base)
+
+        stats = collect_worker_stats(bridge_root, role="implement", project_id="p1")
+        assert stats["w1"].task_count == 1
+        assert stats["w1"].avg_duration == pytest.approx(60.0)
+
     def test_skips_tasks_without_execution_time(self, bridge_root):
         """Test 6: tasks missing started_at/finished_at do not contribute."""
         task_dir = bridge_root / "tasks" / "t1"
@@ -307,6 +320,49 @@ class TestRecommendWorker:
 
         result = recommend_worker("target", bridge_root, ["good", "bad"])
         assert result == "good"
+
+    def test_ignores_fast_history_from_unrelated_role(self, bridge_root):
+        base = datetime.now(timezone.utc)
+        for i in range(4):
+            _make_task(bridge_root, f"fast-test-{i}", "fast", role="test",
+                       project_id="p1", status=DONE, duration_seconds=10, started_at=base)
+        for i in range(4):
+            _make_task(bridge_root, f"impl-{i}", "implementer", role="implement",
+                       project_id="p1", status=DONE, duration_seconds=60, started_at=base)
+        _make_candidate_task(bridge_root, "target", role="implement", project_id="p1")
+
+        result = recommend_worker("target", bridge_root, ["fast", "implementer"])
+        assert result == "implementer"
+
+    def test_prefers_same_project_evidence_before_cross_project_role_history(self, bridge_root):
+        base = datetime.now(timezone.utc)
+        for i in range(4):
+            _make_task(bridge_root, f"local-{i}", "local", role="implement",
+                       project_id="p1", status=DONE, duration_seconds=90, started_at=base)
+        for i in range(4):
+            _make_task(bridge_root, f"remote-{i}", "remote", role="implement",
+                       project_id="p2", status=DONE, duration_seconds=10, started_at=base)
+        _make_candidate_task(bridge_root, "target", role="implement", project_id="p1")
+
+        result = recommend_worker("target", bridge_root, ["local", "remote"])
+        assert result == "local"
+
+    def test_falls_back_to_same_role_when_project_sample_is_insufficient(self, bridge_root):
+        base = datetime.now(timezone.utc)
+        _make_task(bridge_root, "local-only", "local", role="implement",
+                   project_id="p1", status=DONE, duration_seconds=30, started_at=base)
+        for i in range(4):
+            _make_task(bridge_root, f"role-history-{i}", "role-worker", role="implement",
+                       project_id="p2", status=DONE, duration_seconds=40, started_at=base)
+        for i in range(4):
+            _make_task(bridge_root, f"review-history-{i}", "wrong-role", role="review",
+                       project_id="p1", status=DONE, duration_seconds=5, started_at=base)
+        _make_candidate_task(bridge_root, "target", role="implement", project_id="p1")
+
+        result = recommend_worker(
+            "target", bridge_root, ["local", "role-worker", "wrong-role"]
+        )
+        assert result == "role-worker"
 
     def test_no_candidates_returns_none(self, bridge_root):
         """Test 14: empty candidate list returns None."""
