@@ -16,7 +16,7 @@ def list_projects(bridge_root: str | Path) -> list[dict]:
         return []
     data = json.loads(pf.read_text(encoding="utf-8"))
     if isinstance(data, dict):
-        return list(data.values())
+        return data.get("projects", [])
     return data
 
 

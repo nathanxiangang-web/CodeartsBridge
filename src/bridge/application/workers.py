@@ -16,7 +16,7 @@ def list_workers(bridge_root: str | Path) -> list[dict]:
         return []
     data = json.loads(wf.read_text(encoding="utf-8"))
     if isinstance(data, dict):
-        return list(data.values())
+        return data.get("workers", [])
     return data
 
 
