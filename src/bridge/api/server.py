@@ -271,6 +271,15 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
         from bridge import __version__
+        from bridge.atomic import read_json_or_none
+
+        daemon_health = read_json_or_none(
+            self.bridge_root / "runtime" / "daemon" / "health.json"
+        )
+        pipeline_state = read_json_or_none(
+            self.bridge_root / "runtime" / "pipeline-state.json"
+        )
+
         self._send_json(200, {
             "status": "healthy",
             "version": __version__,
@@ -278,6 +287,8 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             "tasks": task_count,
             "running": running,
             "workers": worker_count,
+            "daemon": daemon_health,
+            "pipeline": pipeline_state,
             "timestamp": time.time(),
         })
 
