@@ -318,7 +318,7 @@ document.getElementById('fileModal').style.display='flex';
 let thinkingPoll=null,taskStartTimes={};
 async function loadThinking(){
 const r=await api('/workers');
-const workers=(r.workers||[]).slice(0,4);
+const workers=(r.workers||[]).slice(0,4).sort((a,b)=>{const ha=(a.host||'').includes('178.50')?0:1;const hb=(b.host||'').includes('178.50')?0:1;return ha-hb;});
 return `
 <div class="monitor-grid">
 ${workers.map((w,i)=>{
