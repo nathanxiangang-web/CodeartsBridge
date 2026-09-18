@@ -454,7 +454,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         body = self._read_body()
         task_id = body.get("taskId") or body.get("task_id")
         project_id = body.get("projectId") or body.get("project_id")
-        worker_id = body.get("workerId") or body.get("worker_id") or "default"
+        worker_id = body.get("workerId") or body.get("worker_id")
         role = body.get("role", "implement")
         task_file = body.get("taskFile") or body.get("task_file") or ""
         if not task_id:
