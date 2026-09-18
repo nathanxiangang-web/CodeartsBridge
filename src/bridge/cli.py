@@ -417,6 +417,29 @@ def cmd_integrate(args) -> int:
                 print(f"  conflicts: {result.conflict_files}")
         return 0 if result.success else 1
 
+    if args.loop:
+        import time
+        try:
+            while True:
+                results = integrate_loop(root, dry_run=args.dry_run)
+                tag = "[dry-run] " if args.dry_run else ""
+                if results:
+                    succeeded = sum(1 for r in results if r.success)
+                    failed = sum(1 for r in results if not r.success)
+                    print(f"{tag}integrated={succeeded} failed={failed} total={len(results)}")
+                    for r in results:
+                        if r.success:
+                            if args.dry_run:
+                                print(f"  {r.task_id}: would cherry-pick {r.commit_sha[:12]}")
+                            else:
+                                print(f"  {r.task_id}: -> {r.merged_sha[:12]}")
+                        else:
+                            print(f"  {r.task_id}: FAILED - {r.error}")
+                time.sleep(10)
+        except KeyboardInterrupt:
+            print("\nIntegration loop stopped.")
+            return 0
+
     results = integrate_loop(root, dry_run=args.dry_run)
 
     if not results:
@@ -584,16 +607,33 @@ def build_parser() -> argparse.ArgumentParser:
 def cmd_cost(args) -> int:
     from bridge.cost import format_cost_report
     root = _bridge_root()
-    print(format_cost_report(root))
+    print(format_cost_report(root, project_filter=args.project, summary_only=args.summary))
     return 0
 
 
 def cmd_pipeline(args) -> int:
     from bridge.pipeline import run_pipeline, PipelineConfig
     root = _bridge_root()
+
+    interval = args.interval
+    max_workers = args.max_workers
+
+    if args.config:
+        from pathlib import Path
+        import json
+        config_path = Path(args.config)
+        if config_path.is_file():
+            with open(config_path, encoding="utf-8") as f:
+                file_cfg = json.load(f)
+            interval = file_cfg.get("interval", interval)
+            max_workers = file_cfg.get("maxWorkers", max_workers)
+        else:
+            print(f"Config file not found: {config_path}")
+            return 1
+
     config = PipelineConfig(
-        interval=args.interval,
-        max_workers=args.max_workers,
+        interval=interval,
+        max_workers=max_workers,
         dry_run=args.dry_run,
         once=args.once,
     )

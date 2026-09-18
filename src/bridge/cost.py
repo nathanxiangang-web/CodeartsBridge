@@ -240,9 +240,15 @@ def optimize_recommendations(report: CostReport) -> list[str]:
     return recs
 
 
-def format_cost_report(bridge_root: Path) -> str:
+def format_cost_report(bridge_root: Path, project_filter: str | None = None, summary_only: bool = False) -> str:
     report = generate_cost_report(bridge_root)
-    recs = optimize_recommendations(report)
+
+    if project_filter:
+        report.by_project = {k: v for k, v in report.by_project.items() if k == project_filter}
+        if not report.by_project:
+            return f"No cost data for project '{project_filter}'"
+
+    recs = optimize_recommendations(report) if not project_filter else []
 
     lines = ["=== Cost Report ===", ""]
     lines.append(f"Total cost:          ${report.total_cost:.6f}")
@@ -252,26 +258,28 @@ def format_cost_report(bridge_root: Path) -> str:
     lines.append(f"Records:             {report.record_count}")
     lines.append("")
 
-    if report.by_project:
-        lines.append("--- By Project ---")
-        for p, c in sorted(report.by_project.items(), key=lambda x: -x[1]):
-            lines.append(f"  {p:<30} ${c:.6f}")
-        lines.append("")
+    if not summary_only:
+        if report.by_project:
+            lines.append("--- By Project ---")
+            for p, c in sorted(report.by_project.items(), key=lambda x: -x[1]):
+                lines.append(f"  {p:<30} ${c:.6f}")
+            lines.append("")
 
-    if report.by_worker:
-        lines.append("--- By Worker ---")
-        for w, c in sorted(report.by_worker.items(), key=lambda x: -x[1]):
-            lines.append(f"  {w:<30} ${c:.6f}")
-        lines.append("")
+        if report.by_worker:
+            lines.append("--- By Worker ---")
+            for w, c in sorted(report.by_worker.items(), key=lambda x: -x[1]):
+                lines.append(f"  {w:<30} ${c:.6f}")
+            lines.append("")
 
-    if report.by_role:
-        lines.append("--- By Role ---")
-        for r, c in sorted(report.by_role.items(), key=lambda x: -x[1]):
-            lines.append(f"  {r:<30} ${c:.6f}")
-        lines.append("")
+        if report.by_role:
+            lines.append("--- By Role ---")
+            for r, c in sorted(report.by_role.items(), key=lambda x: -x[1]):
+                lines.append(f"  {r:<30} ${c:.6f}")
+            lines.append("")
 
-    lines.append("--- Recommendations ---")
-    for r in recs:
-        lines.append(f"  • {r}")
+    if recs:
+        lines.append("--- Recommendations ---")
+        for r in recs:
+            lines.append(f"  • {r}")
 
     return "\n".join(lines)
