@@ -225,7 +225,7 @@ ${Object.keys(byState).length===0?`<p class="muted">${t('no_tasks')}</p>`:''}
 </div></div>
 <div class="card"><h2>${t('recent_tasks')}</h2>
 <table><tr><th>${t('id')}</th><th>${t('state')}</th><th>${t('project')}</th><th>${t('role')}</th></tr>
-${(tasks.tasks||[]).slice(0,10).map(task=>`<tr><td>${esc(task.task_id)}</td><td>${badge(task.state)}</td><td>${esc(task.project_id)}</td><td>${esc(task.role)}</td></tr>`).join('')}
+${(tasks.tasks||[]).slice(0,10).map(task=>`<tr><td>${esc(task.taskId)}</td><td>${badge(task.state)}</td><td>${esc(task.projectId)}</td><td>${esc(task.role)}</td></tr>`).join('')}
 </table></div>`;
 }
 
@@ -256,8 +256,8 @@ const r=await api('/tasks');
 return `
 <div class="card"><h2>${t('tasks_list')}</h2>
 <table><tr><th>${t('id')}</th><th>${t('state')}</th><th>${t('project')}</th><th>${t('worker')}</th><th>${t('role')}</th><th>${t('attempt')}</th><th>${t('actions')}</th></tr>
-${(r.tasks||[]).map(task=>`<tr><td>${esc(task.task_id)}</td><td>${badge(task.state)}</td><td>${esc(task.project_id)}</td><td>${esc(task.worker_id||'-')}</td><td>${esc(task.role)}</td><td>${task.attempt||0}</td>
-<td><button class="btn" onclick="cancelTask('${esc(task.task_id)}')">${t('cancel')}</button></td></tr>`).join('')}
+${(r.tasks||[]).map(task=>`<tr><td>${esc(task.taskId)}</td><td>${badge(task.state)}</td><td>${esc(task.projectId)}</td><td>${esc(task.workerId||'-')}</td><td>${esc(task.role)}</td><td>${task.attempt||0}</td>
+<td><button class="btn" onclick="cancelTask('${esc(task.taskId)}')">${t('cancel')}</button></td></tr>`).join('')}
 </table></div>
 <div class="card"><h2>${t('create_task')}</h2>
 <div class="form-row"><label>${t('task_id')}</label><input id="tk-id"></div>
@@ -295,11 +295,11 @@ async function loadReview(){
 const r=await api('/tasks');
 const reviewTasks=(r.tasks||[]).filter(task=>{const s=task.state.toLowerCase();return s==='review_required'||s==='fix_required'});
 const rows=await Promise.all(reviewTasks.map(async task=>{
-const ob=await api(`/tasks/${task.task_id}/outbox`);
+const ob=await api(`/tasks/${task.taskId}/outbox`);
 const files=ob.files||[];
 const fileList=files.length===0?`<p class="muted">${t('no_output_files')}</p>`:
-files.map(f=>`<div class="outbox-file" onclick="viewOutboxFile('${esc(task.task_id)}','${esc(f.name)}')"><span class="file-icon">📄</span> ${esc(f.name)} <span class="muted">(${f.size}B)</span></div>`).join('');
-return `<tr><td>${esc(task.task_id)}</td><td>${badge(task.state)}</td><td>${esc(task.project_id)}</td><td>${esc(task.role)}</td></tr>
+files.map(f=>`<div class="outbox-file" onclick="viewOutboxFile('${esc(task.taskId)}','${esc(f.name)}')"><span class="file-icon">📄</span> ${esc(f.name)} <span class="muted">(${f.size}B)</span></div>`).join('');
+return `<tr><td>${esc(task.taskId)}</td><td>${badge(task.state)}</td><td>${esc(task.projectId)}</td><td>${esc(task.role)}</td></tr>
 <tr class="outbox-row"><td colspan="4"><div class="outbox-box"><h3>${t('output_files')}</h3>${fileList}</div></td></tr>`;
 }));
 return `
@@ -323,7 +323,7 @@ document.getElementById('fileModal').style.display='flex';
 let thinkingES=null,thinkingPoll=null;
 async function loadThinking(){
 const r=await api('/tasks');
-const allTasks=(r.tasks||[]).sort((a,b)=>String(a.state).localeCompare(String(b.state)));
+const allTasks=(r.tasks||[]).sort((a,b)=>{const order={RUNNING:0,QUEUED:1,STARTING:2,VERIFYING:3,REVIEW_REQUIRED:4,FIX_REQUIRED:5,REVIEW_PASSED:6,DONE:7,CANCELLED:8,FAILED:9};return (order[a.state]??99)-(order[b.state]??99)});
 const slots=[];
 for(let i=0;i<4;i++){const task=allTasks[i];slots.push(task||null)}
 return `
@@ -356,17 +356,17 @@ log.scrollTop=log.scrollHeight;
 thinkingES=new EventSource(API+'/events');
 thinkingES.onopen=()=>{if(status){status.textContent=t('connected');status.style.color='#3fb950'}};
 thinkingES.onerror=()=>{if(status){status.textContent=t('disconnected');status.style.color='#f85149'}};
-thinkingES.addEventListener('keepalive',()=>{});
-thinkingES.onmessage=e=>{
-try{const evt=JSON.parse(e.data);const type=evt.type||'event';const tid=evt.taskId||'-';const payload=JSON.stringify(evt.payload||{},null,2);
+const handleEvt=(type,e)=>{
+try{const evt=JSON.parse(e.data);const tid=evt.taskId||'-';const payload=JSON.stringify(evt.payload||{},null,2);
 const slotIdx=taskSlots[tid]!==undefined?taskSlots[tid]:0;
 const typeClass={'task_state_changed':'evt-state','task_dispatched':'evt-dispatch','task_completed':'evt-done','task_failed':'evt-error','heartbeat':'evt-hb'}[type]||'evt-default';
-addEntry(slotIdx,typeClass,`<span class="evt-time">${fmtTime(evt.timestamp||Date.now())}</span> <span class="evt-type">${esc(type)}</span><pre class="evt-payload">${esc(payload)}</pre>`)}catch(err){}
+addEntry(slotIdx,typeClass,`<span class="evt-time">${fmtTime(Date.now())}</span> <span class="evt-type">${esc(type)}</span><pre class="evt-payload">${esc(payload)}</pre>`)}catch(err){}
 };
+['task_state_changed','task_dispatched','task_completed','task_failed','heartbeat','task_created','task_queued','task_running','task_review_required','task_cancelled','task_started','task_verifying'].forEach(type=>thinkingES.addEventListener(type,e=>handleEvt(type,e)));
 
 thinkingPoll=setInterval(async()=>{
 try{const r=await api('/tasks');const running=(r.tasks||[]).filter(t=>String(t.state).toLowerCase()==='running');
-for(const task of running){const st=await api(`/tasks/${task.task_id}`);
+for(const task of running){const st=await api(`/tasks/${task.taskId}`);
 const summary=st.heartbeatSummary||(st.meta&&st.meta.heartbeatSummary);
 if(summary){const slotIdx=taskSlots[task.taskId]!==undefined?taskSlots[task.taskId]:0;
 addEntry(slotIdx,'evt-hb',`<span class="evt-time">${fmtTime(Date.now())}</span> <span class="evt-type">${t('heartbeat')}</span><pre class="evt-payload">${esc(summary)}</pre>`)}}

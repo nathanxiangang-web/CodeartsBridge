@@ -273,10 +273,18 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
 
     def _handle_get_task(self, task_id: str):
         from bridge.application.task_service import get_task_status
+        from bridge.state import get_state
         try:
             status = get_task_status(self.bridge_root, task_id)
             if status is None:
                 return self._send_json(404, {"error": f"Task {task_id} not found"})
+            task_dir = self.bridge_root / "tasks" / task_id
+            state_data = get_state(task_dir)
+            status["heartbeatSummary"] = state_data.get("heartbeatSummary")
+            status["heartbeatThink"] = state_data.get("heartbeatThink")
+            status["heartbeatTool"] = state_data.get("heartbeatTool")
+            status["lastHeartbeat"] = state_data.get("lastHeartbeat")
+            status["message"] = state_data.get("message")
             return self._send_json(200, status)
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
