@@ -447,9 +447,13 @@ class Registry:
 
     @classmethod
     def from_dict(cls, d: dict) -> Registry:
+        defaults = d.get("defaults", {})
         return cls(
-            defaults=d.get("defaults", {}),
-            projects=[Project.from_dict(p) for p in d.get("projects", [])],
+            defaults=defaults,
+            projects=[
+                Project.from_dict({**defaults, **p})
+                for p in d.get("projects", [])
+            ],
         )
 
     def get_project(self, project_id: str) -> Project | None:
@@ -466,9 +470,13 @@ class WorkersRegistry:
 
     @classmethod
     def from_dict(cls, d: dict) -> WorkersRegistry:
+        defaults = d.get("defaults", {})
         return cls(
-            defaults=d.get("defaults", {}),
-            workers=[Worker.from_dict(w) for w in d.get("workers", [])],
+            defaults=defaults,
+            workers=[
+                Worker.from_dict({**defaults, **w})
+                for w in d.get("workers", [])
+            ],
         )
 
     def get_worker(self, worker_id: str) -> Worker | None:
