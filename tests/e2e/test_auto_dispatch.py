@@ -378,3 +378,86 @@ class TestAutoDispatchNoRegression:
 
         assert _get_task_state(bridge_root, "t1") == QUEUED
         assert _get_task_state(bridge_root, "t2") == QUEUED
+
+class TestAssignmentLeaseLifecycle:
+    """Runtime assignments must release worker capacity after execution."""
+
+    def test_finish_assignment_marks_done_and_releases_lease(self, setup_bridge, mock_popen):
+        from bridge.scheduler.planner import finish_assignment, load_assignments
+
+        bridge_root = setup_bridge
+        _create_task(bridge_root, "lease-t1", state="READY")
+
+        result = auto_dispatch(bridge_root, max_workers=1)
+        assert result.dispatched == 1
+
+        assignments_dir = bridge_root / "runtime" / "assignments"
+        leases_dir = bridge_root / "runtime" / "leases"
+        active = [a for a in load_assignments(assignments_dir) if a.task_id == "lease-t1"]
+        assert len(active) == 1
+        assert active[0].finished_at is None
+        assert active[0].lease_id
+        assert (leases_dir / f"{active[0].lease_id}.json").is_file()
+
+        assert finish_assignment(assignments_dir, leases_dir, "lease-t1") == 1
+
+        finished = [a for a in load_assignments(assignments_dir) if a.task_id == "lease-t1"]
+        assert finished[0].finished_at is not None
+        assert not (leases_dir / f"{finished[0].lease_id}.json").exists()
+
+    def test_next_dispatch_reconciles_terminal_assignment_capacity(self, setup_bridge, mock_popen):
+        bridge_root = setup_bridge
+        _create_task(bridge_root, "first", state="READY", priority=100)
+        _create_task(bridge_root, "second", state="READY", priority=10)
+
+        first = auto_dispatch(bridge_root, max_workers=1)
+        assert first.dispatched == 1
+        assert _get_task_state(bridge_root, "first") == QUEUED
+        assert _get_task_state(bridge_root, "second") == READY
+
+        # Simulate a worker/service ending without running normal finally cleanup.
+        _set_task_state(bridge_root, "first", "DONE")
+
+        second = auto_dispatch(bridge_root, max_workers=1)
+        assert second.dispatched == 1
+        assert _get_task_state(bridge_root, "second") == QUEUED
+
+        first_assignment = next(
+            p for p in (bridge_root / "runtime" / "assignments").glob("*.json")
+            if json.loads(p.read_text(encoding="utf-8")).get("taskId") == "first"
+        )
+        assert json.loads(first_assignment.read_text(encoding="utf-8")).get("finishedAt")
+
+    def test_run_worker_finally_finishes_assignment(self, tmp_path, monkeypatch):
+        import bridge.worker as worker_module
+
+        task_dir = tmp_path / "tasks" / "wrapped"
+        task_dir.mkdir(parents=True)
+        calls = []
+
+        monkeypatch.setattr(
+            worker_module,
+            "_run_worker_inner",
+            lambda *args, **kwargs: {"status": "DONE"},
+        )
+        monkeypatch.setattr(
+            "bridge.scheduler.planner.finish_assignment",
+            lambda assignments, leases, task_id: calls.append(
+                (assignments, leases, task_id)
+            ) or 1,
+        )
+
+        result = worker_module.run_worker(
+            task_dir,
+            project=object(),
+            worker=None,
+            bridge_root=tmp_path,
+        )
+
+        assert result == {"status": "DONE"}
+        assert calls == [(
+            tmp_path / "runtime" / "assignments",
+            tmp_path / "runtime" / "leases",
+            "wrapped",
+        )]
+
