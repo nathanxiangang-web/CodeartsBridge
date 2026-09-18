@@ -17,7 +17,7 @@ from .atomic import atomic_write_text
 from .config import ProjectConfig, WorkerConfig
 from .state import (
     get_state, set_state, READY, QUEUED, STARTING, RUNNING,
-    REVIEW_REQUIRED, DONE, BLOCKED, FAILED, RETRYABLE,
+    REVIEW_REQUIRED, DONE, BLOCKED, FAILED, RETRYABLE, CANCELLED,
     ASSISTANCE_REQUIRED, AUTH_REQUIRED, FIX_REQUIRED,
 )
 from .task import get_meta, get_instruction_context, archive_previous_outbox
@@ -221,8 +221,34 @@ def _run_worker_inner(
     new_session_id = telemetry.get("sessionId") or session_id
     session_mode = "resume" if session_id else "new"
 
-    # Determine final state
-    if result.assistance_requested:
+    # Determine final state. Keep this priority aligned with the canonical
+    # result classifier: cancellation wins, then hard timeout, then assistance.
+    # A transport process that has exited must never leave the task RUNNING.
+    if result.cancelled:
+        set_state(
+            task_dir, CANCELLED,
+            message="worker cancelled",
+            exit_code=result.exit_code,
+            session_id=new_session_id,
+            session_mode=session_mode,
+            last_event_at=telemetry.get("lastEventAt"),
+            tokens=telemetry.get("tokens"),
+        )
+    elif result.timed_out or result.exit_code in (137, 124):
+        set_state(
+            task_dir, RETRYABLE,
+            message=(
+                "hard timeout"
+                if result.timed_out
+                else f"timeout exit {result.exit_code}"
+            ),
+            exit_code=result.exit_code,
+            session_id=new_session_id,
+            session_mode=session_mode,
+            last_event_at=telemetry.get("lastEventAt"),
+            tokens=telemetry.get("tokens"),
+        )
+    elif result.assistance_requested:
         set_state(
             task_dir, ASSISTANCE_REQUIRED,
             message="worker requested assistance",
@@ -231,22 +257,6 @@ def _run_worker_inner(
             session_mode=session_mode,
             last_event_at=telemetry.get("lastEventAt"),
             tokens=telemetry.get("tokens"),
-        )
-    elif result.cancelled:
-        set_state(
-            task_dir, state.get("status", RUNNING),
-            message="cancelled",
-            exit_code=result.exit_code,
-            session_id=new_session_id,
-            session_mode=session_mode,
-        )
-    elif result.timed_out:
-        set_state(
-            task_dir, RUNNING,
-            message="hard timeout",
-            exit_code=result.exit_code,
-            session_id=new_session_id,
-            session_mode=session_mode,
         )
     elif result.exit_code == 0:
         # Check deliverables
@@ -329,17 +339,14 @@ def _run_worker_inner(
                 session_mode=session_mode,
             )
     else:
-        # Non-zero exit
-        if result.exit_code in (137, 124):
-            status = RUNNING  # timeout kill
-        else:
-            status = FAILED
         set_state(
-            task_dir, status,
+            task_dir, FAILED,
             message=f"worker exit code {result.exit_code}",
             exit_code=result.exit_code,
             session_id=new_session_id,
             session_mode=session_mode,
+            last_event_at=telemetry.get("lastEventAt"),
+            tokens=telemetry.get("tokens"),
         )
 
     return get_state(task_dir)
