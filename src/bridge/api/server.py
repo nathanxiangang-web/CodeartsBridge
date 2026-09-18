@@ -298,7 +298,10 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         for f in sorted(outbox.rglob("*")):
             if f.is_file():
                 rel = str(f.relative_to(outbox))
-                files.append({"name": rel, "size": f.stat().st_size})
+                st = f.stat()
+                from datetime import datetime, timezone
+                mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+                files.append({"name": rel, "size": st.st_size, "mtime": mtime})
         return self._send_json(200, {"files": files})
 
     def _handle_read_outbox_file(self, task_id: str, filename: str):

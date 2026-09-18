@@ -297,15 +297,16 @@ const reviewTasks=(r.tasks||[]).filter(task=>{const s=task.state.toLowerCase();r
 const rows=await Promise.all(reviewTasks.map(async task=>{
 const ob=await api(`/tasks/${task.taskId}/outbox`);
 const files=ob.files||[];
+const lastMod=files.length>0?files.map(f=>f.mtime||'').sort().pop():'';
 const fileList=files.length===0?`<p class="muted">${t('no_output_files')}</p>`:
 files.map(f=>`<div class="outbox-file" onclick="viewOutboxFile('${esc(task.taskId)}','${esc(f.name)}')"><span class="file-icon">📄</span> ${esc(f.name)} <span class="muted">(${f.size}B)</span></div>`).join('');
-return `<tr><td>${esc(task.taskId)}</td><td>${badge(task.state)}</td><td>${esc(task.projectId)}</td><td>${esc(task.role)}</td></tr>
+return `<tr><td>${esc(task.taskId)}</td><td>${esc(task.projectId)}</td><td>${esc(task.role)}</td><td class="muted">${esc(lastMod)}</td></tr>
 <tr class="outbox-row"><td colspan="4"><div class="outbox-box"><h3>${t('output_files')}</h3>${fileList}</div></td></tr>`;
 }));
 return `
 <div class="card"><h2>${t('review_queue')}</h2>
 ${reviewTasks.length===0?`<p class="muted">${t('no_review')}</p>`:''}
-<table><tr><th>${t('id')}</th><th>${t('state')}</th><th>${t('project')}</th><th>${t('role')}</th></tr>
+<table><tr><th>${t('id')}</th><th>${t('project')}</th><th>${t('role')}</th><th>${t('event_time')}</th></tr>
 ${rows.join('')}
 </table></div>
 <div id="fileModal" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
@@ -320,14 +321,14 @@ document.getElementById('modalFileContent').textContent=r.content||r.error||'';
 document.getElementById('fileModal').style.display='flex';
 }
 
-let thinkingES=null,thinkingPoll=null;
+let thinkingPoll=null,thinkingPrev={};
 async function loadThinking(){
 const r=await api('/tasks');
 const allTasks=(r.tasks||[]).sort((a,b)=>{const order={RUNNING:0,QUEUED:1,STARTING:2,VERIFYING:3,REVIEW_REQUIRED:4,FIX_REQUIRED:5,REVIEW_PASSED:6,DONE:7,CANCELLED:8,FAILED:9};return (order[a.state]??99)-(order[b.state]??99)});
 const slots=[];
 for(let i=0;i<4;i++){const task=allTasks[i];slots.push(task||null)}
 return `
-<div class="card"><div class="thinking-toolbar"><span id="thinkingStatus" class="muted">${t('disconnected')}</span><button class="btn" onclick="clearThinkingLog()">${t('clear_log')}</button></div></div>
+<div class="card"><div class="thinking-toolbar"><span id="thinkingStatus" class="muted">${t('connected')}</span><button class="btn" onclick="clearThinkingLog()">${t('clear_log')}</button></div></div>
 <div class="monitor-grid">
 ${slots.map((task,i)=>`<div class="monitor-window" id="monitor-${i}">
 <div class="monitor-header">${task?`<span class="monitor-tid">${esc(task.taskId)}</span> ${badge(task.state)}`:`<span class="muted">${t('no_events')}</span>`}</div>
@@ -337,12 +338,11 @@ ${slots.map((task,i)=>`<div class="monitor-window" id="monitor-${i}">
 }
 
 function initThinking(){
-if(thinkingES)thinkingES.close();
 if(thinkingPoll)clearInterval(thinkingPoll);
-const status=document.getElementById('thinkingStatus');
 const fmtTime=(ts)=>{try{return new Date(ts).toLocaleTimeString()}catch(e){return ts||''}};
 const taskSlots={};
 for(let i=0;i<4;i++){const w=document.getElementById('monitor-'+i);if(w){const tid=w.querySelector('.monitor-tid');if(tid)taskSlots[tid.textContent]=i}}
+thinkingPrev={};
 
 function addEntry(slotIdx,cls,html){
 const log=document.getElementById('log-'+slotIdx);
@@ -353,25 +353,31 @@ while(log.childNodes.length>200)log.removeChild(log.firstChild);
 log.scrollTop=log.scrollHeight;
 }
 
-thinkingES=new EventSource(API+'/events');
-thinkingES.onopen=()=>{if(status){status.textContent=t('connected');status.style.color='#3fb950'}};
-thinkingES.onerror=()=>{if(status){status.textContent=t('disconnected');status.style.color='#f85149'}};
-const handleEvt=(type,e)=>{
-try{const evt=JSON.parse(e.data);const tid=evt.taskId||'-';const payload=JSON.stringify(evt.payload||{},null,2);
-const slotIdx=taskSlots[tid]!==undefined?taskSlots[tid]:0;
-const typeClass={'task_state_changed':'evt-state','task_dispatched':'evt-dispatch','task_completed':'evt-done','task_failed':'evt-error','heartbeat':'evt-hb'}[type]||'evt-default';
-addEntry(slotIdx,typeClass,`<span class="evt-time">${fmtTime(Date.now())}</span> <span class="evt-type">${esc(type)}</span><pre class="evt-payload">${esc(payload)}</pre>`)}catch(err){}
-};
-['task_state_changed','task_dispatched','task_completed','task_failed','heartbeat','task_created','task_queued','task_running','task_review_required','task_cancelled','task_started','task_verifying'].forEach(type=>thinkingES.addEventListener(type,e=>handleEvt(type,e)));
-
-thinkingPoll=setInterval(async()=>{
-try{const r=await api('/tasks');const running=(r.tasks||[]).filter(t=>String(t.state).toLowerCase()==='running');
-for(const task of running){const st=await api(`/tasks/${task.taskId}`);
-const summary=st.heartbeatSummary||(st.meta&&st.meta.heartbeatSummary);
-if(summary){const slotIdx=taskSlots[task.taskId]!==undefined?taskSlots[task.taskId]:0;
-addEntry(slotIdx,'evt-hb',`<span class="evt-time">${fmtTime(Date.now())}</span> <span class="evt-type">${t('heartbeat')}</span><pre class="evt-payload">${esc(summary)}</pre>`)}}
+async function pollTasks(){
+try{
+const r=await api('/tasks');
+for(const task of(r.tasks||[])){
+const tid=task.taskId;
+const slotIdx=taskSlots[tid];
+if(slotIdx===undefined)continue;
+const st=await api(`/tasks/${tid}`);
+const state=st.state||'';
+const msg=st.message||'';
+const hb=st.heartbeatSummary||'';
+const prev=thinkingPrev[tid]||{};
+if(state!==prev.state||msg!==prev.msg||hb!==prev.hb){
+const typeClass=state!==prev.state?'evt-state':'evt-hb';
+const label=state!==prev.state?`${esc(prev.state||'init')}→${esc(state)}`:t('heartbeat');
+addEntry(slotIdx,typeClass,`<span class="evt-time">${fmtTime(Date.now())}</span> <span class="evt-type">${label}</span>${msg?`<pre class="evt-payload">${esc(msg)}</pre>`:''}${hb?`<pre class="evt-payload">${esc(hb)}</pre>`:''}`);
+thinkingPrev[tid]={state,msg,hb};
+const hdr=document.querySelector(`#monitor-${slotIdx} .monitor-header`);
+if(hdr)hdr.innerHTML=`<span class="monitor-tid">${esc(tid)}</span> ${badge(state)}`;
+}
+}
 }catch(e){}
-},3000);
+}
+pollTasks();
+thinkingPoll=setInterval(pollTasks,2000);
 }
 
 function clearThinkingLog(){for(let i=0;i<4;i++){const log=document.getElementById('log-'+i);if(log)log.innerHTML=''}}
