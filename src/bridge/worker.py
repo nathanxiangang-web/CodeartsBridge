@@ -36,7 +36,7 @@ TRANSPORT_MAP = {
 }
 
 
-def run_worker(
+def _run_worker_inner(
     task_dir: str | Path,
     project: ProjectConfig,
     worker: WorkerConfig | None,
@@ -217,3 +217,34 @@ def run_worker(
         )
 
     return get_state(task_dir)
+
+def run_worker(
+    task_dir: str | Path,
+    project: ProjectConfig,
+    worker: WorkerConfig | None,
+    bridge_root: str | Path,
+    quiet: bool = False,
+) -> dict:
+    """Run one worker attempt and always release its scheduler assignment."""
+    task_dir = Path(task_dir)
+    bridge_root = Path(bridge_root)
+    try:
+        return _run_worker_inner(task_dir, project, worker, bridge_root, quiet=quiet)
+    finally:
+        # Manual runs may have no assignment; finish_assignment is a safe no-op.
+        # A hard process kill cannot reach finally, so auto-dispatch also
+        # reconciles stale records before its next scheduling cycle.
+        try:
+            from .scheduler.planner import finish_assignment
+            finish_assignment(
+                bridge_root / "runtime" / "assignments",
+                bridge_root / "runtime" / "leases",
+                task_dir.name,
+            )
+        except Exception:
+            # Cleanup must never mask the worker result or original failure.
+            import logging
+            logging.getLogger(__name__).exception(
+                "failed to finalize scheduler assignment for %s", task_dir.name
+            )
+
