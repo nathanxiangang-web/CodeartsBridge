@@ -57,6 +57,14 @@ class TestTaskMetrics:
         assert m.started_at is not None
         assert m.finished_at is not None
 
+    def test_runtime_assigned_worker_overrides_meta_worker(self, tmp_path):
+        d = _make_task(tmp_path, "t1", [READY, QUEUED, STARTING, RUNNING, REVIEW_REQUIRED], worker_id="default")
+        state = get_state(d)
+        state["assignedWorkerId"] = "w03"
+        atomic_write_json(d / "state.json", state)
+        m = TaskMetrics.from_task_dir(d)
+        assert m.worker_id == "w03"
+
     def test_queue_time_seconds(self, tmp_path):
         d = _make_task(tmp_path, "t1", [READY, QUEUED, STARTING])
         m = TaskMetrics.from_task_dir(d)
