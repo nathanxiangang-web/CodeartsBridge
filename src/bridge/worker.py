@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,8 @@ from .state import (
 )
 from .task import get_meta, get_instruction_context, archive_previous_outbox
 from .transport import LocalTransport, SshTransport, SshShellTransport, RemoteWorktreeTransport
+from .workspace import LocalWorktreeWorkspace
+from .workspace.policy import resolve_workspace_mode
 from .policy.integration import (
     load_profile_for_project,
     evaluate_pre_checks,
@@ -70,36 +73,80 @@ def _run_worker_inner(
 
     transport = transport_cls()
 
-    # Set RUNNING
+    # Resolve the task workspace before execution. Explicit isolation requests
+    # must never be silently downgraded to a shared project directory.
+    execution = meta.get("execution") or {}
+    requested_workspace = execution.get(
+        "workspace", meta.get("workspaceMode", "auto")
+    )
+    baseline = meta.get("baseline")
+    try:
+        workspace_mode = resolve_workspace_mode(
+            requested_workspace, project.transport
+        )
+    except ValueError as exc:
+        set_state(
+            task_dir, BLOCKED,
+            message=f"workspace policy blocked: {exc}",
+            attempt=attempt,
+        )
+        return get_state(task_dir)
+
+    effective_project = project
+    workspace_path = project.project_root
+    if workspace_mode == "local-worktree":
+        try:
+            workspace = LocalWorktreeWorkspace(
+                worktree_root=Path(bridge_root) / "runtime" / "worktrees"
+            ).prepare(
+                project=effective_project,
+                task_id=task_id,
+                task_dir=task_dir,
+                baseline=baseline,
+            )
+            effective_project = replace(project, project_root=workspace.repo_path)
+            workspace_path = workspace.repo_path
+        except Exception as exc:
+            set_state(
+                task_dir, BLOCKED,
+                message=f"workspace preparation failed: {exc}",
+                attempt=attempt,
+                workspace_mode=workspace_mode,
+            )
+            return get_state(task_dir)
+
+    # Set RUNNING only after the execution location is resolved.
     set_state(
         task_dir, RUNNING,
         message=f"attempt {attempt} running",
         process_id=__import__("os").getpid(),
+        workspace_mode=workspace_mode,
+        workspace_path=str(workspace_path),
     )
 
     # Calculate timeouts from META v2 execution config.
     # Top-level fields remain a compatibility fallback for legacy tasks.
-    execution = meta.get("execution") or {}
     timeout_seconds = int(
         execution.get("hardTimeoutMinutes", meta.get("hardTimeoutMinutes", 15))
     ) * 60
     soft_timeout_seconds = int(
         execution.get("softTimeoutMinutes", meta.get("softTimeoutMinutes", 12))
     ) * 60
-    mode = project.run_mode or "auto"
-    baseline = meta.get("baseline")
+    mode = effective_project.run_mode or "auto"
     role = meta.get("role", "implement")
-    resolved_model = resolve_model(role=role, worker=worker, project=project)
+    resolved_model = resolve_model(
+        role=role, worker=worker, project=effective_project
+    )
 
     # Load policy profile (optional)
     policy_profile = load_profile_for_project(
-        Path(bridge_root), project.id
+        Path(bridge_root), effective_project.id
     )
 
     # PreChecks: run before worker execution
     if policy_profile is not None:
         pre_result = evaluate_pre_checks(
-            policy_profile, task_dir, Path(project.project_root), role
+            policy_profile, task_dir, Path(effective_project.project_root), role
         )
         if should_block_task(pre_result):
             set_state(
@@ -168,7 +215,7 @@ def _run_worker_inner(
             # PostChecks: run policy evaluation after deliverables confirmed
             if policy_profile is not None:
                 post_result = evaluate_task_policy(
-                    policy_profile, task_dir, Path(project.project_root), role
+                    policy_profile, task_dir, Path(effective_project.project_root), role
                 )
                 if should_block_task(post_result):
                     set_state(
