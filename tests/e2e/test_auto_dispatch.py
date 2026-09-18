@@ -27,6 +27,7 @@ def _create_task(
     priority: int = 50,
     role: str = "implement",
     project_id: str = "test-local",
+    worker_id: str | None = None,
 ) -> Path:
     """Create a task directory with state.json and META.json."""
     task_dir = bridge_root / "tasks" / task_id
@@ -56,6 +57,8 @@ def _create_task(
             "hardTimeoutMinutes": 15,
         },
     }
+    if worker_id is not None:
+        meta["workerId"] = worker_id
     (task_dir / "META.json").write_text(
         json.dumps(meta, indent=2), encoding="utf-8"
     )
@@ -460,4 +463,60 @@ class TestAssignmentLeaseLifecycle:
             tmp_path / "runtime" / "leases",
             "wrapped",
         )]
+
+class TestExplicitWorkerRouting:
+    """Explicit META.workerId is a hard routing constraint."""
+
+    def test_auto_dispatch_honors_explicit_worker(self, setup_bridge, mock_popen):
+        bridge_root = setup_bridge
+        _create_task(
+            bridge_root,
+            "pinned",
+            state="READY",
+            worker_id="w3",
+        )
+
+        result = auto_dispatch(bridge_root, max_workers=1)
+
+        assert result.dispatched == 1
+        assert result.assignments[0]["workerId"] == "w3"
+        state_data = json.loads(
+            (bridge_root / "tasks" / "pinned" / "state.json").read_text(encoding="utf-8")
+        )
+        assert state_data["assignedWorkerId"] == "w3"
+
+    def test_missing_explicit_worker_never_falls_back(self, setup_bridge, mock_popen):
+        bridge_root = setup_bridge
+        _create_task(
+            bridge_root,
+            "missing-worker",
+            state="READY",
+            worker_id="does-not-exist",
+        )
+
+        result = auto_dispatch(bridge_root, max_workers=1)
+
+        assert result.dispatched == 0
+        assert result.planned == 0
+        assert _get_task_state(bridge_root, "missing-worker") == READY
+        detail = next(
+            item for item in result.skipped_details
+            if item["taskId"] == "missing-worker"
+        )
+        assert detail["reason"] == "explicit_worker_unavailable"
+        assert detail["workerId"] == "does-not-exist"
+        assert len(mock_popen) == 0
+
+    def test_task_model_round_trips_explicit_worker(self):
+        from bridge.core.models import Task
+
+        task = Task.from_dict({
+            "taskId": "roundtrip",
+            "projectId": "p1",
+            "workerId": "w3",
+            "role": "implement",
+        })
+
+        assert task.worker_id == "w3"
+        assert task.to_dict()["workerId"] == "w3"
 
