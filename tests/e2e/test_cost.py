@@ -11,7 +11,7 @@ from bridge.cost import (
     CostRecord, CostReport, MODEL_PRICING,
     collect_cost_records, generate_cost_report,
     optimize_recommendations, format_cost_report,
-    _estimate_cost,
+    _estimate_cost, normalize_tokens, token_total,
 )
 
 
@@ -51,6 +51,23 @@ class TestEstimateCost:
         cost_with = _estimate_cost(with_cache, "huaweicloud-maas/GLM-5.2")
         assert cost_with < cost_no
 
+    def test_normalizes_alias_and_scalar_token_payloads(self):
+        aliases = {
+            "input_tokens": 120,
+            "output_tokens": 80,
+            "reasoning_tokens": 50,
+            "cache_read_tokens": 20,
+        }
+        normalized = normalize_tokens(aliases)
+        assert normalized["input"] == 120
+        assert normalized["output"] == 80
+        assert normalized["reasoning"] == 50
+        assert normalized["cache"]["read"] == 20
+        assert token_total(aliases) == 250
+        assert token_total(300) == 300
+        assert _estimate_cost(aliases, "huaweicloud-maas/GLM-5.2") > 0
+        assert _estimate_cost(300, "huaweicloud-maas/GLM-5.2") > 0
+
     def test_unknown_model_uses_default(self):
         tokens = {"input": 1000, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}}
         cost = _estimate_cost(tokens, "unknown-model")
@@ -67,6 +84,32 @@ class TestCollectCostRecords:
         assert len(records) == 1
         assert records[0].task_id == "t1"
         assert records[0].tokens_in == 100
+
+    def test_collects_alias_tokens_and_runtime_worker(self, cost_bridge):
+        _create_task_with_tokens(
+            cost_bridge,
+            "t-runtime",
+            {"input_tokens": 100, "output_tokens": 50, "reasoning_tokens": 25},
+            worker="requested-worker",
+        )
+        state_path = cost_bridge / "tasks" / "t-runtime" / "state.json"
+        state = json.loads(state_path.read_text())
+        state["assignedWorkerId"] = "runtime-worker"
+        state_path.write_text(json.dumps(state))
+
+        records = collect_cost_records(cost_bridge)
+        assert len(records) == 1
+        assert records[0].worker_id == "runtime-worker"
+        assert records[0].tokens_in == 100
+        assert records[0].tokens_out == 50
+        assert records[0].tokens_reasoning == 25
+
+    def test_collects_scalar_total_tokens(self, cost_bridge):
+        _create_task_with_tokens(cost_bridge, "t-scalar", 300)
+        records = collect_cost_records(cost_bridge)
+        assert len(records) == 1
+        assert records[0].tokens_in == 300
+        assert records[0].estimated_cost > 0
 
     def test_skips_tasks_without_tokens(self, cost_bridge):
         task_dir = cost_bridge / "tasks" / "t1"
