@@ -330,7 +330,11 @@ def execute_dispatch(
             continue
 
         # Set QUEUED
-        set_state(tdir, QUEUED, message=f"dispatched to {item.worker_id}")
+        set_state(
+            tdir, QUEUED,
+            message=f"dispatched to {item.worker_id}",
+            assigned_worker_id=item.worker_id,
+        )
 
         if spawn_workers:
             try:
@@ -343,7 +347,11 @@ def execute_dispatch(
                 result.spawned.append(item.task_id)
             except Exception as e:
                 # Spawn failed: revert to READY to avoid permanent QUEUED
-                set_state(tdir, READY, message=f"spawn failed: {e}")
+                set_state(
+                    tdir, READY,
+                    message=f"spawn failed: {e}",
+                    assigned_worker_id="",
+                )
                 result.failed.append((item.task_id, str(e)))
 
     return result
