@@ -15,14 +15,14 @@ from ..core.models import (
     WorkersRegistry, Registry,
 )
 from ..core.ids import generate_assignment_id
-from ..core.state import READY, QUEUED, DONE, CANCELLED
+from ..core.state import READY, QUEUED, DONE, CANCELLED, get_state
 from ..atomic import atomic_write_json, read_json_or_none
 
 from .matcher import filter_candidates, score_worker
 from .dependency import is_dependency_ready, get_blocked_dependencies
 from .capacity import filter_with_capacity, has_capacity
 from .affinity import apply_anti_affinity, apply_preferred, get_excluded_workers
-from .lease import get_active_lease, create_lease
+from .lease import get_active_lease, create_lease, release_lease, is_expired
 
 
 def _now_iso() -> str:
@@ -144,6 +144,73 @@ def save_assignment(assignments_dir: Path, assignment: Assignment) -> None:
     assignments_dir.mkdir(parents=True, exist_ok=True)
     path = assignments_dir / f"{assignment.assignment_id}.json"
     atomic_write_json(path, assignment.to_dict())
+
+
+def finish_assignment(
+    assignments_dir: Path,
+    leases_dir: Path,
+    task_id: str,
+    *,
+    finished_at: str | None = None,
+) -> int:
+    """Mark unfinished assignments for a task complete and release their leases."""
+    assignments_dir = Path(assignments_dir)
+    leases_dir = Path(leases_dir)
+    if not assignments_dir.exists():
+        return 0
+
+    finished = finished_at or _now_iso()
+    count = 0
+    for path in assignments_dir.glob("*.json"):
+        data = read_json_or_none(path)
+        if not data or data.get("taskId") != task_id or data.get("finishedAt"):
+            continue
+        data["finishedAt"] = finished
+        atomic_write_json(path, data)
+        lease_id = data.get("leaseId")
+        if lease_id:
+            release_lease(leases_dir, lease_id)
+        count += 1
+    return count
+
+
+def reconcile_assignments(
+    assignments_dir: Path,
+    leases_dir: Path,
+    tasks_root: Path,
+) -> int:
+    """Close stale assignments left behind by crashes, restarts, or terminal tasks."""
+    assignments_dir = Path(assignments_dir)
+    leases_dir = Path(leases_dir)
+    tasks_root = Path(tasks_root)
+    if not assignments_dir.exists():
+        return 0
+
+    reconciled = 0
+    worker_active_states = {"QUEUED", "STARTING", "RUNNING"}
+
+    for path in assignments_dir.glob("*.json"):
+        data = read_json_or_none(path)
+        if not data or data.get("finishedAt"):
+            continue
+
+        task_id = data.get("taskId", "")
+        task_state = get_state(tasks_root / task_id).get("state", "") if task_id else ""
+        lease_id = data.get("leaseId")
+        lease_data = read_json_or_none(leases_dir / f"{lease_id}.json") if lease_id else None
+        lease_expired = True
+        if lease_data:
+            from ..core.models import Lease
+            lease_expired = is_expired(Lease.from_dict(lease_data))
+
+        if task_state not in worker_active_states or not lease_data or lease_expired:
+            data["finishedAt"] = _now_iso()
+            atomic_write_json(path, data)
+            if lease_id:
+                release_lease(leases_dir, lease_id)
+            reconciled += 1
+
+    return reconciled
 
 
 def load_assignments(assignments_dir: Path) -> list[Assignment]:
