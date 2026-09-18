@@ -170,6 +170,7 @@ class TestTasksAPI:
         code, data = _get(api_server, "/api/tasks")
         assert code == 200
         assert len(data.get("tasks", [])) == 3
+        assert all(task.get("workerId") == "w1" for task in data["tasks"])
 
     def test_cancel_task(self, api_server, tmp_path):
         self._create_task(api_server, tmp_path)
@@ -280,3 +281,55 @@ class TestAPIImports:
         from bridge.api.server import BridgeAPIHandler, ThreadingHTTPServer
         assert BridgeAPIHandler is not None
         assert ThreadingHTTPServer is not None
+
+class TestTaskLogParsing:
+    def test_latest_window_has_stable_event_ids(self):
+        from bridge.api.server import _parse_task_session_log
+
+        base = 1_800_000_000_000
+        lines = [
+            json.dumps({
+                "timestamp": base + i * 1000,
+                "type": "reasoning",
+                "part": {"text": f"step-{i}"},
+            })
+            for i in range(60)
+        ]
+
+        first = _parse_task_session_log("\n".join(lines))
+        assert first["eventCount"] == 60
+        assert len(first["events"]) == 50
+        assert first["events"][0]["text"] == "step-10"
+        assert first["events"][-1]["text"] == "step-59"
+        assert len({event["id"] for event in first["events"]}) == 50
+
+        second = _parse_task_session_log("\n".join(lines + [
+            json.dumps({
+                "timestamp": base + 60_000,
+                "type": "reasoning",
+                "part": {"text": "step-60"},
+            })
+        ]))
+        assert len(second["events"]) == 50
+        assert second["events"][-1]["text"] == "step-60"
+        assert second["events"][-2]["id"] == first["events"][-1]["id"]
+
+    def test_iso_timestamps_are_normalized_to_epoch_ms(self):
+        from bridge.api.server import _parse_task_session_log
+
+        raw = "\n".join([
+            json.dumps({
+                "timestamp": "2026-09-18T16:00:00Z",
+                "type": "step_start",
+                "part": {},
+            }),
+            json.dumps({
+                "timestamp": "2026-09-18T16:00:05Z",
+                "type": "reasoning",
+                "part": {"text": "still working"},
+            }),
+        ])
+        parsed = _parse_task_session_log(raw)
+        assert parsed["elapsed"] == 5
+        assert parsed["startTime"] > 0
+        assert all(isinstance(event["time"], int) for event in parsed["events"])
