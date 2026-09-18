@@ -90,6 +90,7 @@ def _make_candidate_task(
     project_id: str = "test-local",
     priority: int = 50,
     depends_on: list[str] | None = None,
+    worker_id: str | None = None,
 ) -> Path:
     """Create a candidate-state task for dispatch."""
     task_dir = bridge_root / "tasks" / task_id
@@ -115,6 +116,8 @@ def _make_candidate_task(
             "hardTimeoutMinutes": 15,
         },
     }
+    if worker_id is not None:
+        meta["workerId"] = worker_id
     atomic_write_json(task_dir / "META.json", meta)
     return task_dir
 
@@ -439,6 +442,32 @@ class TestAdaptiveDispatch:
         hard = meta["execution"]["hardTimeoutMinutes"]
         assert hard != 15
         assert 1 <= hard <= 60
+
+    def test_explicit_worker_is_not_replaced_by_adaptive_preference(self, setup_bridge, mock_popen):
+        bridge_root = setup_bridge
+        base = datetime.now(timezone.utc)
+        for i in range(4):
+            _make_task(
+                bridge_root, f"hist-good-{i}", "w1",
+                role="implement", project_id="test-local",
+                status=DONE, duration_seconds=30, started_at=base,
+            )
+        _make_candidate_task(
+            bridge_root,
+            "pinned-target",
+            role="implement",
+            project_id="test-local",
+            worker_id="w3",
+        )
+
+        result = adaptive_dispatch(bridge_root, max_workers=1, dry_run=True)
+
+        meta = json.loads(
+            (bridge_root / "tasks" / "pinned-target" / "META.json").read_text()
+        )
+        assert meta["workerId"] == "w3"
+        assert meta["execution"].get("preferredWorker") is None
+        assert result.assignments[0]["workerId"] == "w3"
 
     def test_no_adaptation_when_history_empty(self, setup_bridge, mock_popen):
         """Test 19: with no history, META.json is left unchanged."""

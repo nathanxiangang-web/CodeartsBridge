@@ -278,6 +278,7 @@ class TaskReview:
 class Task:
     task_id: str
     project_id: str
+    worker_id: str | None = None
     title: str = ""
     role: str = "implement"
     required_skills: list[str] = field(default_factory=list)
@@ -293,6 +294,7 @@ class Task:
         return cls(
             task_id=d.get("taskId", d.get("task_id", "")),
             project_id=d.get("projectId", d.get("project_id", "")),
+            worker_id=d.get("workerId", d.get("worker_id")),
             title=d.get("title", ""),
             role=d.get("role", "implement"),
             required_skills=d.get("requiredSkills", d.get("required_skills", [])),
@@ -309,6 +311,7 @@ class Task:
             "schemaVersion": self.schema_version,
             "taskId": self.task_id,
             "projectId": self.project_id,
+            "workerId": self.worker_id,
             "title": self.title,
             "role": self.role,
             "requiredSkills": self.required_skills,
