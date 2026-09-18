@@ -330,6 +330,15 @@ class TestDispatchService:
             },
             "workers": [{"id": "w1"}],
         }), encoding="utf-8")
+        (tmp_path / "projects.json").write_text(json.dumps({
+            "schemaVersion": 1,
+            "defaults": {},
+            "projects": [{
+                "id": "p1",
+                "transport": "ssh",
+                "projectRoot": "/srv/project",
+            }],
+        }), encoding="utf-8")
 
         create_task(
             bridge_root=tmp_path,

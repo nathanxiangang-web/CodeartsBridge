@@ -469,16 +469,72 @@ class TestExplicitWorkerRouting:
 
     def test_auto_dispatch_honors_explicit_worker(self, setup_bridge, mock_popen):
         bridge_root = setup_bridge
-        _create_task(bridge_root, "pinned", worker_id="w3")
+        _create_task(bridge_root, "pinned", worker_id="w1")
 
         result = auto_dispatch(bridge_root, max_workers=1)
 
         assert result.dispatched == 1
-        assert result.assignments[0]["workerId"] == "w3"
+        assert result.assignments[0]["workerId"] == "w1"
         state_data = json.loads(
             (bridge_root / "tasks" / "pinned" / "state.json").read_text(encoding="utf-8")
         )
-        assert state_data["assignedWorkerId"] == "w3"
+        assert state_data["assignedWorkerId"] == "w1"
+
+    def test_explicit_worker_must_match_project_placement(self, setup_bridge, mock_popen):
+        bridge_root = setup_bridge
+        _create_task(bridge_root, "wrong-host", project_id="test-local", worker_id="w3")
+
+        result = auto_dispatch(bridge_root, max_workers=1)
+
+        assert result.dispatched == 0
+        assert result.planned == 0
+        detail = next(
+            item for item in result.skipped_details
+            if item["taskId"] == "wrong-host"
+        )
+        assert detail["reason"] == "explicit_worker_project_mismatch"
+        assert detail["workerId"] == "w3"
+        assert detail["projectId"] == "test-local"
+        assert len(mock_popen) == 0
+
+    def test_remote_worktree_selects_worker_on_project_host(self, setup_bridge, mock_popen):
+        bridge_root = setup_bridge
+        _create_task(
+            bridge_root,
+            "remote-placement",
+            project_id="test-remote-w2",
+        )
+
+        result = auto_dispatch(bridge_root, max_workers=1)
+
+        assert result.dispatched == 1
+        assert result.assignments[0]["workerId"] == "w2"
+        state_data = json.loads(
+            (bridge_root / "tasks" / "remote-placement" / "state.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert state_data["assignedWorkerId"] == "w2"
+
+    def test_remote_worktree_skips_when_no_worker_matches_host(self, setup_bridge, mock_popen):
+        bridge_root = setup_bridge
+        _create_task(
+            bridge_root,
+            "remote-no-host",
+            project_id="test-remote",
+        )
+
+        result = auto_dispatch(bridge_root, max_workers=1)
+
+        assert result.dispatched == 0
+        assert result.planned == 0
+        detail = next(
+            item for item in result.skipped_details
+            if item["taskId"] == "remote-no-host"
+        )
+        assert detail["reason"] == "no_project_compatible_worker"
+        assert detail["projectId"] == "test-remote"
+        assert len(mock_popen) == 0
 
     def test_missing_explicit_worker_never_falls_back(self, setup_bridge, mock_popen):
         bridge_root = setup_bridge

@@ -27,7 +27,7 @@ from .state import (
     READY, QUEUED, CANCELLED,
     CANDIDATE_STATES,
 )
-from .core.models import Task, load_workers_registry
+from .core.models import Task, load_registry, load_workers_registry
 from .scheduler.planner import (
     select_plan, save_assignment, load_assignments, reconcile_assignments,
 )
@@ -114,6 +114,13 @@ def auto_dispatch(
     if not candidate_tasks:
         return result
 
+    # Load project registry. Project placement is required for safe scheduling.
+    projects_path = bridge_root / "projects.json"
+    if not projects_path.is_file():
+        result.errors.append("projects.json not found")
+        return result
+    registry = load_registry(projects_path)
+
     # Load workers
     workers_path = bridge_root / "workers.json"
     if not workers_path.is_file():
@@ -138,6 +145,7 @@ def auto_dispatch(
         tasks_root=tasks_root,
         leases_dir=leases_dir,
         max_workers=max_workers,
+        registry=registry,
     )
 
     result.planned = len(plan.assignments)

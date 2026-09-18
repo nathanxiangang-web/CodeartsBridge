@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..atomic import read_json_or_none
-from ..core.models import Task, load_workers_registry
+from ..core.models import Task, load_registry, load_workers_registry
 from ..core.state import get_state, set_state, READY, QUEUED
 from ..scheduler.planner import (
     select_plan,
@@ -53,6 +53,12 @@ def dispatch_tasks(
     if not tasks_root.exists():
         return result
 
+    projects_path = bridge_root / "projects.json"
+    if not projects_path.is_file():
+        result.errors.append("projects.json not found")
+        return result
+    registry = load_registry(projects_path)
+
     workers_path = bridge_root / "workers.json"
     if not workers_path.is_file():
         result.errors.append("workers.json not found")
@@ -91,6 +97,7 @@ def dispatch_tasks(
         tasks_root=tasks_root,
         leases_dir=leases_dir,
         max_workers=max_workers,
+        registry=registry,
     )
 
     result.planned = len(plan.assignments)
