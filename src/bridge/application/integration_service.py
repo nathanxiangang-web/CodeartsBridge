@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.state import get_state, set_state, CREATED, APPROVED, INTEGRATED, DONE, FAILED
-from ..integration import integrate_task, verify_integration, IntegrationResult
+from ..integration import integrate_task_branch, verify_integration, IntegrationResult
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def integrate_approved_task(
         )
 
     # Perform integration
-    result = integrate_task(
+    result = integrate_task_branch(
         task_id=task_id,
         project_root=project_root,
         task_branch=task_branch,

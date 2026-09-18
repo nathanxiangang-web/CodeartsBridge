@@ -32,7 +32,7 @@ from .state import get_state, set_state, READY, QUEUED, DONE, REVIEW_REQUIRED, F
 from .task import create_task, write_review_pass, write_review_fix, read_outbox_summary
 from .dispatch import select_dispatch_plan, execute_dispatch
 from .auto_dispatch import auto_dispatch, AutoDispatchResult
-from .architect_loop import architect_loop as arch_loop_fn, ArchitectResult
+from .integration import integrate_task, integrate_loop, IntegrationResult
 from .worker import run_worker
 from .codearts import find_codearts_cli, REQUIRED_MODEL
 
@@ -387,6 +387,50 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_integrate(args) -> int:
+    """Integrate DONE-state tasks into the main branch via cherry-pick."""
+    root = _bridge_root()
+    _ensure_layout(root)
+
+    if args.task_id:
+        result = integrate_task(
+            args.task_id, root,
+            dry_run=args.dry_run,
+        )
+        tag = "[dry-run] " if args.dry_run else ""
+        if result.success:
+            if args.dry_run:
+                print(f"{tag}{result.task_id}: would cherry-pick {result.commit_sha[:12]}")
+            else:
+                print(f"{result.task_id}: integrated -> {result.merged_sha[:12]}")
+                print(f"  baseline_updated={result.baseline_updated} tests_passed={result.verification_passed}")
+        else:
+            print(f"{result.task_id}: FAILED - {result.error}")
+            if result.conflict_files:
+                print(f"  conflicts: {result.conflict_files}")
+        return 0 if result.success else 1
+
+    results = integrate_loop(root, dry_run=args.dry_run)
+
+    if not results:
+        print("No DONE tasks pending integration.")
+        return 0
+
+    tag = "[dry-run] " if args.dry_run else ""
+    succeeded = sum(1 for r in results if r.success)
+    failed = sum(1 for r in results if not r.success)
+    print(f"{tag}integrated={succeeded} failed={failed} total={len(results)}")
+    for r in results:
+        if r.success:
+            if args.dry_run:
+                print(f"  {r.task_id}: would cherry-pick {r.commit_sha[:12]}")
+            else:
+                print(f"  {r.task_id}: -> {r.merged_sha[:12]}")
+        else:
+            print(f"  {r.task_id}: FAILED - {r.error}")
+    return 0 if failed == 0 else 1
+
+
 def cmd_projects(args) -> int:
     """List registered projects via ProjectService."""
     root = _bridge_root()
@@ -420,51 +464,6 @@ def cmd_telemetry(args) -> int:
         print("No tasks directory found.")
         return 1
     print(generate_report_text(tasks_dir))
-    return 0
-
-
-
-def cmd_architect_loop(args) -> int:
-    """Architect AI loop: plan tasks and review completed work."""
-    root = _bridge_root()
-    _ensure_layout(root)
-
-    if args.plan:
-        result = arch_loop_fn(
-            bridge_root=root,
-            plan=True,
-            requirement=args.plan,
-            project_id=args.project,
-        )
-        print(f"Planned: {result.planned}")
-        if result.errors:
-            for e in result.errors:
-                print(f"  ERROR: {e}")
-            return 1
-        return 0
-
-    if args.loop:
-        import time
-        print("Architect loop: polling every 10s")
-        try:
-            while True:
-                result = arch_loop_fn(bridge_root=root)
-                if result.reviewed > 0:
-                    print(f"Reviewed: {result.reviewed}, Passed: {result.passed}, Fixed: {result.fixed}")
-                if result.errors:
-                    for e in result.errors:
-                        print(f"  ERROR: {e}")
-                time.sleep(10)
-        except KeyboardInterrupt:
-            print("\nArchitect loop stopped.")
-            return 0
-
-    result = arch_loop_fn(bridge_root=root)
-    print(f"Reviewed: {result.reviewed}, Passed: {result.passed}, Fixed: {result.fixed}")
-    if result.errors:
-        for e in result.errors:
-            print(f"  ERROR: {e}")
-        return 1
     return 0
 
 
@@ -523,14 +522,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("projects", help="List registered projects")
     sub.add_parser("workers", help="List registered workers")
-
-    p_arch = sub.add_parser("architect-loop", help="Architect AI loop: plan and review tasks")
-    p_arch.add_argument("--loop", action="store_true", help="Run continuously, polling every 10s")
-    p_arch.add_argument("--plan", default=None, help="Planning mode: create task from requirement text")
-    p_arch.add_argument("--project", default="bridge-dev", help="Target project for planning")
-
     sub.add_parser("telemetry", help="Show telemetry and statistics report")
 
+
+    p_integrate = sub.add_parser("integrate", help="Integrate DONE tasks into main branch")
+    p_integrate.add_argument("--task-id", default=None, help="Integrate specific task")
+    p_integrate.add_argument("--loop", action="store_true", help="Continuously integrate all DONE tasks")
+    p_integrate.add_argument("--dry-run", action="store_true", help="Show plan without merging")
     return parser
 
 
@@ -550,8 +548,8 @@ COMMAND_MAP = {
     "serve": cmd_serve,
     "projects": cmd_projects,
     "workers": cmd_workers,
-    "architect-loop": cmd_architect_loop,
     "telemetry": cmd_telemetry,
+    "integrate": cmd_integrate,
 }
 
 
