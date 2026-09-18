@@ -1,247 +1,200 @@
-# Codex ↔ GLM Worker Bridge
+# CodeartsBridge v0.2
 
-`codex-glm` 是架构师端（Codex）与执行端（CodeArts Agent / GLM Worker）之间的文件通信桥梁。
+CodeArts Agent 多节点调度桥 — 通过 Web UI 监控多台远程 Worker 节点，自动派发任务、回显思考过程、审查输出文件。
 
-当前被开发的项目：**CloudSite v2.0**，集成仓库在 178.50 `/home/nathan/CloudSite`。开发策略：先复用本桥调度控制 Worker，按 P0→P6 阶段门逐模块替换为新方案。
+## 功能
 
-桥运行在 Linux（192.168.178.50），架构师发布任务文件，调度器调用远端 CodeArts CLI，GLM Worker 自主完成搜索、修改、测试和构建，然后把压缩结果写回任务目录。Windows 退化为纯 SSH 客户端 + 编辑器，不再安装 CodeArts CLI。
+- **Web UI 监控** — 仪表盘、任务列表、工作节点、思考回显、审查、设置 6 个页面
+- **多节点调度** — 支持 4+ 台远程 Worker 并行执行，SSH transport 自动分发
+- **思考回显** — 实时显示 Agent 的推理步骤(💭)和工具调用(🔧)，基于 session.log 结构化 JSON 解析
+- **三种状态** — 排队 / 思考中 / 完成，简洁直观
+- **i18n 双语** — 中英文一键切换
+- **输出审查** — 查看任务 outbox 中的生成文件（DIFF.patch、RESULT.md、TESTS.md 等）
+- **计时器** — 基于 codearts 实际时间戳计算任务耗时，非页面加载时间
 
-**后续部署、测试和桥操作全部在 178.50 上进行。** 其他远端设备（178.52、178.51、5.15）上的 CloudSite 文件已清理，不再作为桥接机或集成仓库。CloudSite v2.0.0-alpha.1 已发布到 GitHub（`ghcr.io/nathanxiangang-web/cloudsite-{api,web}:v2.0.0-alpha.1`）。
+## 架构
 
-## 当前默认
-- 先读`文件下\tests\remote.md`了解你现在可指挥的worker有几个后续进行指挥工作
-- 新项目默认 `runMode: auto`，不启用沙箱限制。
-- 默认模型固定为 `huaweicloud-maas/GLM-5.2`，与 GLM Worker 角色一致。
-- 同一份源代码可通过 4 个 `remote-worktree` 项目配置并行运行；每个 Worker 使用独立账号、主机和任务工作区。
-- 任务文件、Worker 结果和调度状态分别由不同角色写入。
-- 生产发布、系统配置等边界由任务本身定义，不在桥梁层写死。
-- 本地与 SSH 虚拟机使用同一套任务协议；传输差异由调度器适配。
-- 所有 4 worker 均在 Linux 上跑各自 CodeArts CLI + 账号，真并行。
-
-## Transport 架构（v1.2）
-
-四种 transport 各司其职。Worker 的 `ssh` 表示 CLI 连接方式，项目的 `remote-worktree` 表示源码隔离方式，两者可以配合使用：
-
-| transport | CLI 位置 | 认证账号 | 并发模型 | 适用场景 |
-|-----------|---------|---------|---------|---------|
-| `local` | 本机 codearts | 本机账号 | 单进程 | 本地开发、selftest |
-| `ssh-shell` | 本机 codearts | 本机账号 | 共用本机 CLI，上限 1-2 | 远端无 CLI 时降级方案 |
-| `ssh` | 远端 codearts | 远端各自账号 | 每 worker 独立远端 CLI+账号，真并行 | 生产多 worker 协同（当前默认） |
-| `remote-worktree` | 远端 codearts | 远端各自账号 | 每任务独立仓库和分支 | 同一源码按模块并行开发（CloudSite 默认） |
-
-`ssh` transport（`Invoke-SshWorker`，bridge.ps1:1350）流程：
-1. 本地 `git bundle` 导出基线源码 → scp 到远端 `remoteBridgeRoot`
-2. 远端 init repo + fetch bundle 建立隔离工作区
-3. 远端 `codearts run`（远端 CLI + 远端账号 AK/SK）执行任务
-4. 结果 outbox scp 回本地 task 目录
-
-当前 4 worker 账号映射（ssh transport）：
-
-| worker | host | 远端账号 | 项目 |
-|--------|------|---------|------|
-| bus-w01-dev | nathan@192.168.178.50 | win1649 (GT-nathanxia) | bus-rc1-w01 |
-| bus-w02-dev | nathan@192.168.178.50 | 8080 (pyjcc-jc) | bus-rc1-w02 |
-| bus-w03-dev | root@192.168.5.15 | rocky1043 | bus-rc1-w03 |
-| bus-w04-qa | nathan@192.168.178.51 | ubuntu5390 | bus-rc1-w04 |
-
-模块分工（AgentBridge 蓝图 26.2）：w01 = tasking/scheduling；w02 = execution/workspace/CLI 探针；w03 = identity/workers/telemetry；w04 = review/QA（无 implement 能力）。
-
-`ssh` transport 必需字段：`sshHost`、`remoteBridgeRoot`（远端任务根目录，须绝对路径如 `/home/nathan/.codex-glm-bridge`，scp 不展开 ~）、`remoteCliPath`（可选，缺省 `codearts`）。worker.cliPath 优先于 project.remoteCliPath。
-
-`remote-worktree` 项目由 178.50 上的干净集成仓库导出基线 bundle，在目标 Worker 主机的 `remoteWorkspaceRoot/<task-id>/repo` 建立独立副本。Worker 提交后，桥把结果导入集成仓库的 `refs/worker/<task-id>/result`；架构师检查 `RESULT.md`、`DIFF.stat`、`TESTS.md` 和必要 diff，再按依赖顺序合并。Worker 不直接写 178.50 主线。
-
-CloudSite 使用 `cloudsite-rc1-w01` 到 `cloudsite-rc1-w04` 四个项目配置，分别绑定四台 Worker 主机。四个任务可以同时开发不同模块；可能修改同一文件或同一迁移版本的任务仍应由架构师串行合入并处理冲突。
-
-### CloudSite 四副本实用流程
-
-1. 先在桥接机的集成仓库确认主线干净并记录 `HEAD`。任务文件只写英文 ASCII，并把模型、业务逻辑、API、前端等边界拆开。实现任务的 `Required Changes` 最多 5 项；超过时拆成后继任务，否则创建阶段会拒绝。
-2. 分别用四个项目和四个 Worker 创建任务；`-Baseline` 固定为派发时记录的提交，避免后来的主线变化悄悄进入运行中的任务。
-3. 使用 `dispatch -MaxWorkers 4` 并行启动。每个任务会在自己的远端目录和 Git 分支中运行，不共享可写工作区。
-4. 任务进入 `REVIEW_REQUIRED` 后，只读 `RESULT.md`、`DIFF.stat`、`TESTS.md` 和必要 diff。通过后执行 `review-pass`，再按模型/迁移、业务逻辑、API、前端的依赖顺序整合 `refs/worker/<task-id>/result`。
-5. 每合入一个结果就更新集成主线；给空闲 Worker 创建后继写任务时使用新的 `HEAD`。不要把仍基于旧模型的后继任务直接并发到共享边界。
-6. Worker 先跑任务要求的聚焦验证，然后立即提交并写齐 `RESULT.md`、`DIFF.stat`、`TESTS.md`、`DIFF.patch`；只有仍有时间才跑全套回归、额外构建或 lint，并把追加结果回写 `TESTS.md`。不要让已完成代码因为最后才提交而被硬时限截断。
-
-```powershell
-$baseline = git -C <integration-repo> rev-parse HEAD
-
-pwsh -File .\scripts\bridge.ps1 create -ProjectId cloudsite-rc1-w01 -WorkerId cloud-worker-01 -Role implement -WorkspaceMode existing -TaskId <model-task> -TaskFile <task-file> -Baseline $baseline -TargetMinutes 10 -SoftTimeoutMinutes 12 -TimeoutMinutes 15
-pwsh -File .\scripts\bridge.ps1 create -ProjectId cloudsite-rc1-w02 -WorkerId cloud-worker-02 -Role implement -WorkspaceMode existing -TaskId <logic-task> -TaskFile <task-file> -Baseline $baseline -TargetMinutes 10 -SoftTimeoutMinutes 12 -TimeoutMinutes 15
-pwsh -File .\scripts\bridge.ps1 create -ProjectId cloudsite-rc1-w03 -WorkerId cloud-worker-03 -Role implement -WorkspaceMode existing -TaskId <api-task> -TaskFile <task-file> -Baseline $baseline -TargetMinutes 10 -SoftTimeoutMinutes 12 -TimeoutMinutes 15
-pwsh -File .\scripts\bridge.ps1 create -ProjectId cloudsite-rc1-w04 -WorkerId cloud-worker-04 -Role implement -WorkspaceMode existing -TaskId <web-task> -TaskFile <task-file> -Baseline $baseline -TargetMinutes 10 -SoftTimeoutMinutes 12 -TimeoutMinutes 15
-
-pwsh -File .\scripts\bridge.ps1 dispatch -MaxWorkers 4
-pwsh -File .\scripts\show-progress.ps1 -TaskId <task-id>
-pwsh -File .\scripts\bridge.ps1 review-pass -TaskId <task-id>
+```
+┌─────────────────────────────────┐
+│         Web UI (:8080)          │
+│  Dashboard / Tasks / Thinking   │
+│  Workers / Review / Settings    │
+└──────────┬──────────────────────┘
+           │ HTTP API
+┌──────────┴──────────────────────┐
+│        Bridge Server            │
+│  dispatch / state / transport   │
+└──┬────────┬────────┬───────────┘
+   │ SSH    │ SSH    │ SSH
+┌──┴──┐  ┌──┴──┐  ┌──┴──┐
+│W01  │  │W02  │  │W03  │  ...
+│codearts│ │codearts│ │codearts│
+└─────┘  └─────┘  └─────┘
 ```
 
-这里的项目 transport 已经是 `remote-worktree`；`-WorkspaceMode existing` 表示 Worker 写它本次临时复制出来的独立仓库，不是让四个 Worker 写同一个源目录。账号授权和远端登录只保存在各自 Worker 主机，桥不会复制或打印凭据。
-
-`remote-worktree` 会先把 `-Baseline` 解析为规范提交 ID，再只导出该提交；可传提交 ID、分支或 namespaced ref。未提供时才使用集成仓库当前 `HEAD`。续作或整改若基于未合入主线的现场提交，应先把现场导入独立 ref，再把该 ref 作为新任务基线。
-
-硬时限终止后若状态仍显示 `RUNNING`，但 `processId` 已为空且有退出码，表示 runner lease 已消失的孤儿状态。先执行 `cancel -TaskId <task-id>` 关闭状态，再检查该 Worker 的独立工作区、最后提交和 outbox；已有完整提交时先导入验收，不要直接重跑并覆盖现场。
-
-若任务在数秒内以退出码 `0` 结束，但缺少 `RESULT.md`、`DIFF.stat`、`TESTS.md` 或目标改动，仍按失败处理：这通常表示 CLI 没有真正进入实现阶段，不能把进程成功误判为任务成功。只允许用同一最小任务重试一次；再次出现时将该 Worker 标记为暂时不可用，保留现场并把任务转给其他空闲 Worker，或由架构师本地补位。恢复该 Worker 前先用一个只读或极小写入探针验证账号、会话和交付链路。
-
-四个 CodeArts 账号的额度和登录状态彼此独立。日志出现 `TM.00001050`、`积分已耗尽` 或同义的明确账号额度错误时，不要在原会话重试或切换其他 Worker 的凭据；先抢救该独立副本中已经通过聚焦测试的提交，把该 Worker 标记为额度暂停，再把未完成的最小任务派给其他空闲账号。额度恢复后先运行最小探针，成功后才重新加入四 Worker 调度。
-
-远端 bashrc 注意：Ubuntu 顶部 `case $- in *i*) ;; *) return;;` 会挡住非交互 shell 读取后续 export，需把 `CODEARTS_CLI_AK/SK` export 移到 `case $-` 之前。
-
-## 会话复用（v1.1）
-
-- 首次 attempt 调用 CodeArts 时附加 `--format json --title <task-id>`，从 stdout 的 JSON Lines 事件中提取 `sessionID`、最后事件时间和 `step_finish.part.tokens` token 统计。
-- 遥测保存到 `state.json` 的 `sessionId`、`sessionMode`（`new`/`resume`）、`lastEventAt`、`tokens` 字段；字段缺失时允许为 `null`。
-- 同一任务后续 attempt 若已有 `sessionId`，使用 `codearts run --session <id>` 续跑，不默认 fork；session ID 只接受 `^[A-Za-z0-9_-]+$`。
-- `Set-State` 基于旧 state 合并更新，不会因最终状态写入而丢失已记录的会话和遥测字段；旧版 state 文件无需迁移即可读取。
-- 整改/恢复任务必须获得原始 TASK 和相关 FIX 的完整最小上下文：Runner 在 prompt 中列出 inbox 中全部指令文件，以最后一份为准但要求 Worker 结合前置背景。
-- `local`、`ssh-shell`、`ssh`、`remote-worktree` 使用一致的会话语义；远端 shell 参数通过 `Quote-Posix` 安全引用，session ID 校验后再拼入命令。
-
-## 四 Worker 派发（v1.2）
-
-- `bridge.ps1 dispatch` 一次性最多派发 4 个不同 worker 的任务，默认 `MaxWorkers = 4`。
-- 非阻塞启动子 PowerShell 进程执行 `run -TaskId`，默认打开独立 PowerShell 窗口显示心跳和事件摘要；`-Quiet` 才隐藏窗口。使用全局 `dispatcher.lock` 文件锁防止重复领取。
-- 派发前原子地把任务置为 `QUEUED`；`run` 接受 `QUEUED`。活跃数统计 `QUEUED`、`STARTING`、`RUNNING`，不得超过 `MaxWorkers`。
-- 候选状态仅限 `READY`、`FIX_REQUIRED`、`RETRYABLE`；不会自动重跑 `BLOCKED`、`FAILED`、`AUTH_REQUIRED`。
-- 同一远端工作区仍只允许一个写任务；同一源码通过四个独立 `remote-worktree` 项目和四台主机并行，不共享任务工作区。
-- 派发失败时恢复任务原状态并记录明确错误，不留下永久 `QUEUED`。
-- **派发后必须立即开回显窗口**（见下方"回显窗口"段落）。`dispatch` 返回后对每个已派发 TaskId 执行 `show-progress.ps1`，确认心跳在增长。漏开回显 = 派发流程未完成。
-- `runtime/logs/dispatcher/` 存放派发摘要 JSON；Worker stdout/stderr 写入 `runtime/logs/<task-id>.attempt-NNN.stdout.log` 和 `.stderr.log`。
-### 可见窗口行为
-
-- 默认派发打开独立 PowerShell 小黑窗，显示任务/项目/attempt/session/pid/elapsed 心跳（每5秒），心跳含 `events=`/`思考=`/`工具=` 三个累计计数（已处理的 stdout 事件、thinking/reasoning 摘要、tool_use 摘要行数），以及逐行公开事件摘要（事件类型、工具名、公开文本）。
-- 思考块（reasoning/thinking）以 `[思考]` 前缀公开显示正文，与普通公开文本同样经过敏感信息遮盖（AK/SK/Bearer/password/token/secret/api_key → `***`）和 160 字单行截断；`--thinking` 已默认启用（`New-WorkerRunArguments` 统一附加）。Worker prompt 默认要求 reasoning、工具摘要、控制台事件文本与正式交付全部使用纯英文 ASCII，避免中文、智能引号、长破折号等非 ASCII 字符经过控制台传输后乱码。无法提取正文时显示 `[思考] type=<type>`。完整原始 stdout/stderr 保留在本地 attempt 日志。
-- 结束时无论 `REVIEW_REQUIRED` 还是 FAILED/BLOCKED/AUTH_REQUIRED/RETRYABLE/CANCELLED，都先把 outbox 的 `RESULT.md`（最多前 20 行）和 `TESTS.md`（最多前 15 行）摘要直接打进窗口（经敏感信息遮盖），再打印现有状态行；outbox 完全为空时打印「outbox 为空，无结果可显示」。所有最终状态都会保留 10 秒供查看，随后自动关闭窗口。
-- `-Quiet` 隐藏窗口并压制控制台进度，但不影响日志落盘和遥测解析。
-
-### 任务启动回显约定
-
-- 后续新任务默认启用回显。手动执行 `dispatch` 或 `run` 时不要附加 `-Quiet`；Windows 会显示独立窗口，Linux 前台终端会显示心跳、思考和工具摘要。
-- systemd 守护进程仍使用 `-Quiet`，避免后台子进程占住调度管道；任务启动后由架构师使用脱敏回显脚本查看事件，不直接展示原始 JSONL：
+## 快速开始
 
 ```bash
-# 当前摘要
-pwsh -NoProfile -File ~/codex-glm-bridge-repo/scripts/show-progress.ps1 -TaskId <task-id>
+# 一键安装
+curl -fsSL https://raw.githubusercontent.com/nathanxiangang-web/CodeartsBridge/master/install.sh | bash -s install
 
-# 持续回显；Ctrl+C 退出，不会中断 Worker
-pwsh -NoProfile -File ~/codex-glm-bridge-repo/scripts/show-progress.ps1 -TaskId <task-id> -Follow
+# 启动服务
+bridge serve --host 0.0.0.0 --port 8080
+
+# 打开浏览器
+open http://localhost:8080
 ```
 
-- `show-progress.ps1` 复用 Bridge 的敏感信息遮盖和单行截断规则。架构师只回显公开事件摘要，验收仍以 `RESULT.md`、`DIFF.stat`、`TESTS.md` 和必要 diff 为准。
-- Windows 独立回显窗口不要使用 `pwsh -NoExit` 启动；任务输出结束后保留 10 秒并自动关闭。
+## 安装
 
-- `-DryRun` 无副作用模式只输出调度决策，不启动 CodeArts，供测试验证。
-- 并行开发必须使用独立 `remote-worktree` 工作区；`existing` 模式仍不能让多个任务同时写同一路径。
-
-## 入口
-
-```powershell
-# 初始化目录
-pwsh -File .\scripts\bridge.ps1 bootstrap
-
-# 检查环境
-pwsh -File .\scripts\bridge.ps1 doctor
-
-# 查看全部项目和任务
-pwsh -File .\scripts\bridge.ps1 status
-
-# 一次性派发最多四个不同项目的任务
-pwsh -File .\scripts\bridge.ps1 dispatch -MaxWorkers 4
-
-# 仅查看调度决策，不启动 Worker
-pwsh -File .\scripts\bridge.ps1 dispatch -DryRun
-
-```
-
-完整流程见 [protocol/PROTOCOL.md](protocol/PROTOCOL.md)。
-
-## 回显窗口（派工强制步骤 — 不得跳过）
-
-**每次 `dispatch` 或 `create` 后，必须立即对每个已派发任务开回显窗口。这不是可选步骤。**
-
-回显是派发工作流的固定环节，与 create → dispatch → **回显** → 验收 四步同等强制。
-漏开回显 = 派发流程未完成。daemon 以 `-Quiet` 运行无本地窗口，架构师必须用以下命令查看：
-
-### 一键盯全部活跃任务（推荐）
+### 方式一：一键脚本（推荐）
 
 ```bash
-# 在桥机(178.50)上运行：自动发现所有 RUNNING/STARTING/QUEUED 任务，循环刷新状态+最新事件
-ssh nathan@192.168.178.50 '/home/nathan/.local/bin/pwsh -NoProfile -File /home/nathan/codex-glm-bridge-repo/scripts/watch-tasks.ps1'
+# 安装
+./install.sh install
+
+# 卸载
+./install.sh uninstall
+
+# 使用说明
+./install.sh help
 ```
 
-### 单任务回显
+### 方式二：手动安装
 
 ```bash
-# 1) 单次摘要：状态 + 最近 80 条事件摘要（派工后立即执行）
-ssh nathan@192.168.178.50 'cd /home/nathan/codex-glm-bridge-repo && /home/nathan/.local/bin/pwsh -NoProfile -File scripts/show-progress.ps1 -TaskId <task-id>'
-
-# 2) 持续跟随：Ctrl+C 退出不影响 Worker
-ssh nathan@192.168.178.50 'cd /home/nathan/codex-glm-bridge-repo && /home/nathan/.local/bin/pwsh -NoProfile -File scripts/show-progress.ps1 -TaskId <task-id> -Follow'
+git clone https://github.com/nathanxiangang-web/CodeartsBridge.git
+cd CodeartsBridge
+pip install -e .
 ```
 
-### 派工回显检查清单
+### 前置条件
 
-每次派工后逐项确认：
-1. `dispatch` 返回后，立即对每个 TaskId 执行 `show-progress.ps1 -TaskId <id>`
-2. 确认窗口显示 `RUNNING` + 心跳计数在增长（events/think/tool 至少有一个在动）
-3. 若计数全零且持续 2 分钟无变化 → 诊断：查 stderr 日志、查远端 `pgrep -af codearts`
-4. 任务进入 `REVIEW_REQUIRED` 或 `FAILED` 后，读 outbox 交付物验收
+- Python >= 3.10
+- SSH 免密登录到各 Worker 节点
+- 远端已安装 CodeArts CLI 并配置 AK/SK
 
-注意事项：
+## 配置
 
-- **178.50 上非交互 SSH 的 PATH 不含 pwsh**（Ubuntu bashrc 的 `case $-` 在非交互时提前 return），必须用绝对路径 `/home/nathan/.local/bin/pwsh`。
-- `show-progress` 的 `[think]`/`[event] tool=` 行来自 `runtime/logs/<task-id>.attempt-NNN.stdout.log` 的 JSONL 解析，敏感信息（AK/SK/token）已遮盖为 `***`，单行 160 字截断。
-- 回显只用于观察；验收以 outbox 的 `RESULT.md`、`DIFF.stat`、`TESTS.md`、`DIFF.patch` 为准。
-- daemon `-Quiet` 模式没有窗口，架构师一律用 `watch-tasks.ps1` 或 `show-progress.ps1` 查看。
-- 判断任务卡死：连续 5 分钟 `tool=` 计数不变且无新事件，先看远端主机 `pgrep -af "codearts run"` 再决定是否 `cancel`（保留现场）。
+### projects.json
 
-## Linux Daemon（systemd user service）
+定义项目，指定 transport 类型和 SSH 连接信息：
 
-桥迁 Linux 后用 systemd user service 替代 NSSM。先确认 178.50 主机可以执行 `pwsh`，并把本仓库同步到 `/home/nathan/codex-glm-bridge-repo`：
+```json
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "projectId": "my-project",
+      "transport": "ssh",
+      "sshHost": "user@192.168.1.50",
+      "remoteBridgeRoot": "/home/user/.codex-glm-bridge",
+      "remoteProjectPath": "/home/user/myproject"
+    }
+  ]
+}
+```
+
+### workers.json
+
+定义工作节点，绑定项目和角色：
+
+```json
+{
+  "schemaVersion": 1,
+  "workers": [
+    {
+      "workerId": "worker-01",
+      "projectId": "my-project",
+      "role": "implement",
+      "host": "192.168.1.50"
+    }
+  ]
+}
+```
+
+## 使用
+
+### CLI 命令
 
 ```bash
-# 在 178.50 上创建 service unit
-mkdir -p ~/.config/systemd/user
-cat > ~/.config/systemd/user/codex-glm-bridge.service << 'EOF'
-[Unit]
-Description=codex-glm Bridge Daemon
-After=network-online.target
-Wants=network-online.target
+# 创建任务
+bridge create -p my-project -w worker-01 -t task-001 -f task-file.md
 
-[Service]
-Type=simple
-WorkingDirectory=/home/nathan/codex-glm-bridge-repo
-Environment=PATH=/home/nathan/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment=POWERSHELL_TELEMETRY_OPTOUT=1
-ExecStart=/home/nathan/.local/bin/pwsh -NoProfile -File /home/nathan/codex-glm-bridge-repo/scripts/bridge-daemon.ps1 run -MaxWorkers 4 -IntervalSeconds 10
-ExecStop=/home/nathan/.local/bin/pwsh -NoProfile -File /home/nathan/codex-glm-bridge-repo/scripts/bridge-daemon.ps1 stop -ShutdownTimeoutSeconds 60
-Restart=on-failure
-RestartSec=5
-TimeoutStopSec=75
+# 派发任务
+bridge dispatch
 
-[Install]
-WantedBy=default.target
-EOF
+# 运行任务
+bridge run -t task-001
 
-systemctl --user daemon-reload
-systemctl --user enable --now codex-glm-bridge
-systemctl --user status codex-glm-bridge --no-pager
-pwsh -NoProfile -File ~/codex-glm-bridge-repo/scripts/bridge-daemon.ps1 status
+# 查看状态
+bridge status
+
+# 启动 Web 服务
+bridge serve --host 0.0.0.0 --port 8080
 ```
 
-日常管理：
+### Web UI 页面
+
+| 页面 | 功能 |
+|------|------|
+| 仪表盘 | 任务/节点/项目总览 |
+| 任务 | 全部任务列表，支持创建 |
+| 思考回显 | 2×2 监控布局，实时显示 Agent 思考流 |
+| 工作节点 | 节点在线状态和能力 |
+| 审查 | 查看已完成任务的输出文件 |
+| 设置 | Bridge 配置和健康检查 |
+
+### 思考回显窗口
+
+每个窗口显示：
+- **头部**：任务 ID + 状态徽章 + 计时器 + 思考/工具计数
+- **内容**：Agent 实际输出的事件流
+  - ▶️ 开始执行
+  - 💭 推理文本（codearts reasoning）
+  - 🔧 工具调用（read/write/bash/edit + 文件名）
+
+## Transport 类型
+
+| transport | CLI 位置 | 适用场景 |
+|-----------|---------|---------|
+| `local` | 本机 | 本地开发 |
+| `ssh` | 远端 | 生产多节点（推荐） |
+| `ssh-shell` | 本机 | 远端无 CLI 降级 |
+| `remote-worktree` | 远端 | 独立仓库并行开发 |
+
+## 项目结构
+
+```
+src/bridge/
+├── api/server.py        # HTTP API + Web UI
+├── cli.py               # CLI 入口
+├── dispatch.py          # 任务调度
+├── state.py             # 状态机
+├── worker.py            # Worker 执行
+├── transport/
+│   ├── ssh.py           # SSH transport
+│   ├── local.py         # 本地 transport
+│   └── remote_worktree.py
+├── runtime/
+│   ├── heartbeat.py     # 心跳追踪
+│   └── supervisor.py    # 运行时监控
+└── web/index.html       # Web UI 单页应用
+```
+
+## 开发
 
 ```bash
-systemctl --user start codex-glm-bridge
-systemctl --user stop codex-glm-bridge
-systemctl --user restart codex-glm-bridge
-journalctl --user -u codex-glm-bridge -n 100 -f
+# 安装开发依赖
+pip install -e ".[dev]"
+
+# 运行测试
+pytest
+
+# 设置 Python 路径
+export PYTHONPATH=src
 ```
 
-这里启动的是调度守护进程 `bridge-daemon.ps1`，不是直接运行 `codearts run`。守护进程每轮调用 `bridge.ps1 dispatch -MaxWorkers 4 -Quiet`，4 个 `ssh` worker 再各自在自己的 Linux 主机和独立账号下执行 CodeArts CLI。
+## License
 
-无需 root/UAC，`systemctl --user` 即可管理。
-
-## CodeArts CLI 授权
-
-CLI 与 CodeArts Agent IDE 的登录状态相互独立。首次运行前需按华为云官方指引配置 `CODEARTS_CLI_AK` 和 `CODEARTS_CLI_SK`；Bridge 只检查变量是否存在，不打印、记录或复制其值。
-
-配置后重新运行 `doctor`，两个授权变量均显示 `true`，再投递 Worker 任务。
+MIT

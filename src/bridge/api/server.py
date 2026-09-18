@@ -318,7 +318,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": str(e)})
 
     def _handle_get_task_log(self, task_id: str):
-        import subprocess
+        import subprocess, json as _json
         from bridge.atomic import read_json_or_none
         from bridge.config import load_registry, get_project
         task_dir = self.bridge_root / "tasks" / task_id
@@ -332,28 +332,84 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         except Exception:
             project = None
         if not project:
-            return self._send_json(200, {"content": "", "lines": 0})
+            return self._send_json(200, {"startTime":0,"elapsed":0,"events":[],"toolCount":0,"reasoningCount":0})
         transport = getattr(project, "transport", "local")
         ssh_host = getattr(project, "ssh_host", None)
         remote_root = getattr(project, "remote_bridge_root", None)
+
+        def parse_log(raw_text):
+            import re
+            raw_text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_text)
+            raw_text = re.sub(r'[\r\x00-\x08\x0b\x0c\x0e-\x1f]', '', raw_text)
+            events = []
+            timestamps = []
+            tool_count = 0
+            reasoning_count = 0
+            for line in raw_text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("脚本启动"):
+                    continue
+                try:
+                    obj = _json.loads(line)
+                except Exception:
+                    continue
+                ts = obj.get("timestamp")
+                if ts:
+                    timestamps.append(ts)
+                ptype = obj.get("type", "")
+                part = obj.get("part", {})
+                if ptype == "reasoning":
+                    text = part.get("text", "")
+                    if text:
+                        reasoning_count += 1
+                        events.append({"type":"reasoning","text":text[:200],"time":ts})
+                elif ptype == "tool_use":
+                    tool = part.get("tool", "")
+                    state = part.get("state", {})
+                    status = state.get("status", "")
+                    inp = state.get("input", {})
+                    summary = f"{tool}"
+                    if tool == "read" and inp.get("filePath"):
+                        summary += f" {inp['filePath'].split('/')[-1]}"
+                    elif tool == "write" and inp.get("filePath"):
+                        summary += f" {inp['filePath'].split('/')[-1]}"
+                    elif tool == "bash" and inp.get("command"):
+                        summary += f" {inp['command'][:60]}"
+                    elif tool == "edit" and inp.get("filePath"):
+                        summary += f" {inp['filePath'].split('/')[-1]}"
+                    tool_count += 1
+                    events.append({"type":"tool","text":summary,"status":status,"time":ts})
+                elif ptype == "step_start":
+                    events.append({"type":"step","text":"开始执行","time":ts})
+            start = timestamps[0] if timestamps else 0
+            end = timestamps[-1] if timestamps else 0
+            elapsed = (end - start) // 1000 if start and end else 0
+            return {
+                "startTime": start,
+                "elapsed": elapsed,
+                "events": events[-50:],
+                "toolCount": tool_count,
+                "reasoningCount": reasoning_count,
+            }
+
         if transport == "local" or not ssh_host:
             log_path = task_dir / "session.log"
             if not log_path.is_file():
-                return self._send_json(200, {"content": "", "lines": 0})
+                return self._send_json(200, {"startTime":0,"elapsed":0,"events":[],"toolCount":0,"reasoningCount":0})
             try:
-                lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-                tail = lines[-300:]
-                return self._send_json(200, {"content": "\n".join(tail), "lines": len(tail)})
+                raw = log_path.read_text(encoding="utf-8", errors="replace")
+                return self._send_json(200, parse_log(raw))
             except Exception as e:
                 return self._send_json(500, {"error": str(e)})
         else:
             remote_task = f"{remote_root.rstrip('/')}/tasks/{task_id}"
             cmd = ["ssh", "-o", "BatchMode=yes", ssh_host,
-                   f"tail -n 300 {remote_task}/session.log 2>/dev/null | sed 's/\\x1b\\[[0-9;]*[a-zA-Z]//g'"]
+                   f"tail -n 500 {remote_task}/session.log 2>/dev/null"]
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                content = r.stdout or ""
-                return self._send_json(200, {"content": content, "lines": len(content.splitlines())})
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                return self._send_json(200, parse_log(r.stdout or ""))
+            except Exception as e:
+                return self._send_json(500, {"error": str(e)})
             except Exception as e:
                 return self._send_json(500, {"error": str(e)})
 
