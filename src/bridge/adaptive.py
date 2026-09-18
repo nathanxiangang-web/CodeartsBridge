@@ -284,7 +284,9 @@ def adaptive_dispatch(
                 pass
 
             try:
-                if enabled_worker_ids:
+                # Explicit workerId is an operator routing decision. Adaptive
+                # scheduling may tune timeouts but must not override that pin.
+                if enabled_worker_ids and not meta.get("workerId"):
                     rec_worker = recommend_worker(
                         task_id, bridge_root, enabled_worker_ids
                     )
