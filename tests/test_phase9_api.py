@@ -273,6 +273,98 @@ class TestTasksAPI:
         assert code == 200
         assert data["workerId"] == "w-runtime"
 
+    def test_create_maps_full_execution_contract_and_attempt(self, api_server, tmp_path):
+        code, data = _post(api_server, "/api/tasks", {
+            "taskId": "contract-task",
+            "projectId": "p1",
+            "workerId": "w1",
+            "role": "review",
+            "priority": 88,
+            "baseline": "abc123",
+            "execution": {
+                "preferredWorker": "w1",
+                "excludedWorkers": ["w2"],
+                "workspace": "worktree",
+                "targetMinutes": 7,
+                "softTimeoutMinutes": 9,
+                "hardTimeoutMinutes": 11,
+            },
+            "review": {
+                "required": False,
+                "independentWorker": False,
+            },
+        })
+        assert code == 201
+        assert data["priority"] == 88
+        assert data["baseline"] == "abc123"
+        assert data["execution"] == {
+            "preferredWorker": "w1",
+            "excludedWorkers": ["w2"],
+            "workspace": "worktree",
+            "targetMinutes": 7,
+            "softTimeoutMinutes": 9,
+            "hardTimeoutMinutes": 11,
+        }
+        assert data["review"] == {
+            "required": False,
+            "independentWorker": False,
+        }
+
+        from bridge.core.state import set_state
+        task_dir = tmp_path / "tasks" / "contract-task"
+        set_state(task_dir, "READY", attempt=3)
+
+        code, listed = _get(api_server, "/api/tasks")
+        assert code == 200
+        task = next(t for t in listed["tasks"] if t["taskId"] == "contract-task")
+        assert task["attempt"] == 3
+
+        code, detail = _get(api_server, "/api/tasks/contract-task")
+        assert code == 200
+        assert detail["attempt"] == 3
+
+    def test_create_rejects_invalid_role_and_unsafe_ids(self, api_server):
+        code, data = _post(api_server, "/api/tasks", {
+            "taskId": "bad-role",
+            "projectId": "p1",
+            "role": "ops",
+        })
+        assert code == 400
+        assert "Unsupported role" in data["error"]
+
+        code, data = _post(api_server, "/api/tasks", {
+            "taskId": "../escape",
+            "projectId": "p1",
+            "role": "implement",
+        })
+        assert code == 400
+        assert "taskId" in data["error"]
+
+    def test_create_duplicate_returns_conflict(self, api_server):
+        payload = {
+            "taskId": "duplicate",
+            "projectId": "p1",
+            "role": "implement",
+        }
+        first, _ = _post(api_server, "/api/tasks", payload)
+        second, data = _post(api_server, "/api/tasks", payload)
+        assert first == 201
+        assert second == 409
+        assert "already exists" in data["error"]
+
+    def test_create_rejects_soft_timeout_above_hard_timeout(self, api_server):
+        code, data = _post(api_server, "/api/tasks", {
+            "taskId": "bad-timeout",
+            "projectId": "p1",
+            "role": "implement",
+            "execution": {
+                "softTimeoutMinutes": 20,
+                "hardTimeoutMinutes": 10,
+            },
+        })
+        assert code == 400
+        assert "softTimeoutMinutes" in data["error"]
+
     def test_cancel_task(self, api_server, tmp_path):
         self._create_task(api_server, tmp_path)
         code, data = _post(api_server, "/api/tasks/t1/cancel", {"reason": "test"})
@@ -281,7 +373,7 @@ class TestTasksAPI:
 
     def test_get_task_not_found(self, api_server):
         code, data = _get(api_server, "/api/tasks/nonexistent")
-        assert code in (404, 500)  # 404 if handled, 500 if exception
+        assert code == 404
         assert "error" in data
 
     def test_create_missing_field(self, api_server):
