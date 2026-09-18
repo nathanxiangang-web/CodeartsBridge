@@ -364,6 +364,18 @@ def cmd_workers(args) -> int:
     return 0
 
 
+def cmd_telemetry(args) -> int:
+    """Show telemetry and statistics report."""
+    from .telemetry import generate_report_text
+    root = _bridge_root()
+    tasks_dir = root / "tasks"
+    if not tasks_dir.is_dir():
+        print("No tasks directory found.")
+        return 1
+    print(generate_report_text(tasks_dir))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bridge", description=f"Codex-GLM Bridge v{__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -375,7 +387,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_create = sub.add_parser("create", help="Create a new task")
     p_create.add_argument("-p", "--project-id", required=True)
     p_create.add_argument("-w", "--worker-id", default=None)
-    p_create.add_argument("--role", default="implement", choices=["implement", "review", "test"])
+    p_create.add_argument("--role", default="implement", choices=["architect", "implement", "review", "test"])
     p_create.add_argument("-t", "--task-id", required=True)
     p_create.add_argument("--task-file", default=None)
     p_create.add_argument("--baseline", default=None)
@@ -413,6 +425,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("projects", help="List registered projects")
     sub.add_parser("workers", help="List registered workers")
+    sub.add_parser("telemetry", help="Show telemetry and statistics report")
 
     return parser
 
@@ -432,6 +445,7 @@ COMMAND_MAP = {
     "serve": cmd_serve,
     "projects": cmd_projects,
     "workers": cmd_workers,
+    "telemetry": cmd_telemetry,
 }
 
 

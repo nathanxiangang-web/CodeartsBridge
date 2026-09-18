@@ -60,6 +60,22 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_STATE_TIMESTAMPS: dict[str, str] = {
+    QUEUED: "queuedAt",
+    STARTING: "startedAt",
+    RUNNING: "runningAt",
+    REVIEW_REQUIRED: "finishedAt",
+    DONE: "doneAt",
+    FIX_REQUIRED: "reviewedAt",
+    CANCELLED: "cancelledAt",
+    FAILED: "failedAt",
+    BLOCKED: "blockedAt",
+    ASSISTANCE_REQUIRED: "assistanceAt",
+    AUTH_REQUIRED: "authAt",
+    RETRYABLE: "retryableAt",
+}
+
+
 def get_state(task_dir: str | Path) -> dict[str, Any]:
     """Read state.json from task directory. Returns empty dict if missing."""
     path = Path(task_dir) / "state.json"
@@ -141,6 +157,11 @@ def set_state(
         state["heartbeatTool"] = heartbeat_tool
     if tokens is not None:
         state["tokens"] = tokens
+
+    # Auto-record timestamp for state transitions
+    ts_field = _STATE_TIMESTAMPS.get(status)
+    if ts_field and ts_field not in state:
+        state[ts_field] = _now_iso()
 
     atomic_write_json(path, state)
     return state
