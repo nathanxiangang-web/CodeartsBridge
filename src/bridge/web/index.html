@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CodeartsBridge</title>
+<title>CodeartsBridge 控制台</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9}
@@ -55,20 +55,21 @@ input,select,textarea{width:100%}
 <body>
 <nav class="nav">
 <span class="brand">CodeartsBridge</span>
-<a href="#dashboard" class="nav-link active" data-page="dashboard">Dashboard</a>
-<a href="#projects" class="nav-link" data-page="projects">Projects</a>
-<a href="#tasks" class="nav-link" data-page="tasks">Tasks</a>
-<a href="#workers" class="nav-link" data-page="workers">Workers</a>
-<a href="#review" class="nav-link" data-page="review">Review</a>
-<a href="#settings" class="nav-link" data-page="settings">Settings</a>
+<a href="#dashboard" class="nav-link active" data-page="dashboard">仪表盘</a>
+<a href="#projects" class="nav-link" data-page="projects">项目</a>
+<a href="#tasks" class="nav-link" data-page="tasks">任务</a>
+<a href="#workers" class="nav-link" data-page="workers">工作节点</a>
+<a href="#review" class="nav-link" data-page="review">审查</a>
+<a href="#settings" class="nav-link" data-page="settings">设置</a>
 </nav>
 <div class="container">
 <div id="content"></div>
 </div>
 <script>
 const API='/api';
+const stateMap={created:'已创建',ready:'就绪',queued:'排队中',starting:'启动中',running:'运行中',verifying:'验证中',review_required:'待审查',review_passed:'审查通过',fix_required:'需修复',fixing:'修复中',approved:'已批准',integrating:'集成中',integrated:'已集成',done:'已完成',cancelled:'已取消',failed:'失败'};
 async function api(path,opts){const r=await fetch(API+path,opts);try{return await r.json()}catch(e){return{error:String(e)}}}
-function badge(s){return `<span class="badge badge-${s}">${s}</span>`}
+function badge(s){return `<span class="badge badge-${s}">${stateMap[s]||s}</span>`}
 function esc(s){return String(s??'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}
 
 async function loadDashboard(){
@@ -80,18 +81,18 @@ const byState={};
 const online=(workers.workers||[]).filter(w=>w.enabled).length;
 const offline=(workers.workers||[]).filter(w=>!w.enabled).length;
 return `
-<div class="card"><h2>Bridge Status</h2><p class="muted">Version ${esc(h.version||'?')} · Root: ${esc(h.bridge_root||'?')}</p></div>
-<div class="card"><h2>Workers</h2><div class="grid">
-<div class="stat"><div class="num" style="color:#3fb950">${online}</div><div class="label">Online</div></div>
-<div class="stat"><div class="num" style="color:#8b949e">${offline}</div><div class="label">Offline</div></div>
-<div class="stat"><div class="num">${(workers.workers||[]).length}</div><div class="label">Total</div></div>
+<div class="card"><h2>桥接状态</h2><p class="muted">版本 ${esc(h.version||'?')} · 根目录: ${esc(h.bridge_root||'?')}</p></div>
+<div class="card"><h2>工作节点</h2><div class="grid">
+<div class="stat"><div class="num" style="color:#3fb950">${online}</div><div class="label">在线</div></div>
+<div class="stat"><div class="num" style="color:#8b949e">${offline}</div><div class="label">离线</div></div>
+<div class="stat"><div class="num">${(workers.workers||[]).length}</div><div class="label">总计</div></div>
 </div></div>
-<div class="card"><h2>Tasks</h2><div class="grid">
-${Object.entries(byState).map(([s,n])=>`<div class="stat"><div class="num">${n}</div><div class="label">${esc(s)}</div></div>`).join('')}
-${Object.keys(byState).length===0?'<p class="muted">No tasks</p>':''}
+<div class="card"><h2>任务</h2><div class="grid">
+${Object.entries(byState).map(([s,n])=>`<div class="stat"><div class="num">${n}</div><div class="label">${esc(stateMap[s]||s)}</div></div>`).join('')}
+${Object.keys(byState).length===0?'<p class="muted">暂无任务</p>':''}
 </div></div>
-<div class="card"><h2>Recent Tasks</h2>
-<table><tr><th>ID</th><th>State</th><th>Project</th><th>Role</th></tr>
+<div class="card"><h2>最近任务</h2>
+<table><tr><th>ID</th><th>状态</th><th>项目</th><th>角色</th></tr>
 ${(tasks.tasks||[]).slice(0,10).map(t=>`<tr><td>${esc(t.task_id)}</td><td>${badge(t.state)}</td><td>${esc(t.project_id)}</td><td>${esc(t.role)}</td></tr>`).join('')}
 </table></div>`;
 }
@@ -99,16 +100,16 @@ ${(tasks.tasks||[]).slice(0,10).map(t=>`<tr><td>${esc(t.task_id)}</td><td>${badg
 async function loadProjects(){
 const r=await api('/projects');
 return `
-<div class="card"><h2>Projects</h2>
-<table><tr><th>ID</th><th>Name</th><th>Repo</th><th>Branch</th></tr>
+<div class="card"><h2>项目列表</h2>
+<table><tr><th>ID</th><th>名称</th><th>仓库</th><th>分支</th></tr>
 ${(r.projects||[]).map(p=>`<tr><td>${esc(p.project_id||p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.repo_url||p.repo||'-')}</td><td>${esc(p.branch||'-')}</td></tr>`).join('')}
 </table></div>
-<div class="card"><h2>Add Project</h2>
-<div class="form-row"><label>Project ID</label><input id="pj-id"></div>
-<div class="form-row"><label>Name</label><input id="pj-name"></div>
-<div class="form-row"><label>Repo URL</label><input id="pj-repo"></div>
-<div class="form-row"><label>Branch</label><input id="pj-branch" value="main"></div>
-<button class="btn btn-primary" onclick="addProject()">Add</button>
+<div class="card"><h2>添加项目</h2>
+<div class="form-row"><label>项目 ID</label><input id="pj-id"></div>
+<div class="form-row"><label>名称</label><input id="pj-name"></div>
+<div class="form-row"><label>仓库地址</label><input id="pj-repo"></div>
+<div class="form-row"><label>分支</label><input id="pj-branch" value="main"></div>
+<button class="btn btn-primary" onclick="addProject()">添加</button>
 </div>`;
 }
 
@@ -121,18 +122,18 @@ location.reload();
 async function loadTasks(){
 const r=await api('/tasks');
 return `
-<div class="card"><h2>Tasks</h2>
-<table><tr><th>ID</th><th>State</th><th>Project</th><th>Worker</th><th>Role</th><th>Attempt</th><th>Actions</th></tr>
+<div class="card"><h2>任务列表</h2>
+<table><tr><th>ID</th><th>状态</th><th>项目</th><th>工作节点</th><th>角色</th><th>尝试次数</th><th>操作</th></tr>
 ${(r.tasks||[]).map(t=>`<tr><td>${esc(t.task_id)}</td><td>${badge(t.state)}</td><td>${esc(t.project_id)}</td><td>${esc(t.worker_id||'-')}</td><td>${esc(t.role)}</td><td>${t.attempt||0}</td>
-<td><button class="btn" onclick="cancelTask('${esc(t.task_id)}')">Cancel</button></td></tr>`).join('')}
+<td><button class="btn" onclick="cancelTask('${esc(t.task_id)}')">取消</button></td></tr>`).join('')}
 </table></div>
-<div class="card"><h2>Create Task</h2>
-<div class="form-row"><label>Task ID</label><input id="tk-id"></div>
-<div class="form-row"><label>Project</label><input id="tk-project"></div>
-<div class="form-row"><label>Worker</label><input id="tk-worker" placeholder="auto"></div>
-<div class="form-row"><label>Role</label><select id="tk-role"><option>implement</option><option>review</option><option>test</option><option>integration</option><option>ops</option></select></div>
-<div class="form-row"><label>Task File</label><input id="tk-file" placeholder="optional"></div>
-<button class="btn btn-primary" onclick="createTask()">Create</button>
+<div class="card"><h2>创建任务</h2>
+<div class="form-row"><label>任务 ID</label><input id="tk-id"></div>
+<div class="form-row"><label>项目</label><input id="tk-project"></div>
+<div class="form-row"><label>工作节点</label><input id="tk-worker" placeholder="自动"></div>
+<div class="form-row"><label>角色</label><select id="tk-role"><option value="implement">实现</option><option value="review">审查</option><option value="test">测试</option><option value="integration">集成</option><option value="ops">运维</option></select></div>
+<div class="form-row"><label>任务文件</label><input id="tk-file" placeholder="可选"></div>
+<button class="btn btn-primary" onclick="createTask()">创建</button>
 </div>`;
 }
 
@@ -152,9 +153,9 @@ location.reload();
 async function loadWorkers(){
 const r=await api('/workers');
 return `
-<div class="card"><h2>Workers</h2>
-<table><tr><th>ID</th><th>Enabled</th><th>Roles</th><th>Skills</th><th>Agent</th><th>Host</th></tr>
-${(r.workers||[]).map(w=>`<tr><td>${esc(w.id)}</td><td>${w.enabled?'✅':'❌'}</td><td>${esc((w.roles||[]).join(', '))}</td><td>${esc((w.skills||[]).join(', '))}</td><td>${esc(w.agent_type||'-')}</td><td>${esc(w.host||'local')}</td></tr>`).join('')}
+<div class="card"><h2>工作节点列表</h2>
+<table><tr><th>ID</th><th>启用</th><th>角色</th><th>技能</th><th>代理类型</th><th>主机</th></tr>
+${(r.workers||[]).map(w=>`<tr><td>${esc(w.id)}</td><td>${w.enabled?'✅':'❌'}</td><td>${esc((w.roles||[]).join(', '))}</td><td>${esc((w.skills||[]).join(', '))}</td><td>${esc(w.agent_type||'-')}</td><td>${esc(w.host||'本地')}</td></tr>`).join('')}
 </table></div>`;
 }
 
@@ -162,13 +163,13 @@ async function loadReview(){
 const r=await api('/tasks');
 const reviewTasks=(r.tasks||[]).filter(t=>t.state==='review_required'||t.state==='fix_required');
 return `
-<div class="card"><h2>Review Queue</h2>
-${reviewTasks.length===0?'<p class="muted">No tasks pending review</p>':''}
-<table><tr><th>ID</th><th>State</th><th>Project</th><th>Role</th><th>Actions</th></tr>
+<div class="card"><h2>审查队列</h2>
+${reviewTasks.length===0?'<p class="muted">暂无待审查任务</p>':''}
+<table><tr><th>ID</th><th>状态</th><th>项目</th><th>角色</th><th>操作</th></tr>
 ${reviewTasks.map(t=>`<tr><td>${esc(t.task_id)}</td><td>${badge(t.state)}</td><td>${esc(t.project_id)}</td><td>${esc(t.role)}</td>
 <td>
-<button class="btn btn-primary" onclick="reviewPass('${esc(t.task_id)}')">Pass</button>
-<button class="btn btn-danger" onclick="reviewFix('${esc(t.task_id)}')">Fix</button>
+<button class="btn btn-primary" onclick="reviewPass('${esc(t.task_id)}')">通过</button>
+<button class="btn btn-danger" onclick="reviewFix('${esc(t.task_id)}')">需修复</button>
 </td></tr>`).join('')}
 </table></div>`;
 }
@@ -186,19 +187,19 @@ location.reload();
 async function loadSettings(){
 const h=await api('/health');
 return `
-<div class="card"><h2>Bridge Configuration</h2>
-<p class="muted">Version: ${esc(h.version||'?')}</p>
-<p class="muted">Bridge Root: ${esc(h.bridge_root||'?')}</p>
-<p class="muted">API Status: ${esc(h.status||'?')}</p>
+<div class="card"><h2>桥接配置</h2>
+<p class="muted">版本: ${esc(h.version||'?')}</p>
+<p class="muted">根目录: ${esc(h.bridge_root||'?')}</p>
+<p class="muted">接口状态: ${esc(h.status||'?')}</p>
 </div>
-<div class="card"><h2>Runtime Settings</h2>
-<div class="form-row"><label>Max Workers</label><input type="number" value="4" id="cfg-max-workers"></div>
-<div class="form-row"><label>Soft Timeout</label><input type="number" value="12" id="cfg-soft-timeout"><span class="muted">minutes</span></div>
-<div class="form-row"><label>Hard Timeout</label><input type="number" value="15" id="cfg-hard-timeout"><span class="muted">minutes</span></div>
-<button class="btn btn-primary" onclick="alert('Settings saved (demo)')">Save</button>
+<div class="card"><h2>运行时设置</h2>
+<div class="form-row"><label>最大工作节点数</label><input type="number" value="4" id="cfg-max-workers"></div>
+<div class="form-row"><label>软超时</label><input type="number" value="12" id="cfg-soft-timeout"><span class="muted">分钟</span></div>
+<div class="form-row"><label>硬超时</label><input type="number" value="15" id="cfg-hard-timeout"><span class="muted">分钟</span></div>
+<button class="btn btn-primary" onclick="alert('设置已保存（演示）')">保存</button>
 </div>
-<div class="card"><h2>Logging</h2>
-<div class="form-row"><label>Log Level</label><select><option>DEBUG</option><option selected>INFO</option><option>WARNING</option><option>ERROR</option></select></div>
+<div class="card"><h2>日志</h2>
+<div class="form-row"><label>日志级别</label><select><option>调试</option><option selected>信息</option><option>警告</option><option>错误</option></select></div>
 </div>`;
 }
 
@@ -208,7 +209,7 @@ async function navigate(page){
 document.querySelectorAll('.nav-link').forEach(a=>a.classList.remove('active'));
 document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
 const fn=pages[page]||loadDashboard;
-try{document.getElementById('content').innerHTML=await fn()}catch(e){document.getElementById('content').innerHTML=`<div class="card"><p class="muted">Error: ${esc(e)}</p></div>`}
+try{document.getElementById('content').innerHTML=await fn()}catch(e){document.getElementById('content').innerHTML=`<div class="card"><p class="muted">错误: ${esc(e)}</p></div>`}
 }
 
 window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)||'dashboard'));
