@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from ..core.models import Worker, Task
+from ..core.models import Worker, Task, Project
 
 
 def role_matches(worker: Worker, role: str) -> bool:
@@ -32,6 +32,41 @@ def is_candidate(worker: Worker, task: Task) -> bool:
 def filter_candidates(workers: list[Worker], task: Task) -> list[Worker]:
     """Filter workers that are candidates for the given task."""
     return [w for w in workers if is_candidate(w, task)]
+
+
+def transport_matches_project(worker: Worker, project: Project) -> bool:
+    """Check whether Worker transport can execute a Project transport."""
+    if worker.transport == project.transport:
+        return True
+    return project.transport == "remote-worktree" and worker.transport == "ssh"
+
+
+def host_matches_project(worker: Worker, project: Project) -> bool:
+    """Check project host affinity.
+
+    Local projects are host-agnostic. Remote projects with sshHost require the
+    selected Worker to advertise the exact same host.
+    """
+    if project.transport == "local":
+        return True
+    if not project.ssh_host:
+        return True
+    return bool(worker.host) and worker.host == project.ssh_host
+
+
+def project_matches(worker: Worker, project: Project) -> bool:
+    return (
+        transport_matches_project(worker, project)
+        and host_matches_project(worker, project)
+    )
+
+
+def filter_project_candidates(
+    workers: list[Worker],
+    project: Project,
+) -> list[Worker]:
+    """Filter Workers that are physically compatible with a Project."""
+    return [w for w in workers if project_matches(w, project)]
 
 
 def score_worker(worker: Worker, task: Task) -> int:
