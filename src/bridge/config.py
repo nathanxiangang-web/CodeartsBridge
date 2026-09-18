@@ -92,10 +92,14 @@ class Registry:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Registry":
+        defaults = d.get("defaults", {})
         return cls(
             schema_version=d.get("schemaVersion", 1),
-            defaults=d.get("defaults", {}),
-            projects=[ProjectConfig.from_dict(p) for p in d.get("projects", [])],
+            defaults=defaults,
+            projects=[
+                ProjectConfig.from_dict({**defaults, **p})
+                for p in d.get("projects", [])
+            ],
         )
 
 
@@ -107,10 +111,14 @@ class WorkersRegistry:
 
     @classmethod
     def from_dict(cls, d: dict) -> "WorkersRegistry":
+        defaults = d.get("defaults", {})
         return cls(
             schema_version=d.get("schemaVersion", 1),
-            defaults=d.get("defaults", {}),
-            workers=[WorkerConfig.from_dict(w) for w in d.get("workers", [])],
+            defaults=defaults,
+            workers=[
+                WorkerConfig.from_dict({**defaults, **w})
+                for w in d.get("workers", [])
+            ],
         )
 
 
