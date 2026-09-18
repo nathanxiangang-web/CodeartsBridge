@@ -345,15 +345,24 @@ if(window._timerTick)clearInterval(window._timerTick);
 const workerSlots={};
 for(let i=0;i<4;i++){const w=document.getElementById('monitor-'+i);if(w){const tidEl=w.querySelector('.monitor-tid');if(tidEl){const wid=tidEl.getAttribute('data-worker');if(wid)workerSlots[wid]=i}}}
 const slotData={};
+let firstPoll=true;
 
 async function pollLogs(){
 try{
 const r=await api('/tasks');
 const activeByWorker={};
+const doneByWorker={};
 for(const task of(r.tasks||[])){
 const tid=task.taskId;
 const state=task.state||'';
-if(mapState(state)==='done')continue;
+const ms=mapState(state);
+if(ms==='done'){
+if(!firstPoll)continue;
+const st=await api(`/tasks/${tid}`);
+const wid=(st.meta&&st.meta.workerId)||(task.meta&&task.meta.workerId)||'';
+if(wid&&!doneByWorker[wid])doneByWorker[wid]={tid,state};
+continue;
+}
 const st=await api(`/tasks/${tid}`);
 const wid=(st.meta&&st.meta.workerId)||(task.meta&&task.meta.workerId)||'';
 if(!wid)continue;
@@ -367,7 +376,7 @@ const hostEl=hdr.querySelector('.monitor-host');
 const host=hostEl?hostEl.textContent:'?';
 const wEl=hdr.querySelector('.monitor-tid');
 const wid=wEl?wEl.getAttribute('data-worker'):'';
-const info=activeByWorker[wid];
+const info=activeByWorker[wid]||doneByWorker[wid];
 if(info){
 const{tid,state}=info;
 const log=await api(`/tasks/${tid}/log`);
@@ -401,6 +410,7 @@ logEl.innerHTML='';
 }
 }
 }catch(e){}
+firstPoll=false;
 }
 function tickTimers(){
 for(let i=0;i<4;i++){
