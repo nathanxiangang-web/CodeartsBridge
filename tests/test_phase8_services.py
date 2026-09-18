@@ -36,6 +36,35 @@ class TestProjectService:
         assert get_project(tmp_path, "p2")["name"] == "B"
         assert get_project(tmp_path, "p3") is None
 
+    def test_register_preserves_canonical_registry_metadata(self, tmp_path):
+        from bridge.application.projects import register_project, list_projects
+
+        pf = tmp_path / "projects.json"
+        pf.write_text(json.dumps({
+            "schemaVersion": 7,
+            "defaults": {"model": "keep-me", "timeoutMinutes": 42},
+            "projects": [{"id": "existing", "projectRoot": "/existing"}],
+        }), encoding="utf-8")
+
+        register_project(tmp_path, {"id": "new", "projectRoot": "/new"})
+
+        raw = json.loads(pf.read_text(encoding="utf-8"))
+        assert isinstance(raw, dict)
+        assert raw["schemaVersion"] == 7
+        assert raw["defaults"] == {"model": "keep-me", "timeoutMinutes": 42}
+        assert [p["id"] for p in raw["projects"]] == ["existing", "new"]
+        assert len(list_projects(tmp_path)) == 2
+
+    def test_duplicate_project_id_is_rejected_without_corruption(self, tmp_path):
+        from bridge.application.projects import register_project
+
+        register_project(tmp_path, {"id": "p1"})
+        with pytest.raises(ValueError, match="already registered"):
+            register_project(tmp_path, {"projectId": "p1"})
+
+        raw = json.loads((tmp_path / "projects.json").read_text(encoding="utf-8"))
+        assert len(raw["projects"]) == 1
+
     def test_unregister(self, tmp_path):
         from bridge.application.projects import register_project, unregister_project, list_projects
         register_project(tmp_path, {"projectId": "p1"})
@@ -63,6 +92,25 @@ class TestWorkerService:
         register_worker(tmp_path, {"id": "w1", "status": "online"})
         update_worker_status(tmp_path, "w1", "offline")
         assert get_worker(tmp_path, "w1")["status"] == "offline"
+
+    def test_status_update_preserves_canonical_registry_metadata(self, tmp_path):
+        from bridge.application.workers import update_worker_status
+
+        wf = tmp_path / "workers.json"
+        wf.write_text(json.dumps({
+            "schemaVersion": 3,
+            "defaults": {"model": "keep-worker-default", "concurrencyLimit": 2},
+            "workers": [{"id": "w1", "enabled": True, "status": "online"}],
+        }), encoding="utf-8")
+
+        updated = update_worker_status(tmp_path, "w1", "offline")
+        assert updated["status"] == "offline"
+
+        raw = json.loads(wf.read_text(encoding="utf-8"))
+        assert isinstance(raw, dict)
+        assert raw["schemaVersion"] == 3
+        assert raw["defaults"]["model"] == "keep-worker-default"
+        assert raw["workers"][0]["status"] == "offline"
 
     def test_get_available(self, tmp_path):
         from bridge.application.workers import register_worker, get_available_workers
