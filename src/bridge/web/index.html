@@ -196,7 +196,7 @@ function t(k){return(i18n[k]&&i18n[k][lang])||k}
 function mapState(s){const k=String(s).toLowerCase();const q=['created','ready','queued','starting','fix_required','fixing','retryable'];const th=['running','assistance_required','integrating'];const d=['done','review_required','review_passed','verifying','integrated','cancelled','failed','blocked','auth_required','approved'];if(q.includes(k))return'queued';if(th.includes(k))return'thinking';if(d.includes(k))return'done';return'queued'}
 function ts(s){const m=mapState(s);return(stateMap[m]&&stateMap[m][lang])||s}
 function toggleLang(){lang=lang==='zh'?'en':'zh';document.querySelector('.lang-btn').textContent=lang==='zh'?'EN':'中文';document.querySelectorAll('[data-i18n]').forEach(e=>{e.textContent=t(e.dataset.i18n)});navigate(location.hash.slice(1)||'dashboard')}
-async function api(path,opts){const r=await fetch(API+path,opts);try{return await r.json()}catch(e){return{error:String(e)}}}
+async function api(path,opts){const r=await fetch(API+path+'?_t='+Date.now(),{...opts,cache:'no-store'});try{return await r.json()}catch(e){return{error:String(e)}}}
 function badge(s){const m=mapState(s);return `<span class="badge badge-${m}">${ts(s)}</span>`}
 function esc(s){return String(s??'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}
 
@@ -405,7 +405,7 @@ logEl.innerHTML='';
 }
 }
 }catch(e){}
-if(!historyLoaded){historyLoaded=true;loadHistory();}
+if(!historyLoaded){historyLoaded=true;}
 }
 
 async function loadHistory(){
@@ -456,8 +456,8 @@ const elapsed=Math.floor((Date.now()-d.startTime)/1000);
 hdr.innerHTML=`<span class="monitor-host">${esc(d.host)}</span> ${badge(d.state)} <span class="monitor-timer">⏱${fmtElapsed(elapsed)}</span> <span class="muted" style="font-size:10px">思考${d.rc} 工具${d.tc}</span> <span class="monitor-tid muted" style="font-size:10px">${esc(d.tid)}</span>`;
 }
 }
-pollLogs();
-thinkingPoll=setInterval(pollLogs,2000);
+function schedulePoll(){pollLogs().finally(()=>{thinkingPoll=setTimeout(schedulePoll,2000)})}
+schedulePoll();
 window._timerTick=setInterval(tickTimers,1000);
 }
 
