@@ -219,7 +219,7 @@ def _token_total(value: Any) -> int:
                 except (TypeError, ValueError):
                     return 0
         total = 0
-        for key in ("input", "output", "input_tokens", "output_tokens", "prompt_tokens", "completion_tokens"):
+        for key in ("input", "output", "reasoning", "input_tokens", "output_tokens", "reasoning_tokens", "prompt_tokens", "completion_tokens"):
             try:
                 total += int(value.get(key, 0) or 0)
             except (TypeError, ValueError):
