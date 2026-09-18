@@ -1,8 +1,8 @@
 # AI生成
-"""Integration module: merge completed task work back into the main branch.
+"""Integration module: merge approved task work back into the main branch.
 
 P2-03 integration automation. Provides cherry-pick based integration of
-DONE-state tasks into the main branch with post-merge verification.
+APPROVED tasks with post-merge verification and canonical state transitions.
 
 Key functions:
     integrate_task(task_id, bridge_root) -> IntegrationResult
@@ -25,9 +25,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .atomic import atomic_write_json, read_json_or_none
-from .state import (
+from .core.state import (
     get_state, set_state,
-    DONE, INTEGRATION_FAILED,
+    APPROVED, INTEGRATING, INTEGRATED, DONE, CONFLICT, FAILED,
 )
 from .config import load_registry, get_project
 
@@ -103,7 +103,6 @@ def _resolve_task_commit(task_dir: Path, state: dict, meta: dict) -> str:
         or state.get("headSha")
         or meta.get("commitSha")
         or meta.get("headSha")
-        or meta.get("baseline")
     )
     if sha:
         return sha
@@ -170,58 +169,67 @@ def integrate_task(
     verify_command: list[str] | None = None,
     target_branch: str = "main",
 ) -> IntegrationResult:
-    """Integrate a DONE-state task into the main branch via cherry-pick.
+    """Integrate an APPROVED task and finish the canonical lifecycle.
 
-    Steps:
-    1. Pre-merge gate: verify task state is DONE
-    2. Resolve the task commit SHA
-    3. Cherry-pick the commit into target_branch
-    4. Post-merge: run focused tests
-    5. On pass: update baseline SHA in registry
-    6. On failure: revert merge, mark task INTEGRATION_FAILED
+    State flow:
+        APPROVED -> INTEGRATING -> INTEGRATED -> DONE
+
+    A cherry-pick conflict moves the task to CONFLICT. Verification or other
+    integration failures move it to FAILED after the repository is restored.
     """
     bridge_root = Path(bridge_root)
     task_dir = bridge_root / "tasks" / task_id
 
     if not task_dir.is_dir():
         return IntegrationResult(
-            task_id=task_id, success=False,
+            task_id=task_id,
+            success=False,
             error=f"Task directory not found: {task_dir}",
         )
 
     state = get_state(task_dir)
     meta = read_json_or_none(task_dir / "META.json") or {}
-    current_state = state.get("status") or state.get("state", "")
+    current_state = state.get("state") or state.get("status", "")
 
-    if current_state != DONE:
+    if current_state != APPROVED:
         return IntegrationResult(
-            task_id=task_id, success=False,
-            error=f"Task state is {current_state}, must be {DONE} to integrate",
+            task_id=task_id,
+            success=False,
+            error=f"Task state is {current_state}, must be {APPROVED} to integrate",
         )
 
     commit_sha = _resolve_task_commit(task_dir, state, meta)
     if not commit_sha:
         return IntegrationResult(
-            task_id=task_id, success=False,
-            error="No commit SHA found for task (set commitSha in state.json or META.json)",
+            task_id=task_id,
+            success=False,
+            error="No task commit SHA found (set commitSha/headSha or outbox/COMMIT.sha)",
         )
 
     project_root = _resolve_project_root(bridge_root, meta)
 
     if dry_run:
         return IntegrationResult(
-            task_id=task_id, success=True,
+            task_id=task_id,
+            success=True,
             dry_run=True,
             commit_sha=commit_sha,
             merged_sha=_get_head_sha(project_root),
         )
 
     pre_merge_sha = _get_head_sha(project_root)
+    set_state(task_dir, INTEGRATING, commitSha=commit_sha)
 
     r = _run_git(["checkout", target_branch], project_root, timeout=30)
     if r.returncode != 0:
+        set_state(
+            task_dir,
+            FAILED,
+            message=f"checkout {target_branch} failed: {r.stderr.strip()[:200]}",
+        )
         return IntegrationResult(
-            task_id=task_id, success=False,
+            task_id=task_id,
+            success=False,
             error=f"Checkout {target_branch} failed: {r.stderr.strip()}",
             commit_sha=commit_sha,
         )
@@ -230,9 +238,15 @@ def integrate_task(
     if r.returncode != 0:
         conflicts = get_conflict_files(project_root)
         _run_git(["cherry-pick", "--abort"], project_root, timeout=15)
-        set_state(task_dir, INTEGRATION_FAILED, message=f"cherry-pick failed: {r.stderr.strip()[:200]}")
+        next_state = CONFLICT if conflicts else FAILED
+        set_state(
+            task_dir,
+            next_state,
+            message=f"cherry-pick failed: {r.stderr.strip()[:200]}",
+        )
         return IntegrationResult(
-            task_id=task_id, success=False,
+            task_id=task_id,
+            success=False,
             error=f"Cherry-pick failed: {r.stderr.strip()}",
             conflict_files=conflicts,
             reverted=True,
@@ -244,9 +258,14 @@ def integrate_task(
     tests_passed = _run_focused_tests(project_root, verify_command)
     if not tests_passed:
         _run_git(["reset", "--hard", pre_merge_sha], project_root, timeout=30)
-        set_state(task_dir, INTEGRATION_FAILED, message="post-merge tests failed, merge reverted")
+        set_state(
+            task_dir,
+            FAILED,
+            message="post-merge tests failed; merge reverted",
+        )
         return IntegrationResult(
-            task_id=task_id, success=False,
+            task_id=task_id,
+            success=False,
             error="Post-merge focused tests failed",
             verification_passed=False,
             reverted=True,
@@ -257,18 +276,28 @@ def integrate_task(
     project_id = meta.get("projectId", "default")
     update_baseline_sha(bridge_root, project_id, merged_sha)
 
-    state["integratedSha"] = merged_sha
-    state["integratedAt"] = _now_iso()
-    atomic_write_json(task_dir / "state.json", state)
+    integrated_at = _now_iso()
+    set_state(
+        task_dir,
+        INTEGRATED,
+        integratedSha=merged_sha,
+        integratedAt=integrated_at,
+    )
+    set_state(
+        task_dir,
+        DONE,
+        integratedSha=merged_sha,
+        integratedAt=integrated_at,
+    )
 
     return IntegrationResult(
-        task_id=task_id, success=True,
+        task_id=task_id,
+        success=True,
         merged_sha=merged_sha,
         verification_passed=True,
         baseline_updated=True,
         commit_sha=commit_sha,
     )
-
 
 def integrate_loop(
     bridge_root: Path,
@@ -276,14 +305,7 @@ def integrate_loop(
     dry_run: bool = False,
     verify_command: list[str] | None = None,
 ) -> list[IntegrationResult]:
-    """Scan for DONE tasks not yet integrated and integrate them serially.
-
-    A task is eligible if:
-    - State is DONE
-    - state.json does not have "integratedSha" set
-
-    Integrations are serialized: one at a time, no parallel merges.
-    """
+    """Scan APPROVED tasks and integrate them serially."""
     bridge_root = Path(bridge_root)
     tasks_root = bridge_root / "tasks"
     results: list[IntegrationResult] = []
@@ -296,16 +318,14 @@ def integrate_loop(
         if not task_dir.is_dir():
             continue
         state = get_state(task_dir)
-        status = state.get("status") or state.get("state", "")
-        if status != DONE:
-            continue
-        if state.get("integratedSha"):
-            continue
-        eligible.append(task_dir.name)
+        status = state.get("state") or state.get("status", "")
+        if status == APPROVED:
+            eligible.append(task_dir.name)
 
     for task_id in eligible:
         result = integrate_task(
-            task_id, bridge_root,
+            task_id,
+            bridge_root,
             dry_run=dry_run,
             verify_command=verify_command,
         )
@@ -315,7 +335,6 @@ def integrate_loop(
             break
 
     return results
-
 
 def integrate_task_branch(
     task_id: str,
