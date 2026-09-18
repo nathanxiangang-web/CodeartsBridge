@@ -93,12 +93,15 @@ def get_task_status(bridge_root: Path, task_id: str) -> dict:
     if not task_dir.exists():
         raise TaskNotFoundError(f"Task not found: {task_id}")
 
-    state = get_state(task_dir).get("state", CREATED)
+    state_data = get_state(task_dir)
+    state = state_data.get("state", CREATED)
     meta = read_json_or_none(task_dir / "META.json")
+    worker_id = (meta or {}).get("workerId") or state_data.get("assignedWorkerId")
 
     return {
         "taskId": task_id,
         "state": state,
+        "workerId": worker_id,
         "meta": meta,
     }
 
@@ -139,15 +142,17 @@ def list_tasks(bridge_root: Path, state_filter: str | None = None) -> list[dict]
         if not task_dir.is_dir():
             continue
         task_id = task_dir.name
-        state = get_state(task_dir).get("state", CREATED)
+        state_data = get_state(task_dir)
+        state = state_data.get("state", CREATED)
         if state_filter and state != state_filter:
             continue
         meta = read_json_or_none(task_dir / "META.json")
+        worker_id = (meta or {}).get("workerId") or state_data.get("assignedWorkerId")
         results.append({
             "taskId": task_id,
             "state": state,
             "projectId": meta.get("projectId") if meta else None,
-            "workerId": meta.get("workerId") if meta else None,
+            "workerId": worker_id,
             "role": meta.get("role") if meta else None,
         })
     return results

@@ -172,7 +172,11 @@ def auto_dispatch(
         save_assignment(assignments_dir, assignment)
 
         # Transition state READY -> QUEUED
-        set_state(task_dir, QUEUED, message=f"auto-dispatched to {assignment.worker_id}")
+        set_state(
+            task_dir, QUEUED,
+            message=f"auto-dispatched to {assignment.worker_id}",
+            assigned_worker_id=assignment.worker_id,
+        )
 
         # Spawn worker process
         try:
@@ -190,7 +194,11 @@ def auto_dispatch(
             })
         except Exception as e:
             # Spawn failed: revert to READY, release lease
-            set_state(task_dir, READY, message=f"spawn failed: {e}")
+            set_state(
+                task_dir, READY,
+                message=f"spawn failed: {e}",
+                assigned_worker_id="",
+            )
             if assignment.lease_id:
                 release_lease(leases_dir, assignment.lease_id)
             result.errors.append(f"{assignment.task_id}: spawn failed: {e}")

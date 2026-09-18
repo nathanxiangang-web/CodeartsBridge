@@ -132,6 +132,8 @@ class TestAutoDispatchReadyTasks:
         assert result.planned == 1
         assert result.dispatched == 1
         assert _get_task_state(bridge_root, "t1") == QUEUED
+        state_data = json.loads((bridge_root / "tasks" / "t1" / "state.json").read_text())
+        assert state_data["assignedWorkerId"] == result.assignments[0]["workerId"]
         assert len(mock_popen) == 1
 
     def test_dispatches_ready_task_no_deps(self, setup_bridge, mock_popen):
@@ -342,6 +344,8 @@ class TestAutoDispatchNoRegression:
         assert len(result.plan.plan) == 1
         assert len(result.spawned) == 1
         assert _get_task_state(bridge_root, "t1") == QUEUED
+        state_data = json.loads((bridge_root / "tasks" / "t1" / "state.json").read_text())
+        assert state_data["assignedWorkerId"] == result.plan.plan[0].worker_id
 
     def test_execute_dispatch_dry_run_still_works(self, setup_bridge, mock_popen):
         bridge_root = setup_bridge

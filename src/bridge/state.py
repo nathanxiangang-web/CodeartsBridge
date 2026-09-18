@@ -105,6 +105,7 @@ def set_state(
     heartbeat_tool: int | None = None,
     tokens: Any = None,
     attempt: int | None = None,
+    assigned_worker_id: str | None = None,
 ) -> dict[str, Any]:
     """Merge-update state.json, preserving existing fields.
 
@@ -160,6 +161,8 @@ def set_state(
         state["heartbeatTool"] = heartbeat_tool
     if tokens is not None:
         state["tokens"] = tokens
+    if assigned_worker_id is not None:
+        state["assignedWorkerId"] = assigned_worker_id
 
     # Auto-record timestamp for state transitions
     ts_field = _STATE_TIMESTAMPS.get(status)
