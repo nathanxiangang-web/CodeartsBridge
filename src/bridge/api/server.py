@@ -335,7 +335,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             return self._send_json(200, {"startTime":0,"elapsed":0,"events":[],"toolCount":0,"reasoningCount":0})
         transport = getattr(project, "transport", "local")
         ssh_host = getattr(project, "ssh_host", None)
-        remote_root = getattr(project, "remote_bridge_root", None)
+        remote_root = getattr(project, "remote_bridge_root", None) or getattr(project, "remote_workspace_root", None)
 
         def parse_log(raw_text):
             import re
@@ -402,14 +402,14 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send_json(500, {"error": str(e)})
         else:
+            if not remote_root:
+                return self._send_json(200, {"startTime":0,"elapsed":0,"events":[],"toolCount":0,"reasoningCount":0})
             remote_task = f"{remote_root.rstrip('/')}/tasks/{task_id}"
             cmd = ["ssh", "-o", "BatchMode=yes", ssh_host,
                    f"tail -n 500 {remote_task}/session.log 2>/dev/null"]
             try:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 return self._send_json(200, parse_log(r.stdout or ""))
-            except Exception as e:
-                return self._send_json(500, {"error": str(e)})
             except Exception as e:
                 return self._send_json(500, {"error": str(e)})
 
