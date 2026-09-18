@@ -82,7 +82,7 @@ class TestProjectsAPI:
     def test_list_empty(self, api_server):
         code, data = _get(api_server, "/api/projects")
         assert code == 200
-        assert data == []
+        assert data == {"projects": []}
 
     def test_create_and_list(self, api_server):
         code, data = _post(api_server, "/api/projects", {
@@ -95,8 +95,8 @@ class TestProjectsAPI:
 
         code, data = _get(api_server, "/api/projects")
         assert code == 200
-        assert len(data) == 1
-        assert data[0]["projectId"] == "p1"
+        assert len(data["projects"]) == 1
+        assert data["projects"][0]["projectId"] == "p1"
 
     def test_create_missing_id(self, api_server):
         code, data = _post(api_server, "/api/projects", {"name": "No ID"})
@@ -107,7 +107,7 @@ class TestWorkersAPI:
     def test_list_empty(self, api_server):
         code, data = _get(api_server, "/api/workers")
         assert code == 200
-        assert data == []
+        assert data == {"workers": []}
 
     def test_get_worker_not_found(self, api_server):
         code, data = _get(api_server, "/api/workers/nonexistent")
@@ -122,7 +122,7 @@ class TestWorkersAPI:
         ]), encoding="utf-8")
         code, data = _get(api_server, "/api/workers")
         assert code == 200
-        assert len(data) == 2
+        assert len(data["workers"]) == 2
 
     def test_get_worker_by_id(self, api_server, tmp_path):
         wf = tmp_path / "workers.json"

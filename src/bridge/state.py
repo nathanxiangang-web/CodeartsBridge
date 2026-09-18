@@ -103,6 +103,7 @@ def set_state(
     state["schemaVersion"] = 1
     state["taskId"] = old.get("taskId", Path(task_dir).name) if old else Path(task_dir).name
     state["status"] = status
+    state["state"] = status
 
     # Attempt: preserve from old or default to 0
     if old and "attempt" in old:

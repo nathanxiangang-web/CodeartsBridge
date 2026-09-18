@@ -85,7 +85,7 @@ def select_dispatch_plan(
         tasks.append({
             "taskId": str(state.get("taskId", d.name)),
             "directory": str(d),
-            "status": str(state.get("status", "")),
+            "status": str(state.get("status") or state.get("state") or ""),
             "projectId": str(meta.get("projectId", "")),
             "meta": meta,
         })
@@ -201,6 +201,8 @@ def select_dispatch_plan(
         mode = meta.get("workspaceMode")
         if not mode:
             mode = "shared-readonly" if role in ("review", "test") else "worktree"
+            if mode == "worktree" and project.transport != "local":
+                mode = "existing"
 
         project_root = str(Path(project.project_root).resolve()) if project.transport == "local" else project.project_root
         idle_key = f"{project.ssh_host}::{project_root}" if project.ssh_host else project_root

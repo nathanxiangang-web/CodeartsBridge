@@ -186,10 +186,18 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     def _handle_list_projects(self):
         pf = self.bridge_root / "projects.json"
         if not pf.exists():
-            return self._send_json(200, [])
+            return self._send_json(200, {"projects": []})
         try:
             data = json.loads(pf.read_text(encoding="utf-8"))
-            return self._send_json(200, data if isinstance(data, list) else list(data.values()))
+            if isinstance(data, dict) and "projects" in data:
+                projects = data["projects"]
+            elif isinstance(data, list) and len(data) == 3 and isinstance(data[2], list):
+                projects = data[2]
+            elif isinstance(data, list):
+                projects = data
+            else:
+                projects = list(data.values())
+            return self._send_json(200, {"projects": projects})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
@@ -215,10 +223,18 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     def _handle_list_workers(self):
         wf = self.bridge_root / "workers.json"
         if not wf.exists():
-            return self._send_json(200, [])
+            return self._send_json(200, {"workers": []})
         try:
             data = json.loads(wf.read_text(encoding="utf-8"))
-            return self._send_json(200, data if isinstance(data, list) else list(data.values()))
+            if isinstance(data, dict) and "workers" in data:
+                workers = data["workers"]
+            elif isinstance(data, list) and len(data) == 3 and isinstance(data[2], list):
+                workers = data[2]
+            elif isinstance(data, list):
+                workers = data
+            else:
+                workers = list(data.values())
+            return self._send_json(200, {"workers": workers})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
