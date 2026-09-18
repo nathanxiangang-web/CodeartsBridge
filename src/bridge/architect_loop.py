@@ -40,6 +40,7 @@ from .state import (
     READY,
 )
 from .core.state import CREATED, APPROVED
+from .application.review_service import review_pass, review_fix
 from .task import read_outbox_summary
 
 
@@ -193,11 +194,15 @@ def plan_task(
         "role": role,
         "requiredSkills": [],
         "dependsOn": dependencies,
-        "priority": 0,
+        "priority": 50,
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "execution": {
             "preferredWorker": None,
             "excludedWorkers": [],
+            "workspace": "isolated",
+            "targetMinutes": 10,
+            "softTimeoutMinutes": 12,
+            "hardTimeoutMinutes": 15,
         },
         "review": {
             "required": True,
@@ -313,62 +318,6 @@ def _get_git_diff(task_dir: Path, bridge_root: Path) -> str:
         return ""
 
 
-def _create_fix_task(
-    original_task_id: str,
-    original_task_dir: Path,
-    bridge_root: Path,
-    defect_context: str,
-) -> str:
-    """Create a narrow fix task linked to the original via dependsOn."""
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    fix_task_id = f"{original_task_id}-fix-{timestamp}"
-    assert_safe_id(fix_task_id, "TaskId")
-
-    original_meta = read_json_or_none(original_task_dir / "META.json") or {}
-    project_id = original_meta.get("projectId", "bridge-dev")
-
-    fix_dir = bridge_root / "tasks" / fix_task_id
-    (fix_dir / "inbox").mkdir(parents=True)
-    (fix_dir / "outbox").mkdir(parents=True)
-
-    meta = {
-        "schemaVersion": 2,
-        "taskId": fix_task_id,
-        "projectId": project_id,
-        "workerId": None,
-        "role": "implement",
-        "requiredSkills": [],
-        "dependsOn": [original_task_id],
-        "priority": 10,
-        "parentTaskId": original_task_id,
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-        "execution": {
-            "preferredWorker": None,
-            "excludedWorkers": [],
-        },
-        "review": {
-            "required": True,
-            "independentWorker": True,
-        },
-    }
-    atomic_write_json(fix_dir / "META.json", meta)
-
-    fix_md = (
-        f"# FIX: {fix_task_id}\n\n"
-        f"## Original Task\n\n{original_task_id}\n\n"
-        f"## Defect Context\n\n{defect_context}\n\n"
-        f"## Instructions\n\n"
-        f"Fix the issues identified in the review. "
-        f"Do not redesign; address only the specific defects above.\n"
-    )
-    atomic_write_text(fix_dir / "inbox" / "001-FIX.md", fix_md)
-
-    set_state(fix_dir, CREATED)
-    set_state(fix_dir, READY)
-
-    return fix_task_id
-
-
 def review_task(
     task_id: str,
     bridge_root: Path,
@@ -380,8 +329,9 @@ def review_task(
     - PASS: RESULT.md exists AND TESTS.md shows all tests passing
     - FIX: RESULT.md missing OR TESTS.md shows failures
 
-    On PASS: transitions task to APPROVED -> INTEGRATING -> INTEGRATED -> DONE.
-    On FIX: creates a narrow fix task linked via dependsOn.
+    On PASS: transitions task to APPROVED; integration is a separate phase.
+    On FIX: writes a numbered FIX instruction to the same task and moves it
+    to FIX_REQUIRED so the scheduler can re-dispatch it.
     """
     bridge_root = Path(bridge_root)
     task_dir = bridge_root / "tasks" / task_id
@@ -431,28 +381,34 @@ def review_task(
             )
 
     if verdict.decision == "PASS":
-        current = get_state(task_dir).get("state", "")
-        if current == REVIEW_REQUIRED:
-            set_state(task_dir, APPROVED)
-            set_state(task_dir, "INTEGRATING")
-            set_state(task_dir, "INTEGRATED")
-            set_state(task_dir, DONE)
+        result = review_pass(
+            bridge_root,
+            task_id,
+            reviewer_id="architect",
+            comment=verdict.reason,
+        )
+        if not result.success:
+            raise RuntimeError(result.error)
     else:
         defect_context = verdict.reason
         if summary.get("TESTS.md"):
             defect_context += f"\n\n--- TESTS.md ---\n{summary['TESTS.md']}"
-        fix_task_id = _create_fix_task(
-            original_task_id=task_id,
-            original_task_dir=task_dir,
-            bridge_root=bridge_root,
-            defect_context=defect_context,
+        fix_content = (
+            f"# FIX: {task_id}\n\n"
+            f"## Defect Context\n\n{defect_context}\n\n"
+            "## Instructions\n\n"
+            "Fix only the identified defects, preserve the current task scope, "
+            "and update the required deliverables/tests.\n"
         )
-        verdict.fix_task_id = fix_task_id
-        verdict.fix_task_dir = str(bridge_root / "tasks" / fix_task_id)
-
-        current = get_state(task_dir).get("state", "")
-        if current == REVIEW_REQUIRED:
-            set_state(task_dir, FIX_REQUIRED)
+        result = review_fix(
+            bridge_root,
+            task_id,
+            reviewer_id="architect",
+            comment=verdict.reason,
+            fix_content=fix_content,
+        )
+        if not result.success:
+            raise RuntimeError(result.error)
 
     return verdict
 
