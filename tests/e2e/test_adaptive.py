@@ -364,6 +364,14 @@ class TestRecommendWorker:
         )
         assert result == "role-worker"
 
+    def test_missing_target_metadata_returns_none(self, bridge_root):
+        base = datetime.now(timezone.utc)
+        for i in range(3):
+            _make_task(bridge_root, f"history-{i}", "w1", status=DONE,
+                       duration_seconds=60, started_at=base)
+
+        assert recommend_worker("missing-target", bridge_root, ["w1"]) is None
+
     def test_no_candidates_returns_none(self, bridge_root):
         """Test 14: empty candidate list returns None."""
         base = datetime.now(timezone.utc)
@@ -384,6 +392,7 @@ class TestRecommendWorker:
         for i in range(3):
             _make_task(bridge_root, f"h{i}", "w1", status=DONE,
                        duration_seconds=60, started_at=base)
+        _make_candidate_task(bridge_root, "target")
         result = recommend_worker("target", bridge_root, [_W("w1")])
         assert result == "w1"
 
