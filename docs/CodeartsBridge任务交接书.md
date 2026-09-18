@@ -86,11 +86,19 @@ PYTHONPATH=src python3 -m pytest tests/e2e/ -q
 | `f44e7f8` | P2-04 | conflict resolution | DONE |
 | `f44e7f8` | P2-05 | pipeline orchestrator | DONE |
 
+### P3 全部完成（3 个任务）
+
+| Commit | 任务 | 说明 | 状态 |
+|--------|------|------|------|
+| `2d6c249` | P3-01 | 自适应调度策略（adaptive.py） | DONE |
+| `d9ebaaa` | P3-02 | 成本追踪与优化（cost.py） | DONE |
+| `0dc9741` | P3-03 | 性能仪表盘 API + UI | DONE |
+
 ---
 
 ## 三、未完成任务
 
-P0、P1、P2 全部完成。P3（数据驱动优化）待规划。
+P0、P1、P2、P3 全部完成。
 
 #### P1-03: 模型配置和角色路由（W02）
 
@@ -189,7 +197,7 @@ tests/e2e/              # E2E 测试（121 个）
 
 | 环境 | E2E 测试 | Unit 测试 | 总计 |
 |------|----------|-----------|------|
-| 178.50 (Linux) | 267 | — | **267 passed** (P0+P1+P2 全量) |
+| 178.50 (Linux) | 300 | — | **300 passed** (P0+P1+P2+P3 全量) |
 
 ---
 
