@@ -207,6 +207,128 @@ class TestRunPipelineCycle:
         assert state.first_pass_count == 0
         assert state.to_dict()["firstPassRate"] == 0.0
 
+    def test_integration_counts_only_successes_and_surfaces_failures(
+        self, pipeline_bridge, monkeypatch
+    ):
+        bridge = pipeline_bridge
+        monkeypatch.setattr(
+            "bridge.pipeline.architect_loop",
+            lambda **kwargs: SimpleNamespace(
+                reviewed=0, passed=0, errors=[], verdicts=[]
+            ),
+        )
+        monkeypatch.setattr(
+            "bridge.pipeline.auto_dispatch",
+            lambda **kwargs: SimpleNamespace(dispatched=0, errors=[]),
+        )
+        monkeypatch.setattr(
+            "bridge.pipeline.integrate_loop",
+            lambda bridge_root: [
+                SimpleNamespace(task_id="ok", success=True, error=""),
+                SimpleNamespace(
+                    task_id="bad", success=False, error="cherry-pick failed"
+                ),
+            ],
+        )
+        monkeypatch.setattr(
+            "bridge.pipeline.detect_conflict",
+            lambda task_id, bridge_root: SimpleNamespace(conflict=False),
+        )
+
+        state = PipelineState()
+        result = run_pipeline_cycle(
+            bridge, state, PipelineConfig(dry_run=False)
+        )
+
+        assert result.integrated == 1
+        assert state.total_integrated == 1
+        assert result.errors == ["integration bad: cherry-pick failed"]
+
+    def test_failed_integration_can_block_without_fake_integrated_count(
+        self, pipeline_bridge, monkeypatch
+    ):
+        bridge = pipeline_bridge
+        monkeypatch.setattr(
+            "bridge.pipeline.architect_loop",
+            lambda **kwargs: SimpleNamespace(
+                reviewed=0, passed=0, errors=[], verdicts=[]
+            ),
+        )
+        monkeypatch.setattr(
+            "bridge.pipeline.auto_dispatch",
+            lambda **kwargs: SimpleNamespace(dispatched=0, errors=[]),
+        )
+        monkeypatch.setattr(
+            "bridge.pipeline.integrate_loop",
+            lambda bridge_root: [
+                SimpleNamespace(
+                    task_id="bad", success=False, error="verification failed"
+                ),
+            ],
+        )
+        monkeypatch.setattr(
+            "bridge.pipeline.detect_conflict",
+            lambda task_id, bridge_root: SimpleNamespace(conflict=False),
+        )
+
+        state = PipelineState()
+        result = run_pipeline_cycle(
+            bridge, state, PipelineConfig(dry_run=False)
+        )
+
+        assert result.integrated == 0
+        assert state.total_integrated == 0
+        assert result.errors == ["integration bad: verification failed"]
+        assert state.status == "BLOCKED"
+
+    def test_dry_run_preview_does_not_pollute_operational_totals(
+        self, pipeline_bridge, monkeypatch
+    ):
+        bridge = pipeline_bridge
+
+        review_dir = bridge / "tasks" / "review-me"
+        review_dir.mkdir(parents=True)
+        (review_dir / "state.json").write_text(json.dumps({
+            "taskId": "review-me",
+            "state": "REVIEW_REQUIRED",
+            "status": "REVIEW_REQUIRED",
+        }))
+
+        done_dir = bridge / "tasks" / "done-task"
+        done_dir.mkdir(parents=True)
+        (done_dir / "state.json").write_text(json.dumps({
+            "taskId": "done-task",
+            "state": "DONE",
+            "status": "DONE",
+        }))
+
+        monkeypatch.setattr(
+            "bridge.pipeline.auto_dispatch",
+            lambda **kwargs: SimpleNamespace(dispatched=0, errors=[]),
+        )
+        monkeypatch.setattr(
+            "bridge.pipeline.detect_conflict",
+            lambda task_id, bridge_root: SimpleNamespace(
+                conflict=(task_id == "done-task")
+            ),
+        )
+
+        state = PipelineState(
+            total_reviewed=7,
+            total_integrated=5,
+            total_conflicts=3,
+        )
+        result = run_pipeline_cycle(
+            bridge, state, PipelineConfig(dry_run=True)
+        )
+
+        assert result.reviewed == 1
+        assert result.integrated == 1
+        assert result.conflicts == 1
+        assert state.total_reviewed == 7
+        assert state.total_integrated == 5
+        assert state.total_conflicts == 3
+
     def test_cycle_time_positive(self, pipeline_bridge):
         bridge = pipeline_bridge
         state = PipelineState()

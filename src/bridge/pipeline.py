@@ -155,7 +155,6 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
                 if td.is_dir() and (get_state(td).get("status") or get_state(td).get("state", "")) == REVIEW_REQUIRED
             )
             result.reviewed = review_count
-            state.total_reviewed += review_count
     else:
         try:
             ar = architect_loop(bridge_root=bridge_root)
@@ -188,15 +187,18 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
                 if td.is_dir() and (get_state(td).get("status") or get_state(td).get("state", "")) == DONE
             )
             result.integrated = done_count
-            state.total_integrated += done_count
     else:
         try:
             results = integrate_loop(bridge_root)
-            result.integrated = len(results)
-            state.total_integrated += len(results)
+            successful = [r for r in results if r.success]
+            result.integrated = len(successful)
+            state.total_integrated += len(successful)
             for r in results:
-                if hasattr(r, "errors") and r.errors:
-                    result.errors.extend(r.errors)
+                if not r.success:
+                    detail = r.error or "integration failed"
+                    result.errors.append(
+                        f"integration {r.task_id}: {detail}"
+                    )
         except Exception as e:
             result.errors.append(f"integrate_loop: {e}")
 
@@ -212,8 +214,8 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
                 cr = detect_conflict(tid, bridge_root)
                 if cr.conflict:
                     result.conflicts += 1
-                    state.total_conflicts += 1
                     if not config.dry_run:
+                        state.total_conflicts += 1
                         handle_conflict(tid, bridge_root)
     except Exception as e:
         result.errors.append(f"conflict_check: {e}")
