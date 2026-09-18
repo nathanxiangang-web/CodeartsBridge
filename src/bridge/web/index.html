@@ -167,10 +167,10 @@ const stateMap={
   cancelled:{zh:'已取消',en:'cancelled'},failed:{zh:'失败',en:'failed'}
 };
 function t(k){return(i18n[k]&&i18n[k][lang])||k}
-function ts(s){return(stateMap[s]&&stateMap[s][lang])||s}
+function ts(s){const k=String(s).toLowerCase();return(stateMap[k]&&stateMap[k][lang])||s}
 function toggleLang(){lang=lang==='zh'?'en':'zh';document.querySelector('.lang-btn').textContent=lang==='zh'?'EN':'中文';document.querySelectorAll('[data-i18n]').forEach(e=>{e.textContent=t(e.dataset.i18n)});navigate(location.hash.slice(1)||'dashboard')}
 async function api(path,opts){const r=await fetch(API+path,opts);try{return await r.json()}catch(e){return{error:String(e)}}}
-function badge(s){return `<span class="badge badge-${s}">${ts(s)}</span>`}
+function badge(s){const k=String(s).toLowerCase();return `<span class="badge badge-${k}">${ts(s)}</span>`}
 function esc(s){return String(s??'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}
 
 async function loadDashboard(){
@@ -262,7 +262,7 @@ ${(r.workers||[]).map(w=>`<tr><td>${esc(w.id)}</td><td>${w.enabled?'✅':'❌'}<
 
 async function loadReview(){
 const r=await api('/tasks');
-const reviewTasks=(r.tasks||[]).filter(task=>task.state==='review_required'||task.state==='fix_required');
+const reviewTasks=(r.tasks||[]).filter(task=>{const s=task.state.toLowerCase();return s==='review_required'||s==='fix_required'});
 const rows=await Promise.all(reviewTasks.map(async task=>{
 const ob=await api(`/tasks/${task.task_id}/outbox`);
 const files=ob.files||[];
