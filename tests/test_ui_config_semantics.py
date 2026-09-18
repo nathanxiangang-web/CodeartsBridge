@@ -94,3 +94,35 @@ def test_review_queue_only_contains_review_required_and_has_actions():
     assert "/review/pass" in review
     assert "/review/fix" in review
     assert "comment" in review
+
+
+def test_dashboard_does_not_call_enabled_workers_online():
+    html = _html()
+    start = html.index("async function loadDashboard(){")
+    end = html.index("async function loadProjects(){", start)
+    dashboard = html[start:end]
+
+    assert "w.enabled!==false" in dashboard
+    assert "w.enabled===false" in dashboard
+    assert "t('enabled')" in dashboard
+    assert "t('disabled')" in dashboard
+    assert "t('online')" not in dashboard
+    assert "t('offline')" not in dashboard
+    assert "h.daemon" in dashboard
+    assert "h.pipeline" in dashboard
+
+
+def test_settings_are_readonly_runtime_truth_not_fake_controls():
+    html = _html()
+    start = html.index("async function loadSettings(){")
+    end = html.index("const pages=", start)
+    settings = html[start:end]
+
+    assert "h.daemon" in settings
+    assert "h.pipeline" in settings
+    assert "settings_readonly" in settings
+    assert "cfg-max-workers" not in settings
+    assert "cfg-soft-timeout" not in settings
+    assert "cfg-hard-timeout" not in settings
+    assert "saved_demo" not in settings
+    assert "onclick=" not in settings
