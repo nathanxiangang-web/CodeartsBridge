@@ -354,19 +354,22 @@ try{
 const r=await api('/tasks');
 console.log('[poll] tasks:', (r.tasks||[]).length, 'active:', (r.tasks||[]).filter(t=>mapState(t.state||'')!=='done').length);
 const activeByWorker={};
+const activityRank={RUNNING:3,STARTING:2,QUEUED:1};
 for(const task of(r.tasks||[])){
-if(mapState(task.state||'')==='done')continue;
 const tid=task.taskId;
 let wid=task.workerId||(task.meta&&task.meta.workerId)||'';
-let taskState=task.state;
+let taskState=String(task.state||'').toUpperCase();
+if(!activityRank[taskState])continue;
 if(!wid){
 try{
 const st=await api(`/tasks/${tid}`);
 wid=(st.meta&&st.meta.workerId)||'';
-taskState=st.state||taskState;
+taskState=String(st.state||taskState).toUpperCase();
 }catch(e){}
 }
-if(wid&&!activeByWorker[wid])activeByWorker[wid]={tid,state:taskState};
+if(!wid||!activityRank[taskState])continue;
+const current=activeByWorker[wid];
+if(!current||activityRank[taskState]>activityRank[current.state])activeByWorker[wid]={tid,state:taskState};
 }
 console.log('[poll] activeByWorker:', JSON.stringify(activeByWorker));
 for(let i=0;i<4;i++){
@@ -387,6 +390,8 @@ const events=log.events||[];
 const tc=log.toolCount||0;
 const rc=log.reasoningCount||0;
 const ms=mapState(state);
+const taskChanged=slotData[i]&&slotData[i].tid!==tid;
+if(taskChanged)logEl.innerHTML='';
 slotData[i]={host,state,ms,tid,rc,tc,startTime:log.startTime||0,elapsed:log.elapsed||0};
 let elapsed=ms==='thinking'&&log.startTime>0?Math.floor((Date.now()-log.startTime)/1000):(log.elapsed||0);
 hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> ${badge(state)} <span class="monitor-timer">⏱${fmtElapsed(elapsed)}</span> <span class="muted" style="font-size:10px">思考${rc} 工具${tc}</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}">${esc(tid)}</span>`;
@@ -414,9 +419,15 @@ if(logEl.childElementCount===0)logEl.innerHTML=html;else logEl.insertAdjacentHTM
 logEl.scrollTop=logEl.scrollHeight;
 }
 }catch(e){}
-}else if(!slotData[i]){
+}else{
+if(slotData[i]){
+const lastTid=slotData[i].tid||'';
+slotData[i].ms='done';
+hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> <span class="muted" style="font-size:11px">空闲</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}">${esc(lastTid)}</span>`;
+}else{
 hdr.innerHTML=`<span class="monitor-host">${esc(host)}</span> <span class="muted" style="font-size:11px">空闲</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="${esc(wid)}"></span>`;
 logEl.innerHTML='';
+}
 }
 }
 }catch(e){console.error('[poll] error:',e)}
@@ -474,6 +485,7 @@ hdr.innerHTML=`<span class="monitor-host">${esc(d.host)}</span> ${badge(d.state)
 }
 }
 function schedulePoll(){pollLogs().finally(()=>{thinkingPoll=setTimeout(schedulePoll,2000)})}
+loadHistory();
 schedulePoll();
 window._timerTick=setInterval(tickTimers,1000);
 }
