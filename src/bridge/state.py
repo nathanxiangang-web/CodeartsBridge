@@ -80,11 +80,24 @@ _STATE_TIMESTAMPS: dict[str, str] = {
 
 
 def get_state(task_dir: str | Path) -> dict[str, Any]:
-    """Read state.json from task directory. Returns empty dict if missing."""
+    """Read state.json and normalize legacy/v2 state aliases.
+
+    Both runtime layers share the same state.json. Historically the v2 layer
+    updated only state while legacy consumers preferred status, which could
+    leave a task apparently stuck in an older state. Treat state as canonical
+    when both exist and mirror it to status.
+    """
     path = Path(task_dir) / "state.json"
     data = read_json_or_none(path)
     if data is None:
         return {}
+
+    state_value = data.get("state")
+    status_value = data.get("status")
+    if state_value:
+        data["status"] = state_value
+    elif status_value:
+        data["state"] = status_value
     return data
 
 

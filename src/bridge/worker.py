@@ -191,9 +191,17 @@ def _run_worker_inner(
                     )
                     return get_state(task_dir)
 
+            review_config = meta.get("review") or {}
+            review_required = review_config.get("required", True)
+            final_state = REVIEW_REQUIRED if review_required else DONE
+            final_message = (
+                "deliverables complete"
+                if review_required
+                else "deliverables complete; review skipped"
+            )
             set_state(
-                task_dir, REVIEW_REQUIRED,
-                message="deliverables complete",
+                task_dir, final_state,
+                message=final_message,
                 exit_code=0,
                 session_id=new_session_id,
                 session_mode=session_mode,
