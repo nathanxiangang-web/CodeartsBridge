@@ -57,6 +57,10 @@ class PipelineState:
             "totalConflicts": self.total_conflicts,
             "firstPassCount": self.first_pass_count,
             "totalPassCount": self.total_pass_count,
+            "firstPassRate": (
+                self.first_pass_count / self.total_pass_count
+                if self.total_pass_count else 0.0
+            ),
         }
 
     @classmethod
@@ -111,6 +115,30 @@ def _has_active_tasks(bridge_root: Path) -> bool:
     return False
 
 
+def _count_first_passes(
+    bridge_root: Path,
+    architect_result: ArchitectResult,
+) -> int:
+    """Count PASS verdicts whose task succeeded on worker attempt 1.
+
+    Missing or malformed legacy attempt values are not guessed as first-pass.
+    """
+    count = 0
+    for verdict in architect_result.verdicts:
+        if verdict.decision != "PASS":
+            continue
+        task_state = read_json_or_none(
+            Path(bridge_root) / "tasks" / verdict.task_id / "state.json"
+        ) or {}
+        try:
+            attempt = int(task_state.get("attempt", 0) or 0)
+        except (TypeError, ValueError):
+            attempt = 0
+        if attempt == 1:
+            count += 1
+    return count
+
+
 def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: PipelineConfig) -> CycleResult:
     """Run one pipeline cycle: review -> dispatch -> integrate -> conflict-check.
 
@@ -125,7 +153,7 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
         ar = architect_loop(bridge_root=bridge_root)
         result.reviewed = ar.reviewed
         state.total_reviewed += ar.reviewed
-        state.first_pass_count += ar.passed
+        state.first_pass_count += _count_first_passes(bridge_root, ar)
         state.total_pass_count += ar.passed
         if ar.errors:
             result.errors.extend(ar.errors)
