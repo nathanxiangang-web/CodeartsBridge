@@ -159,6 +159,77 @@ class TestConfig:
         assert "implement" not in w.capabilities
         assert "review" in w.capabilities
 
+    def test_project_registry_defaults_are_inherited_and_overridable(self, tmp_path):
+        pf = tmp_path / "projects.json"
+        atomic_write_json(pf, {
+            "schemaVersion": 1,
+            "defaults": {
+                "transport": "ssh",
+                "runMode": "sandbox",
+                "model": "default-model",
+                "timeoutMinutes": 77,
+                "sshHost": "default@example",
+            },
+            "projects": [
+                {"id": "inherits", "projectRoot": "/srv/inherits"},
+                {
+                    "id": "override",
+                    "projectRoot": "/srv/override",
+                    "transport": "local",
+                    "model": "override-model",
+                },
+            ],
+        })
+
+        reg = load_registry(pf)
+        inherited = get_project(reg, "inherits")
+        overridden = get_project(reg, "override")
+
+        assert inherited.transport == "ssh"
+        assert inherited.run_mode == "sandbox"
+        assert inherited.model == "default-model"
+        assert inherited.timeout_minutes == 77
+        assert inherited.ssh_host == "default@example"
+
+        assert overridden.transport == "local"
+        assert overridden.model == "override-model"
+        assert overridden.timeout_minutes == 77
+
+    def test_worker_registry_defaults_are_inherited_and_overridable(self, tmp_path):
+        wf = tmp_path / "workers.json"
+        atomic_write_json(wf, {
+            "schemaVersion": 1,
+            "defaults": {
+                "transport": "ssh",
+                "model": "default-worker-model",
+                "concurrencyLimit": 3,
+                "enabled": False,
+                "capabilities": ["implement"],
+            },
+            "workers": [
+                {"id": "inherits"},
+                {
+                    "id": "override",
+                    "enabled": True,
+                    "capabilities": ["review", "test"],
+                },
+            ],
+        })
+
+        reg = load_workers_registry(wf)
+        inherited = get_worker(reg, "inherits")
+        overridden = get_worker(reg, "override")
+
+        assert inherited.transport == "ssh"
+        assert inherited.model == "default-worker-model"
+        assert inherited.concurrency_limit == 3
+        assert inherited.enabled is False
+        assert inherited.capabilities == ["implement"]
+
+        assert overridden.enabled is True
+        assert overridden.concurrency_limit == 3
+        assert overridden.capabilities == ["review", "test"]
+
     def test_project_not_found(self):
         root = Path(__file__).parent.parent
         reg = load_registry(root / "projects.json")
