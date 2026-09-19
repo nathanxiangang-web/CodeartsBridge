@@ -140,6 +140,15 @@ def get_remote_access_directive(host_name: str, remote_project_path: str) -> str
     )
 
 
+def get_worker_local_access_directive(remote_project_path: str) -> str:
+    return (
+        "The CodeArts process is already running on the target worker host. "
+        f"Treat project '{remote_project_path}' as a LOCAL project directory. "
+        "Use normal local read/edit/write/test tools inside that project. "
+        "Do not SSH to this worker host to access its own project."
+    )
+
+
 def parse_codearts_json_lines(output: str) -> dict:
     """Parse CodeArts JSONL stdout for session ID, last event time, and tokens.
 

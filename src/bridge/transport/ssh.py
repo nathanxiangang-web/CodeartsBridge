@@ -14,7 +14,7 @@ from ..codearts import (
     get_mode_flag,
     new_worker_run_arguments,
     build_worker_core_prompt,
-    get_remote_access_directive,
+    get_worker_local_access_directive,
     REQUIRED_MODEL,
     THINK_LANGUAGE_DIRECTIVE,
 )
@@ -94,7 +94,7 @@ class SshTransport(TransportBase):
         # Build remote prompt
         remote_instruction_paths = [f"{remote_task}/inbox/{Path(instr).name}" for instr in instructions]
         remote_project_path = project.project_root
-        remote_directive = get_remote_access_directive(host_name, remote_project_path)
+        remote_directive = get_worker_local_access_directive(remote_project_path)
         prompt = build_worker_core_prompt(
             worker_contract=f"{remote_protocol}/WORKER.md",
             meta_path=f"{remote_task}/META.json",
