@@ -84,15 +84,22 @@ var e=fresh[fi];
 var icon='',cls='log-line log-fadein';
 if(e.type==='reasoning'){icon='💭';cls+=' log-info';}
 else if(e.type==='tool'||e.type==='tool_use'){icon='🔧';cls+=' log-tool';}
-else if(e.type==='step'){icon='▶️';cls+=' log-ok';}
+else if(e.type==='step'||e.type==='started'){icon='▶️';cls+=' log-ok';}
+else if(e.type==='completed'){icon='✅';cls+=' log-ok';}
+else if(e.type==='soft_timeout'){icon='⏳';cls+=' log-tool';}
+else if(e.type==='hard_timeout'||e.type==='cancelled'){icon='⚠️';cls+=' log-info';}
 var txt=(e.text||e.part||'').slice(0,150);
 if((e.text||e.part||'').length>150)txt+=' …';
 fhtml+='<div class="'+cls+'">'+icon+' '+esc(txt)+'</div>';
 }
 if(logEl.childElementCount===0)logEl.innerHTML=fhtml;else logEl.insertAdjacentHTML('beforeend',fhtml);
 logEl.scrollTop=logEl.scrollHeight;
+}else if(logEl.childElementCount===0){
+logEl.innerHTML='<div class="log-line muted">等待 Worker 事件...</div>';
 }
-}catch(e){}
+}catch(e){
+logEl.innerHTML='<div class="log-line log-info">回显读取失败：'+esc(e&&e.message?e.message:String(e))+'</div>';
+}
 }else{
 if(slotData[i]){var lastTid=slotData[i].tid||'';slotData[i].ms='done';hdr.innerHTML='<span class="monitor-host">'+esc(host)+'</span> <span class="muted" style="font-size:11px">空闲</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="'+esc(wid)+'">'+esc(lastTid)+'</span>';}
 else{hdr.innerHTML='<span class="monitor-host">'+esc(host)+'</span> <span class="muted" style="font-size:11px">空闲</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="'+esc(wid)+'"></span>';logEl.innerHTML='';}
