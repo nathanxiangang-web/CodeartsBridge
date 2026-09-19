@@ -250,24 +250,19 @@ class MCPToolRegistry:
         return {"taskId": task_id, "state": "READY"}
 
     def _dispatch_plan(self, max_workers: int):
-        from bridge.dispatch import select_dispatch_plan
-        tasks_root = self.bridge_root / "tasks"
-        plan = select_dispatch_plan(tasks_root, self.bridge_root, max_workers=max_workers)
+        from bridge.auto_dispatch import auto_dispatch
+        result = auto_dispatch(bridge_root=self.bridge_root, max_workers=max_workers, dry_run=True)
         return {
-            "plan": [{"taskId": item.task_id, "workerId": item.worker_id, "projectId": item.project_id} for item in plan.plan],
-            "skipped": [{"taskId": s.task_id, "reason": s.reason} for s in plan.skipped],
+            "plan": [{"taskId": a["taskId"], "workerId": a["workerId"]} for a in result.assignments],
+            "skipped": [{"taskId": s.get("taskId", "?"), "reason": s.get("reason", "?")} for s in result.skipped_details],
         }
 
     def _dispatch_run(self, max_workers: int):
-        from bridge.dispatch import select_dispatch_plan
-        from bridge.state import set_state, QUEUED
-        tasks_root = self.bridge_root / "tasks"
-        plan = select_dispatch_plan(tasks_root, self.bridge_root, max_workers=max_workers)
-        for item in plan.plan:
-            set_state(Path(item.directory), QUEUED, message=f"dispatched to {item.worker_id}")
+        from bridge.auto_dispatch import auto_dispatch
+        result = auto_dispatch(bridge_root=self.bridge_root, max_workers=max_workers, dry_run=False)
         return {
-            "dispatched": [{"taskId": item.task_id, "workerId": item.worker_id} for item in plan.plan],
-            "skipped": [{"taskId": s.task_id, "reason": s.reason} for s in plan.skipped],
+            "dispatched": [{"taskId": a["taskId"], "workerId": a["workerId"]} for a in result.assignments],
+            "skipped": [{"taskId": s.get("taskId", "?"), "reason": s.get("reason", "?")} for s in result.skipped_details],
         }
 
     def _get_result(self, task_id: str):
