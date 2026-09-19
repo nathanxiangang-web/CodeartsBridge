@@ -1,0 +1,1 @@
+"""Bridge Worker Runtime (BWR) — lightweight task execution daemon."""

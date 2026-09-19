@@ -1,0 +1,21 @@
+[Unit]
+Description=CodeartsBridge Worker Agent
+After=network.target
+
+[Service]
+Type=simple
+User=nathan
+WorkingDirectory=/home/nathan/bridge-python
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/home/nathan/.config/codeartsbridge/agent.env
+ExecStart=/home/nathan/bridge-python/.venv/bin/bridge-worker-agent \
+  --listen 0.0.0.0 \
+  --port 8765 \
+  --root /home/nathan/.codex-glm-bridge/agent \
+  --config /home/nathan/.config/codeartsbridge/agent.json
+Restart=always
+RestartSec=2
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target
