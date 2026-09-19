@@ -9,7 +9,7 @@ import pytest
 
 from bridge.agent.models import JobInfo, JobState
 from bridge.agent.store import JobStore
-from bridge.agent.runner import Runner, _parse_codearts_line
+from bridge.agent.runner import Runner, _parse_codearts_line, _probe_cli, _resolve_cli_path
 
 
 @pytest.fixture
@@ -102,6 +102,33 @@ def _wait_for_events(store: JobStore, job_id: str, minimum: int = 3) -> list:
             return events
         time.sleep(0.05)
     return events
+
+
+class TestCliHealth:
+    def test_probe_kills_hung_cli(self, tmp_path):
+        cli = tmp_path / "hung-codearts"
+        cli.write_text(
+            "#!/usr/bin/env python3\nimport time\ntime.sleep(10)\n",
+            encoding="utf-8",
+        )
+        cli.chmod(0o755)
+
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="--version.*timed out"):
+            _probe_cli(str(cli), timeout_seconds=0.1)
+        assert time.monotonic() - started < 2
+
+    def test_resolve_prefers_official_user_install(self, tmp_path, monkeypatch):
+        installers = tmp_path / ".codeartsdoer" / "installers"
+        installers.mkdir(parents=True)
+        official = installers / "codearts"
+        official.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        official.chmod(0o755)
+
+        monkeypatch.setattr("bridge.agent.runner.Path.home", lambda: tmp_path)
+        monkeypatch.setattr("bridge.agent.runner.shutil.which", lambda _: "/usr/local/bin/codearts")
+
+        assert _resolve_cli_path("codearts") == str(official)
 
 
 class TestRunner:
