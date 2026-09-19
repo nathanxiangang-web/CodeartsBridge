@@ -10,6 +10,7 @@ from __future__ import annotations
 import json as _json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import threading
@@ -30,6 +31,55 @@ _ANSI_RE = re.compile(
 def _event_id() -> str:
     """Return a collision-resistant event id for high-rate UI streams."""
     return f"evt-{time.time_ns()}"
+
+
+def _resolve_cli_path(cli: str) -> str:
+    """Resolve CodeArts to the official per-user install before PATH wrappers."""
+    if cli != "codearts":
+        return cli
+
+    candidates = (
+        Path.home() / ".codeartsdoer" / "installers" / "codearts",
+        Path.home() / ".codeartsdoer" / "installers" / "bin" / "codearts",
+    )
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+
+    return shutil.which("codearts") or cli
+
+
+def _probe_cli(cli: str, timeout_seconds: float = 5.0) -> str:
+    """Fail fast when the CodeArts launcher itself is hung or broken."""
+    proc = subprocess.Popen(
+        [cli, "--version"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        proc.communicate()
+        raise RuntimeError(
+            f"CodeArts CLI unhealthy: '{cli} --version' timed out after "
+            f"{timeout_seconds:g}s"
+        )
+
+    if proc.returncode != 0:
+        detail = (stderr or stdout or "").strip()[:300]
+        raise RuntimeError(
+            f"CodeArts CLI unhealthy: '{cli} --version' exited "
+            f"{proc.returncode}: {detail}"
+        )
+
+    return (stdout or stderr or "").strip()
 
 
 def _parse_codearts_line(line: str) -> tuple[str, str] | None:
@@ -81,7 +131,8 @@ class Runner:
         self._streamers: dict[str, list[threading.Thread]] = {}
 
     def start(self, job: JobInfo) -> tuple[int, int]:
-        cli = job.cliPath
+        cli = _resolve_cli_path(job.cliPath)
+        _probe_cli(cli)
         args = self._build_args(job)
         job_dir = self.store.job_dir(job.jobId)
         session_log_path = job_dir / "session.log"
@@ -122,7 +173,7 @@ class Runner:
             id=_event_id(),
             time=time.time(),
             type="started",
-            text=f"Process started: pid={pid} (json-pipe)",
+            text=f"Process started: pid={pid} (json-pipe, cli={cli})",
             status="running",
         ))
 
