@@ -1,5 +1,33 @@
 # NEXT — 下一位 AI 直接从这里开工
 
+## 当前插队任务：Agent Runtime Truth
+
+先读并执行：
+
+```
+docs/ai-closeout/06-AGENT-RUNTIME-TRUTH.md
+```
+
+现场已确认 Agent 主链已经工作，但还有两个真实断点：
+
+```
+1. CODEARTS_OUTBOX 在 projectRoot 外，导致 CodeArts 内置 write/edit 被拒绝
+2. UI busy/idle 仍依赖 Bridge task state，Agent Job 还在跑时会错误显示“空闲”
+```
+
+请新建小分支：
+
+```
+fix/agent-runtime-truth
+```
+
+只修这两件事，不混入 dispatch / supervision / policy / UI 其它功能。
+
+完成后再继续下面的收口顺序。
+
+---
+
+
 不要重新规划大架构，按顺序执行。
 
 ## 第一项：修生命周期真相
