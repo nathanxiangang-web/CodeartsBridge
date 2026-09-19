@@ -394,7 +394,8 @@ def review_task(
     - PASS: RESULT.md exists AND TESTS.md shows all tests passing
     - FIX: RESULT.md missing OR TESTS.md shows failures
 
-    On PASS: transitions task to APPROVED -> INTEGRATING -> INTEGRATED -> DONE.
+    On PASS: transitions task to APPROVED only. Integration (cherry-pick)
+    is performed separately by integrate_loop / integrate_task.
     On FIX: creates a narrow fix task linked via dependsOn.
     """
     bridge_root = Path(bridge_root)
@@ -448,9 +449,7 @@ def review_task(
         current = get_state(task_dir).get("state", "")
         if current == REVIEW_REQUIRED:
             set_state(task_dir, APPROVED)
-            set_state(task_dir, "INTEGRATING")
-            set_state(task_dir, "INTEGRATED")
-            set_state(task_dir, DONE)
+
     else:
         defect_context = verdict.reason
         if summary.get("TESTS.md"):

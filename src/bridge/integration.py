@@ -27,7 +27,9 @@ from pathlib import Path
 from .atomic import atomic_write_json, read_json_or_none
 from .state import (
     get_state, set_state,
-    DONE, INTEGRATION_FAILED,
+)
+from .core.state import (
+    APPROVED, INTEGRATING, INTEGRATED, DONE, INTEGRATION_FAILED,
 )
 from .config import load_registry, get_project
 
@@ -203,15 +205,16 @@ def integrate_task(
     verify_command: list[str] | None = None,
     target_branch: str = "main",
 ) -> IntegrationResult:
-    """Integrate a DONE-state task into the main branch via cherry-pick.
+    """Integrate an APPROVED task into the main branch via cherry-pick.
 
     Steps:
-    1. Pre-merge gate: verify task state is DONE
-    2. Resolve the task commit SHA
-    3. Cherry-pick the commit into target_branch
-    4. Post-merge: run focused tests
-    5. On pass: update baseline SHA in registry
-    6. On failure: revert merge, mark task INTEGRATION_FAILED
+    1. Pre-merge gate: verify task state is APPROVED
+    2. Resolve the task commit SHA (validation must not mutate state)
+    3. Dry-run, if requested, without mutating lifecycle state
+    4. Transition to INTEGRATING and cherry-pick into target_branch
+    5. Post-merge: run focused tests
+    6. On pass: persist integratedSha, then INTEGRATED -> DONE; update baseline
+    7. On failure after integration starts: revert/abort and mark INTEGRATION_FAILED
     """
     bridge_root = Path(bridge_root)
     task_dir = bridge_root / "tasks" / task_id
@@ -226,14 +229,16 @@ def integrate_task(
     meta = read_json_or_none(task_dir / "META.json") or {}
     current_state = state.get("status") or state.get("state", "")
 
-    if current_state != DONE:
+    if current_state != APPROVED:
         return IntegrationResult(
             task_id=task_id, success=False,
-            error=f"Task state is {current_state}, must be {DONE} to integrate",
+            error=f"Task state is {current_state}, must be {APPROVED} to integrate",
         )
 
     commit_sha = _resolve_task_commit(task_dir, state, meta)
     if not commit_sha:
+        # Validation failures must not advance lifecycle state. The task
+        # remains APPROVED so the missing commit can be repaired and retried.
         return IntegrationResult(
             task_id=task_id, success=False,
             error="No result commit SHA found for task (worker must persist commitSha or outbox/COMMIT.sha)",
@@ -242,6 +247,7 @@ def integrate_task(
     project_root = _resolve_project_root(bridge_root, meta)
 
     if dry_run:
+        # A dry run is observational only: never mutate task lifecycle state.
         return IntegrationResult(
             task_id=task_id, success=True,
             dry_run=True,
@@ -250,9 +256,15 @@ def integrate_task(
         )
 
     pre_merge_sha = _get_head_sha(project_root)
+    set_state(task_dir, INTEGRATING)
 
     r = _run_git(["checkout", target_branch], project_root, timeout=30)
     if r.returncode != 0:
+        set_state(
+            task_dir,
+            INTEGRATION_FAILED,
+            message=f"checkout {target_branch} failed: {r.stderr.strip()[:200]}",
+        )
         return IntegrationResult(
             task_id=task_id, success=False,
             error=f"Checkout {target_branch} failed: {r.stderr.strip()}",
@@ -290,8 +302,17 @@ def integrate_task(
     project_id = meta.get("projectId", "default")
     update_baseline_sha(bridge_root, project_id, merged_sha)
 
+    set_state(task_dir, INTEGRATED)
+
+    # Persist integration facts before DONE so observers can never see a DONE
+    # state that lacks the SHA proving real integration happened.
+    state = get_state(task_dir)
     state["integratedSha"] = merged_sha
     state["integratedAt"] = _now_iso()
+    atomic_write_json(task_dir / "state.json", state)
+    set_state(task_dir, DONE)
+
+    state = get_state(task_dir)
 
     cleanup_error = _cleanup_integrated_local_worktree(
         task_id, project_root, state
@@ -319,11 +340,10 @@ def integrate_loop(
     dry_run: bool = False,
     verify_command: list[str] | None = None,
 ) -> list[IntegrationResult]:
-    """Scan for DONE tasks not yet integrated and integrate them serially.
+    """Scan for APPROVED tasks and integrate them serially.
 
     A task is eligible if:
-    - State is DONE
-    - state.json does not have "integratedSha" set
+    - State is APPROVED (Review PASS, not yet integrated)
 
     Integrations are serialized: one at a time, no parallel merges.
     """
@@ -340,9 +360,7 @@ def integrate_loop(
             continue
         state = get_state(task_dir)
         status = state.get("status") or state.get("state", "")
-        if status != DONE:
-            continue
-        if state.get("integratedSha"):
+        if status != APPROVED:
             continue
         eligible.append(task_dir.name)
 

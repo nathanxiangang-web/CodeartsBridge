@@ -134,34 +134,6 @@ def review_fix(
     )
 
 
-def complete_task(
-    bridge_root: Path,
-    task_id: str,
-) -> ReviewResult:
-    """Mark an approved task as fully done after integration.
-
-    State transition: APPROVED → DONE (or INTEGRATED → DONE)
-    """
-    bridge_root = Path(bridge_root)
-    task_dir = bridge_root / "tasks" / task_id
-    current = get_state(task_dir).get("state", CREATED)
-
-    if current not in (APPROVED, "INTEGRATED"):
-        return ReviewResult(
-            task_id=task_id, success=False,
-            error=f"Cannot complete from state {current}",
-        )
-
-    if current == APPROVED:
-        set_state(task_dir, "INTEGRATING")
-        set_state(task_dir, "INTEGRATED")
-    set_state(task_dir, DONE)
-
-    return ReviewResult(
-        task_id=task_id, success=True,
-        new_state=DONE,
-    )
-
 
 def check_review_independence(
     implementer_worker_id: str,
