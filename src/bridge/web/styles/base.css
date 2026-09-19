@@ -1,0 +1,8 @@
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei","WenQuanYi Micro Hei",sans-serif;background:var(--bg-primary);color:var(--text-primary);font-size:14px;line-height:1.5}
+.muted{color:var(--text-secondary)}
+.hidden{display:none}
+#content{min-height:400px}
+a{color:var(--accent-blue);text-decoration:none}
+a:hover{text-decoration:underline}
+pre,code{font-family:"JetBrains Mono","Fira Code","Consolas","Monaco",monospace}
