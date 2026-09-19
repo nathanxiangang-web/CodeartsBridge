@@ -68,10 +68,13 @@ def check_host_affinity(worker: WorkerConfig, project: ProjectConfig) -> bool:
 
     Rules:
     - local project: any worker transport OK (host not checked)
+    - agent transport: any project OK (HTTP, not host-bound)
     - ssh/remote-worktree project with sshHost: worker.host must match sshHost
     - project without sshHost: no affinity check (backward compat)
     """
     if project.transport == "local":
+        return True
+    if worker.transport == "agent":
         return True
     if not project.ssh_host:
         return True
