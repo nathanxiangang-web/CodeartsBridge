@@ -41,5 +41,5 @@ fi
 
 echo "=== Done ==="
 echo "Start with: sudo systemctl start bridge-worker-agent"
-2"
+
 echo "Check with: sudo systemctl status bridge-worker-agent"

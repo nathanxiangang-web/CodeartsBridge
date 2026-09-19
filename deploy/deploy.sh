@@ -1,17 +1,17 @@
-# AI生成
 #!/bin/bash
-# Deploy Python bridge to 178.51 and 178.52
-# Run this from 178.50 (or any machine with SSH access to both targets)
+# Deploy CodeartsBridge to worker nodes
+# Run this from the bridge host (e.g. 192.168.178.50)
 set -euo pipefail
 
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/cloudsite_remote}"
 SSH_OPTS="-i $SSH_KEY -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10"
-TARGETS=("nathan@192.168.178.51" "nathan@192.168.178.52")
-BRIDGE_DIR="/home/nathan/bridge"
+TARGETS=("${@:-nathan@192.168.178.51 nathan@192.168.178.52 nathan@192.168.178.53}")
+BRIDGE_DIR="/home/nathan/bridge-python"
 
-echo "=== Python Bridge Deployment ==="
+echo "=== CodeartsBridge Deployment ==="
 echo "SSH key: $SSH_KEY"
 echo "Targets: ${TARGETS[*]}"
+echo "Bridge dir: $BRIDGE_DIR"
 echo ""
 
 # Check SSH key
@@ -54,7 +54,7 @@ for target in "${TARGETS[@]}"; do
     # Install
     ssh $SSH_OPTS "$target" bash -s << 'REMOTE_SCRIPT'
 set -euo pipefail
-BRIDGE_DIR="/home/nathan/bridge"
+BRIDGE_DIR="/home/nathan/bridge-python"
 
 # Create directory
 mkdir -p "$BRIDGE_DIR"
@@ -68,28 +68,27 @@ pip3 install --user -e . 2>&1 | tail -3
 
 # Verify
 python3 -c "import bridge; print(f'bridge version: {bridge.__version__}')"
-python3 -m bridge.cli doctor 2>&1 || echo "  (doctor needs projects.json/workers.json in CWD)"
 
 echo "  Install: OK"
 REMOTE_SCRIPT
 
     echo "[3/4] Verifying $target ..."
-    ssh $SSH_OPTS "$target" "cd $BRIDGE_DIR && python3 -m bridge.cli doctor" 2>&1
+    ssh $SSH_OPTS "$target" "cd $BRIDGE_DIR && PYTHONPATH=src python3 -m bridge.cli doctor" 2>&1 || true
 
-    echo "[4/4] systemd service on $target ..."
+    echo "[4/4] Agent service on $target ..."
     ssh $SSH_OPTS "$target" bash -s << 'REMOTE_SYSTEMD'
-BRIDGE_DIR="/home/nathan/bridge"
-cat > /tmp/bridge-daemon.service << EOF
+BRIDGE_DIR="/home/nathan/bridge-python"
+cat > /tmp/bridge-worker-agent.service << EOF
 [Unit]
-Description=Codex-GLM Bridge Daemon (Python)
+Description=Bridge Worker Agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 -m bridge.daemon run
+ExecStart=/usr/bin/python3 -m bridge.agent.cli --listen 0.0.0.0 --port 8765
 WorkingDirectory=$BRIDGE_DIR
-Environment=BRIDGE_ROOT=$BRIDGE_DIR
+Environment=PYTHONPATH=$BRIDGE_DIR/src
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -98,8 +97,8 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
-echo "  Service file: /tmp/bridge-daemon.service"
-echo "  Install with: sudo cp /tmp/bridge-daemon.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable bridge-daemon"
+echo "  Service file: /tmp/bridge-worker-agent.service"
+echo "  Install with: sudo cp /tmp/bridge-worker-agent.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now bridge-worker-agent"
 REMOTE_SYSTEMD
 
     echo "  Done: $target"
@@ -110,8 +109,7 @@ rm -f "$TARBALL"
 
 echo ""
 echo "=== Deployment Complete ==="
-echo "Next steps:"
-echo "  1. SSH to each target and run: python3 -m bridge.cli doctor"
-echo "  2. Install systemd: sudo cp /tmp/bridge-daemon.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable bridge-daemon"
-echo "  3. Start: sudo systemctl start bridge-daemon"
-echo "  4. Check: sudo systemctl status bridge-daemon"
+echo "Next steps on each target:"
+echo "  1. sudo cp /tmp/bridge-worker-agent.service /etc/systemd/system/"
+echo "  2. sudo systemctl daemon-reload && sudo systemctl enable --now bridge-worker-agent"
+echo "  3. sudo systemctl status bridge-worker-agent"

@@ -1,6 +1,5 @@
-# AI生成
 #!/bin/bash
-# CodeartsBridge v0.3 一键安装脚本
+# CodeartsBridge 一键安装脚本
 # 用法: ./install.sh [install|uninstall|help]
 
 set -e
@@ -12,13 +11,13 @@ PYTHON_MIN="3.10"
 print_help() {
     cat << 'EOF'
 ========================================
-  CodeartsBridge v0.3 使用说明
+  CodeartsBridge 使用说明
 ========================================
 
 【安装】
   ./install.sh install
   或
-  curl -fsSL https://raw.githubusercontent.com/nathanxiangang-web/CodeartsBridge/master/install.sh | bash -s install
+  curl -fsSL https://raw.githubusercontent.com/nathanxiangang-web/CodeartsBridge/main/install.sh | bash -s install
 
   安装内容：
     1. 克隆仓库到 ~/codearts-bridge
@@ -33,34 +32,52 @@ print_help() {
     1. pip uninstall codex-glm-bridge
     2. 删除 ~/codearts-bridge 目录
 
-【启动服务】
+【启动 Bridge Server（主节点）】
   bridge serve --host 0.0.0.0 --port 8080
 
   然后浏览器打开 http://localhost:8080
 
+【启动 Worker Agent（每台 Worker）】
+  bridge-worker-agent --listen 0.0.0.0 --port 8765
+
+  或用 systemd：
+    sudo cp deploy/bridge-worker-agent.service /etc/systemd/system/
+    sudo systemctl daemon-reload && sudo systemctl enable --now bridge-worker-agent
+
 【CLI 命令】
-  bridge status              # 查看所有任务状态
-  bridge create -p <项目> -w <节点> -t <任务ID> -f <任务文件>  # 创建任务
-  bridge dispatch            # 派发待执行任务
-  bridge run -t <任务ID>     # 执行单个任务
-  bridge serve               # 启动 Web UI 服务
+  bridge bootstrap              # 初始化目录结构
+  bridge doctor                 # 检查环境和配置
+  bridge status                 # 查看所有任务状态
+  bridge create -p <项目> -w <Worker> -t <任务ID> -f <任务文件>  # 创建任务
+  bridge dispatch               # 派发待执行任务
+  bridge run -t <任务ID>        # 执行单个任务
+  bridge pipeline               # 运行完整流水线
+  bridge serve                  # 启动 Web UI 服务
 
 【Web UI 页面】
-  仪表盘    - 总览任务/节点/项目
-  任务      - 全部任务列表
-  思考回显  - 2×2监控布局，实时显示Agent思考流
-  工作节点  - 节点在线状态
-  审查      - 查看已完成任务的输出文件
-  设置      - Bridge配置和健康检查
+  仪表盘    - 在线/空闲/禁用 Worker 统计，任务计数
+  项目      - 项目列表，逻辑分组
+  任务      - 全部任务列表，状态过滤、搜索
+  工作节点  - Worker 卡片：在线状态、当前任务、心跳
+  审查      - 已完成任务审查：目标、验收标准、变更文件
+  指标      - 遥测指标和统计
+  思考回显  - 实时显示 Agent 思考流（SSE 推送）
+  设置      - Bridge 配置和健康检查
 
 【配置文件】
-  ~/codearts-bridge/projects.json  - 项目配置（SSH连接信息）
+  ~/codearts-bridge/projects.json  - 项目配置
   ~/codearts-bridge/workers.json   - 工作节点配置
+  ~/codearts-bridge/supervision.json - 监督配置（可选）
+
+【Transport 模式】
+  agent  - HTTP API 常驻进程（推荐，无需 SSH）
+  ssh    - SSH 远程执行（传统模式）
+  local  - 本地执行（开发调试）
 
 【前置条件】
   - Python >= 3.10
-  - SSH 免密登录到各 Worker 节点
-  - 远端已安装 CodeArts CLI 并配置 AK/SK
+  - 各 Worker 已安装 CodeArts CLI 并配置 AK/SK
+  - SSH 免密登录（仅 SSH transport 需要）
 
 【更多文档】
   https://github.com/nathanxiangang-web/CodeartsBridge
@@ -86,7 +103,7 @@ check_python() {
 
 do_install() {
     echo "========================================"
-    echo "  CodeartsBridge v0.3 安装"
+    echo "  CodeartsBridge 安装"
     echo "========================================"
 
     check_python
@@ -122,10 +139,13 @@ do_install() {
         echo "  安装成功！"
         echo "========================================"
         echo ""
-        echo "启动服务:  bridge serve --host 0.0.0.0 --port 8080"
-        echo "使用说明:  ./install.sh help"
-        echo "配置文件:  ${INSTALL_DIR}/projects.json"
+        echo "下一步："
+        echo "  1. 编辑配置:  ${INSTALL_DIR}/projects.json 和 workers.json"
+        echo "  2. 启动 Bridge:  bridge serve --host 0.0.0.0 --port 8080"
+        echo "  3. 启动 Worker Agent:  bridge-worker-agent --listen 0.0.0.0 --port 8765"
+        echo "  4. 打开浏览器:  http://localhost:8080"
         echo ""
+        echo "使用说明:  ./install.sh help"
     else
         echo "[警告] bridge 命令未在 PATH 中找到"
         echo "  请确保 ~/.local/bin 在 PATH 中，或使用:"
@@ -135,7 +155,7 @@ do_install() {
 
 do_uninstall() {
     echo "========================================"
-    echo "  CodeartsBridge v0.3 卸载"
+    echo "  CodeartsBridge 卸载"
     echo "========================================"
 
     # 卸载 Python 包
