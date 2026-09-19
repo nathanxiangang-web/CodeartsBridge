@@ -84,6 +84,7 @@ class AgentServer:
         if not self.runner.check_process(job):
             exit_code = self.runner.get_exit_code(job)
             if exit_code is not None:
+                self.runner.wait_for_streams(job.jobId, timeout=1.0)
                 job.state = JobState.COMPLETED.value if exit_code == 0 else JobState.ASSISTANCE_REQUIRED.value
                 job.exitCode = exit_code
                 job.lastEventAt = time.time()
