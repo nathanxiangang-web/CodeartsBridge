@@ -54,6 +54,33 @@ else:
     return str(path)
 
 
+def _tty_sensitive_fake_cli(tmp_path: Path) -> str:
+    """Model CodeArts JSON mode: machine output is emitted only to a pipe."""
+    path = tmp_path / "fake-codearts-tty-sensitive"
+    path.write_text(
+        """#!/usr/bin/env python3
+import json
+import sys
+import time
+
+if sys.stdout.isatty():
+    # This is the regression we saw on real workers: forcing a PTY can keep
+    # the process alive without producing the JSON stream Bridge expects.
+    time.sleep(3)
+else:
+    print(json.dumps({
+        "type": "reasoning",
+        "timestamp": time.time(),
+        "part": {"text": "json pipe active"}
+    }), flush=True)
+    time.sleep(0.1)
+""",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return str(path)
+
+
 def _job(tmp_path: Path, cli: str, job_id: str, prompt: str = "hello") -> JobInfo:
     return JobInfo(
         jobId=job_id,
@@ -102,6 +129,30 @@ class TestRunner:
             time.sleep(0.05)
         assert session_log.exists()
         assert "reasoning" in session_log.read_text(encoding="utf-8", errors="replace")
+
+    def test_json_mode_does_not_force_child_stdout_to_tty(self, store, runner, tmp_path):
+        cli = _tty_sensitive_fake_cli(tmp_path)
+        job = _job(tmp_path, cli, "test-json-pipe")
+        store.save_job(job)
+
+        runner.start(job)
+        events = _wait_for_events(store, job.jobId, minimum=2)
+
+        reasoning = [e for e in events if e.type == "reasoning"]
+        assert reasoning, "CodeArts JSON output disappeared because stdout became a TTY"
+        assert reasoning[0].text == "json pipe active"
+
+        session_log = store.job_dir(job.jobId) / "session.log"
+        deadline = time.time() + 2
+        while time.time() < deadline and (
+            not session_log.exists() or session_log.stat().st_size == 0
+        ):
+            time.sleep(0.05)
+        assert session_log.stat().st_size > 0
+
+        saved = store.load_job(job.jobId)
+        assert saved is not None
+        assert saved.lastEventAt >= saved.startedAt
 
     def test_check_process_alive_and_terminate(self, store, runner, tmp_path):
         cli = _fake_cli(tmp_path)
