@@ -119,7 +119,7 @@ class TestCliHealth:
         assert time.monotonic() - started < 2
 
     def test_resolve_prefers_official_user_install(self, tmp_path, monkeypatch):
-        installers = tmp_path / ".codeartsdoer" / "installers"
+        installers = tmp_path / ".codeartsdoer" / "installers" / "bin"
         installers.mkdir(parents=True)
         official = installers / "codearts"
         official.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
