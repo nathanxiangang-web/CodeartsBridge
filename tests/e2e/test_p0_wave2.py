@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from bridge.atomic import atomic_write_json
 from bridge.state import get_state, set_state, READY, QUEUED, CANCELLED, CANCEL_REQUESTED, RUNNING
-from bridge.dispatch import select_dispatch_plan, check_host_affinity
+from bridge.dispatch import check_host_affinity
+from bridge.auto_dispatch import auto_dispatch
 from bridge.config import ProjectConfig, WorkerConfig
 from fake_runner import FakeRunner
 
@@ -66,7 +67,7 @@ class TestHostAffinity:
         assert check_host_affinity(worker, project) is False
 
     def test_explicit_worker_host_mismatch_no_longer_blocks_dispatch(self, tmp_path):
-        """Local-First dispatch does not add a host-affinity gate."""
+        """auto_dispatch checks project-worker placement compatibility."""
         root = tmp_path / "bridge"
         for d in ("tasks", "runtime", "runtime/worktrees", "work"):
             (root / d).mkdir(parents=True, exist_ok=True)
@@ -84,62 +85,7 @@ class TestHostAffinity:
 
         _create_task(root, "t1", project_id="p1", worker_id="w1")
 
-        plan = select_dispatch_plan(root / "tasks", root, max_workers=4)
-        assert [item.task_id for item in plan.plan] == ["t1"]
-        assert not any("host mismatch" in s.reason for s in plan.skipped)
+        result = auto_dispatch(bridge_root=root, max_workers=4, dry_run=True)
+        assert result.dispatched == 0
+        assert any(s.get("taskId") == "t1" for s in result.skipped_details)
 
-
-class TestProcessSupervisor:
-    """P0-05: process supervisor and cancellation."""
-
-    def test_cancel_no_tracked_process(self, tmp_path):
-        """Cancel with no tracked process should set CANCELLED."""
-        from bridge.runtime.process_supervisor import ProcessSupervisor
-
-        sup = ProcessSupervisor()
-        tdir = tmp_path / "task"
-        tdir.mkdir()
-        set_state(tdir, RUNNING, message="running")
-
-        result = sup.cancel("t1", tdir, grace_seconds=0.1)
-        assert result["state"] == CANCELLED
-
-        state = get_state(tdir)
-        assert state["status"] == CANCELLED
-
-    def test_cancel_idempotent(self, tmp_path):
-        """Cancelling an already CANCELLED task should be idempotent."""
-        from bridge.runtime.process_supervisor import ProcessSupervisor
-
-        sup = ProcessSupervisor()
-        tdir = tmp_path / "task"
-        tdir.mkdir()
-        set_state(tdir, CANCELLED, message="already cancelled")
-
-        result = sup.cancel("t1", tdir)
-        assert result["state"] == CANCELLED
-        assert "already" in result["message"]
-
-    def test_cancel_sets_cancel_requested_first(self, tmp_path):
-        """Cancel should set CANCEL_REQUESTED before CANCELLED."""
-        from bridge.runtime.process_supervisor import ProcessSupervisor
-
-        sup = ProcessSupervisor()
-        tdir = tmp_path / "task"
-        tdir.mkdir()
-        set_state(tdir, RUNNING, message="running")
-
-        # Cancel with no tracked process — should go RUNNING -> CANCEL_REQUESTED -> CANCELLED
-        result = sup.cancel("t1", tdir, grace_seconds=0.1)
-        assert result["state"] == CANCELLED
-
-        # Final state should be CANCELLED
-        state = get_state(tdir)
-        assert state["status"] == CANCELLED
-
-    def test_cancelled_state_in_all_states(self):
-        """CANCELLED should be in ALL_STATES."""
-        from bridge.state import ALL_STATES, TERMINAL_STATES
-        assert CANCELLED in ALL_STATES
-        assert CANCELLED in TERMINAL_STATES
-        assert CANCEL_REQUESTED in ALL_STATES

@@ -32,6 +32,17 @@ var slotCount=document.querySelectorAll('.monitor-window').length;
 
 async function pollLogs(){
 try{
+var wr=await API.get('workers');
+var ws=((wr&&wr.workers)?wr.workers:(Array.isArray(wr)?wr:[])).filter(function(w){return w.enabled!==false;});
+var workerBusy={};
+var workerTaskId={};
+for(var wi=0;wi<ws.length;wi++){
+var w=ws[wi];
+if(w.runtimeState==='busy'&&w.currentTasks&&w.currentTasks.length>0){
+workerBusy[w.id]=true;
+workerTaskId[w.id]=w.currentTasks[0].taskId;
+}
+}
 var r=await API.get('tasks');
 var tasks=(r&&r.tasks)?r.tasks:(Array.isArray(r)?r:[]);
 var activeByWorker={};
@@ -41,9 +52,13 @@ var task=tasks[ti];
 var tid=task.taskId;
 var wid=task.workerId||(task.meta&&task.meta.workerId)||'';
 var taskState=String(task.state||'').toUpperCase();
-if(!activityRank[taskState])continue;
 if(!wid){try{var st=await API.get('tasks/'+tid);wid=st.workerId||(st.meta&&st.meta.workerId)||'';taskState=String(st.state||taskState).toUpperCase();}catch(e){}}
-if(!wid||!activityRank[taskState])continue;
+if(!wid)continue;
+if(workerBusy[wid]&&workerTaskId[wid]===tid){
+activeByWorker[wid]={tid:tid,state:taskState||'RUNNING'};
+continue;
+}
+if(!activityRank[taskState])continue;
 var current=activeByWorker[wid];
 if(!current||activityRank[taskState]>activityRank[current.state])activeByWorker[wid]={tid:tid,state:taskState};
 }

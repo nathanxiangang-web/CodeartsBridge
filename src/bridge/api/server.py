@@ -468,29 +468,43 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     # ── Workers ─────────────────────────────────────────────────────────────
 
     def _compute_worker_runtime(self, workers: list[dict]) -> None:
-        """Enrich each worker with runtimeState, currentTasks, lastHeartbeat."""
+        """Enrich each worker with runtimeState, currentTasks, lastHeartbeat.
+
+        A worker is busy if it has a task with status RUNNING/STARTING/QUEUED
+        OR a task with an inflight.json (Agent Job still in flight), even if
+        the Bridge task state has transitioned to REVIEW_REQUIRED etc.
+        """
         from bridge.atomic import read_json_or_none
 
         tasks_dir = self.bridge_root / "tasks"
         worker_tasks: dict[str, list[dict]] = {}
+        _active_states = {"RUNNING", "STARTING", "QUEUED"}
         if tasks_dir.exists():
             for d in tasks_dir.iterdir():
                 if not d.is_dir():
                     continue
                 state = read_json_or_none(d / "state.json")
-                if not state or state.get("status") != "RUNNING":
+                if not state:
+                    continue
+                status = state.get("status", "")
+                inflight = read_json_or_none(d / "inflight.json")
+                is_active = status in _active_states or inflight is not None
+                if not is_active:
                     continue
                 wid = state.get("assignedWorkerId")
                 if wid:
-                    worker_tasks.setdefault(wid, []).append(
-                        {
-                            "taskId": d.name,
-                            "startedAt": state.get("startedAt"),
-                            "runningAt": state.get("runningAt"),
-                            "lastHeartbeat": state.get("lastHeartbeat"),
-                            "heartbeatSummary": state.get("heartbeatSummary"),
-                        }
-                    )
+                    entry = {
+                        "taskId": d.name,
+                        "state": status,
+                        "startedAt": state.get("startedAt"),
+                        "runningAt": state.get("runningAt"),
+                        "lastHeartbeat": state.get("lastHeartbeat"),
+                        "heartbeatSummary": state.get("heartbeatSummary"),
+                    }
+                    if inflight:
+                        entry["jobId"] = inflight.get("jobId")
+                        entry["jobState"] = inflight.get("jobState", "RUNNING")
+                    worker_tasks.setdefault(wid, []).append(entry)
 
         now = time.time()
         for w in workers:
