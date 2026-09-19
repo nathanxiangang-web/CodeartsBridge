@@ -15,7 +15,7 @@ from .atomic import read_json
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SAFE_SESSION_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
-VALID_TRANSPORTS = ("local", "ssh", "ssh-shell", "remote-worktree")
+VALID_TRANSPORTS = ("local", "ssh", "ssh-shell", "remote-worktree", "agent")
 VALID_RUN_MODES = ("auto", "manual", "sandbox")
 VALID_ROLES = ("architect", "implement", "review", "test")
 
@@ -69,6 +69,9 @@ class WorkerConfig:
     concurrency_limit: int = 1
     enabled: bool = True
     capabilities: list[str] = field(default_factory=list)
+    endpoint: str | None = None
+    agent_token_env: str | None = None
+    agent_token: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "WorkerConfig":
@@ -81,6 +84,9 @@ class WorkerConfig:
             concurrency_limit=d.get("concurrencyLimit", 1),
             enabled=d.get("enabled", True),
             capabilities=d.get("capabilities", []),
+            endpoint=d.get("endpoint"),
+            agent_token_env=d.get("agentTokenEnv"),
+            agent_token=d.get("agentToken"),
         )
 
 

@@ -8,8 +8,10 @@
   "workers": [
     {
       "id": "bus-w01-dev",
-      "transport": "ssh",
+      "transport": "agent",
       "host": "nathan@192.168.178.52",
+      "endpoint": "http://192.168.178.52:8765",
+      "agentTokenEnv": "BRIDGE_AGENT_W01_TOKEN",
       "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
       "concurrencyLimit": 1,
@@ -22,8 +24,10 @@
     },
     {
       "id": "bus-w02-dev",
-      "transport": "ssh",
+      "transport": "agent",
       "host": "nathan@192.168.178.50",
+      "endpoint": "http://192.168.178.50:8765",
+      "agentTokenEnv": "BRIDGE_AGENT_W02_TOKEN",
       "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
       "concurrencyLimit": 1,
@@ -36,8 +40,10 @@
     },
     {
       "id": "bus-w03-dev",
-      "transport": "ssh",
+      "transport": "agent",
       "host": "nathan@192.168.178.53",
+      "endpoint": "http://192.168.178.53:8765",
+      "agentTokenEnv": "BRIDGE_AGENT_W03_TOKEN",
       "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
       "concurrencyLimit": 1,
@@ -50,8 +56,10 @@
     },
     {
       "id": "bus-w04-dev",
-      "transport": "ssh",
+      "transport": "agent",
       "host": "nathan@192.168.178.51",
+      "endpoint": "http://192.168.178.51:8765",
+      "agentTokenEnv": "BRIDGE_AGENT_W04_TOKEN",
       "cliPath": "/home/nathan/.codeartsdoer/installers/bin/codearts",
       "model": "huaweicloud-maas/GLM-5.2",
       "concurrencyLimit": 1,

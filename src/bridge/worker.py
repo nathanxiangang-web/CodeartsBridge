@@ -21,7 +21,7 @@ from .state import (
     ASSISTANCE_REQUIRED, AUTH_REQUIRED, FIX_REQUIRED,
 )
 from .task import get_meta, get_instruction_context, archive_previous_outbox
-from .transport import LocalTransport, SshTransport, SshShellTransport, RemoteWorktreeTransport
+from .transport import LocalTransport, SshTransport, SshShellTransport, RemoteWorktreeTransport, AgentTransport
 from .workspace import LocalWorktreeWorkspace
 from .workspace.policy import resolve_workspace_mode
 from .policy.integration import (
@@ -37,6 +37,7 @@ TRANSPORT_MAP = {
     "ssh": SshTransport,
     "ssh-shell": SshShellTransport,
     "remote-worktree": RemoteWorktreeTransport,
+    "agent": AgentTransport,
 }
 
 
@@ -107,10 +108,12 @@ def _run_worker_inner(
     # Set STARTING
     set_state(task_dir, STARTING, message=f"attempt {attempt} starting", attempt=attempt)
 
-    # Get transport
-    transport_cls = TRANSPORT_MAP.get(project.transport)
+    # Get transport — prefer worker transport (e.g. agent) over project transport
+    worker_transport = getattr(worker, "transport", None) if worker else None
+    transport_key = worker_transport if worker_transport in TRANSPORT_MAP else project.transport
+    transport_cls = TRANSPORT_MAP.get(transport_key)
     if not transport_cls:
-        set_state(task_dir, FAILED, message=f"unsupported transport: {project.transport}")
+        set_state(task_dir, FAILED, message=f"unsupported transport: {transport_key}")
         return get_state(task_dir)
 
     transport = transport_cls()

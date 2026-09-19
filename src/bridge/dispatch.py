@@ -56,7 +56,11 @@ class DispatchPlan:
 def check_worker_transport_compatibility(worker_transport: str, project_transport: str) -> bool:
     if worker_transport == project_transport:
         return True
-    return project_transport == "remote-worktree" and worker_transport == "ssh"
+    if project_transport == "remote-worktree" and worker_transport == "ssh":
+        return True
+    if worker_transport == "agent":
+        return True
+    return False
 
 
 def check_host_affinity(worker: WorkerConfig, project: ProjectConfig) -> bool:

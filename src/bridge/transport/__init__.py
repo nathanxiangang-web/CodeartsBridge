@@ -6,8 +6,10 @@ from .local import LocalTransport
 from .ssh import SshTransport
 from .ssh_shell import SshShellTransport
 from .remote_worktree import RemoteWorktreeTransport
+from .agent import AgentTransport
 
 __all__ = [
     "TransportResult", "TransportBase",
     "LocalTransport", "SshTransport", "SshShellTransport", "RemoteWorktreeTransport",
+    "AgentTransport",
 ]
