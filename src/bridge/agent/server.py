@@ -99,12 +99,10 @@ class AgentServer:
             exit_code = self.runner.get_exit_code(job)
             if exit_code is not None:
                 self.runner.wait_for_streams(job.jobId, timeout=1.0)
-                job.state = JobState.COMPLETED.value if exit_code == 0 else JobState.ASSISTANCE_REQUIRED.value
-                job.exitCode = exit_code
-                job.lastEventAt = time.time()
-                self.store.save_job(job)
 
-                # Archive project-local outbox to agent artifacts, then clean up.
+                # Archive project-local outbox BEFORE setting COMPLETED so
+                # artifacts are guaranteed to be available when Bridge sees
+                # the COMPLETED state and fetches them.
                 from .runner import archive_project_outbox
                 agent_outbox = self.store.job_dir(job.jobId) / "artifacts" / "outbox"
                 agent_outbox.mkdir(parents=True, exist_ok=True)
@@ -117,6 +115,11 @@ class AgentServer:
                         text=f"Archived {archived} outbox file(s) from project-local",
                         status="completed",
                     ))
+
+                job.state = JobState.COMPLETED.value if exit_code == 0 else JobState.ASSISTANCE_REQUIRED.value
+                job.exitCode = exit_code
+                job.lastEventAt = time.time()
+                self.store.save_job(job)
 
                 self.store.append_event(job.jobId, LogEvent(
                     id=f"evt-{time.time_ns()}",
