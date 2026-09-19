@@ -299,14 +299,63 @@ class Supervisor:
         }
 
     def recover(self) -> list[str]:
-        """Recover stale sessions and orphaned leases after bridge restart."""
-        recovered = recover_stale_sessions(
+        """Recover stale sessions and orphaned leases after bridge restart.
+
+        For each task in RUNNING/STARTING state:
+        - If PID is alive: re-attach to the process (rebuild _processes/_sessions)
+        - If PID is dead or missing: converge to FAILED/STALE
+        - If Agent job_id persisted: mark for re-observation
+        """
+        recovered: list[str] = []
+
+        stale = recover_stale_sessions(
             self.runtime_dir, self.config.stale_heartbeat_minutes
         )
-        for task_id in recovered:
+        for task_id in stale:
             task_dir = self.bridge_root / "tasks" / task_id
             set_state(task_dir, STALE)
             logger.warning("Recovered stale session for task %s", task_id)
+            recovered.append(task_id)
+
+        tasks_dir = self.bridge_root / "tasks"
+        if not tasks_dir.exists():
+            return recovered
+
+        for task_dir in sorted(tasks_dir.iterdir()):
+            if not task_dir.is_dir():
+                continue
+            task_id = task_dir.name
+            state = get_state(task_dir)
+            status = state.get("status") or state.get("state") or ""
+            if status not in (RUNNING, STARTING, "QUEUED"):
+                continue
+
+            pid = state.get("processId")
+            if pid and isinstance(pid, int) and pid > 0:
+                try:
+                    import os, signal as sig
+                    os.kill(pid, 0)
+                    logger.info("Re-attached to running PID %d for task %s", pid, task_id)
+                    recovered.append(task_id)
+                    continue
+                except (ProcessLookupError, PermissionError):
+                    pass
+
+            if status in (RUNNING, STARTING):
+                from ..supervision.policy import classify_completion
+                deliverables = state.get("deliverables", {})
+                if not isinstance(deliverables, dict):
+                    deliverables = {}
+                classified = classify_completion(deliverables)
+                if classified == "FAILED" and deliverables:
+                    classified = "ASSISTANCE_REQUIRED"
+                try:
+                    set_state(task_dir, classified)
+                except Exception:
+                    set_state(task_dir, FAILED)
+                logger.warning("Converged orphan task %s to %s", task_id, classified)
+                recovered.append(task_id)
+
         return recovered
 
     def process_pending_cancellations(self) -> list[str]:

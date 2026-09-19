@@ -72,8 +72,10 @@ class AgentTransport(TransportBase):
         if not job_id:
             return TransportResult(exit_code=-1, stderr="No jobId returned")
 
+        self._save_inflight(task_dir, job_id, endpoint, token)
         result = self._poll_job(endpoint, token, job_id, timeout_seconds)
         self._fetch_artifacts(endpoint, token, job_id, task_dir)
+        self._clear_inflight(task_dir)
         return result
 
     def _build_prompt(self, task_dir: Path, project: Any) -> str:
@@ -189,9 +191,83 @@ class AgentTransport(TransportBase):
         )
 
     def _fetch_artifacts(self, endpoint: str, token: str, job_id: str, task_dir: Path) -> None:
+        """Download all artifacts from Agent and write to local outbox."""
         try:
             resp = self._get(f"{endpoint}/v1/jobs/{job_id}/artifacts", token)
-            local_outbox = task_dir / "outbox"
-            local_outbox.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return
+
+        local_outbox = task_dir / "outbox"
+        local_outbox.mkdir(parents=True, exist_ok=True)
+
+        local_salvage = task_dir / "salvage"
+        for category in ("outbox", "salvage", "files"):
+            items = resp.get(category, [])
+            for item in items:
+                name = item.get("name", "")
+                if not name:
+                    continue
+                try:
+                    file_url = f"{endpoint}/v1/jobs/{job_id}/files/{category}/{name}"
+                    content = self._get_raw(file_url, token)
+                    if content:
+                        if category == "salvage":
+                            local_salvage.mkdir(parents=True, exist_ok=True)
+                            (local_salvage / name).write_bytes(content)
+                        elif category == "files":
+                            (task_dir / name).write_bytes(content)
+                        else:
+                            (local_outbox / name).write_bytes(content)
+                except Exception:
+                    pass
+
+    def _get_raw(self, url: str, token: str) -> bytes:
+        req = urllib.request.Request(url)
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.read()
+    def _save_inflight(self, task_dir: Path, job_id: str, endpoint: str, token: str) -> None:
+        """Persist job_id so Bridge can resume polling after restart."""
+        inflight = task_dir / "inflight.json"
+        try:
+            inflight.write_text(json.dumps({
+                "jobId": job_id,
+                "endpoint": endpoint,
+                "token": token,
+            }), encoding="utf-8")
         except Exception:
             pass
+
+    def _clear_inflight(self, task_dir: Path) -> None:
+        """Remove inflight marker after job completes."""
+        inflight = task_dir / "inflight.json"
+        if inflight.exists():
+            try:
+                inflight.unlink()
+            except Exception:
+                pass
+
+    def resume_inflight(self, task_dir: str | Path, timeout_seconds: int = 900) -> TransportResult | None:
+        """Resume polling an inflight Agent job after Bridge restart.
+
+        Returns None if no inflight job exists, or TransportResult if
+        the job was found and polled to completion.
+        """
+        task_dir = Path(task_dir)
+        inflight = task_dir / "inflight.json"
+        if not inflight.exists():
+            return None
+        try:
+            data = json.loads(inflight.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        job_id = data.get("jobId", "")
+        endpoint = data.get("endpoint", "")
+        token = data.get("token", "")
+        if not job_id or not endpoint:
+            return None
+        result = self._poll_job(endpoint, token, job_id, timeout_seconds)
+        self._fetch_artifacts(endpoint, token, job_id, task_dir)
+        self._clear_inflight(task_dir)
+        return result

@@ -182,6 +182,32 @@ class AgentServer:
         job_dir = self.store.job_dir(job_id)
         return (200, collect_artifacts(job_dir))
 
+    def handle_file(
+        self, job_id: str, category: str, name: str
+    ) -> tuple[int, bytes, str]:
+        """Serve a raw file from a job's artifacts directory.
+
+        Returns (status_code, content_bytes, content_type).
+        """
+        job = self.store.load_job(job_id)
+        if not job:
+            return (404, b'{"error":"Job not found"}', "application/json")
+        job_dir = self.store.job_dir(job_id)
+
+        if category == "outbox":
+            path = job_dir / "artifacts" / "outbox" / name
+        elif category == "salvage":
+            path = job_dir / "artifacts" / "runtime-salvage" / name
+        elif category == "files":
+            path = job_dir / name
+        else:
+            return (404, b'{"error":"Unknown category"}', "application/json")
+
+        if not path.exists() or not path.is_file():
+            return (404, b'{"error":"File not found"}', "application/json")
+
+        return (200, path.read_bytes(), "application/octet-stream")
+
 
 def _make_handler(server: AgentServer):
     class Handler(BaseHTTPRequestHandler):
@@ -240,6 +266,15 @@ def _make_handler(server: AgentServer):
                 elif len(parts) == 4 and parts[3] == "artifacts":
                     code, data = server.handle_artifacts(job_id)
                     self._send_json(code, data)
+                elif len(parts) == 6 and parts[3] == "files":
+                    category = parts[4]
+                    name = parts[5]
+                    code, content, ct = server.handle_file(job_id, category, name)
+                    self.send_response(code)
+                    self.send_header("Content-Type", ct)
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
                 else:
                     self._send_json(404, {"error": "Not found"})
             else:
