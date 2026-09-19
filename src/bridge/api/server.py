@@ -125,6 +125,7 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 class BridgeAPIHandler(BaseHTTPRequestHandler):
     bridge_root: Path = Path(".")
     event_store = None
+    _SSE_HEARTBEAT_SECONDS = 15
 
     def log_message(self, format, *args):
         logger.debug("API %s - %s", self.address_string(), format % args)
@@ -1073,22 +1074,27 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         events_dir = self.bridge_root / "events"
         store = EventStore(events_dir)
 
-        last_count = 0
-        keepalive = 0
+        last_seq = 0
+        last_event_time = time.time()
         try:
             while True:
-                recent = store.recent(100)
-                if len(recent) > last_count:
-                    for evt in recent[last_count:]:
-                        self._send_sse(evt.type, {
-                            "eventId": evt.event_id,
-                            "taskId": evt.task_id,
-                            "payload": evt.payload,
+                new_events = store.recent_after(last_seq)
+                if new_events:
+                    for d in new_events:
+                        self._send_sse(d.get("type", ""), {
+                            "eventId": d.get("eventId", ""),
+                            "taskId": d.get("taskId"),
+                            "payload": d.get("payload", {}),
                         })
-                    last_count = len(recent)
-                keepalive += 1
-                if keepalive % 10 == 0:
-                    self._send_sse("keepalive", {"timestamp": time.time()})
+                        event_seq = d.get("seq")
+                        if isinstance(event_seq, int) and event_seq > last_seq:
+                            last_seq = event_seq
+                    last_event_time = time.time()
+                else:
+                    if time.time() - last_event_time >= self._SSE_HEARTBEAT_SECONDS:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+                        last_event_time = time.time()
                 time.sleep(0.5)
         except (BrokenPipeError, ConnectionResetError):
             pass
