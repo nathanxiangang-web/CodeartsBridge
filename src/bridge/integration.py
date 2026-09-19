@@ -27,7 +27,9 @@ from pathlib import Path
 from .atomic import atomic_write_json, read_json_or_none
 from .state import (
     get_state, set_state,
-    DONE, INTEGRATION_FAILED,
+)
+from .core.state import (
+    APPROVED, INTEGRATING, INTEGRATED, DONE, INTEGRATION_FAILED,
 )
 from .config import load_registry, get_project
 
@@ -203,15 +205,16 @@ def integrate_task(
     verify_command: list[str] | None = None,
     target_branch: str = "main",
 ) -> IntegrationResult:
-    """Integrate a DONE-state task into the main branch via cherry-pick.
+    """Integrate an APPROVED task into the main branch via cherry-pick.
 
     Steps:
-    1. Pre-merge gate: verify task state is DONE
-    2. Resolve the task commit SHA
-    3. Cherry-pick the commit into target_branch
-    4. Post-merge: run focused tests
-    5. On pass: update baseline SHA in registry
-    6. On failure: revert merge, mark task INTEGRATION_FAILED
+    1. Pre-merge gate: verify task state is APPROVED
+    2. Transition to INTEGRATING
+    3. Resolve the task commit SHA
+    4. Cherry-pick the commit into target_branch
+    5. Post-merge: run focused tests
+    6. On pass: INTEGRATED -> DONE with integratedSha; update baseline SHA
+    7. On failure: revert merge, mark task INTEGRATION_FAILED
     """
     bridge_root = Path(bridge_root)
     task_dir = bridge_root / "tasks" / task_id
@@ -226,11 +229,13 @@ def integrate_task(
     meta = read_json_or_none(task_dir / "META.json") or {}
     current_state = state.get("status") or state.get("state", "")
 
-    if current_state != DONE:
+    if current_state != APPROVED:
         return IntegrationResult(
             task_id=task_id, success=False,
-            error=f"Task state is {current_state}, must be {DONE} to integrate",
+            error=f"Task state is {current_state}, must be {APPROVED} to integrate",
         )
+
+    set_state(task_dir, INTEGRATING)
 
     commit_sha = _resolve_task_commit(task_dir, state, meta)
     if not commit_sha:
@@ -290,6 +295,10 @@ def integrate_task(
     project_id = meta.get("projectId", "default")
     update_baseline_sha(bridge_root, project_id, merged_sha)
 
+    set_state(task_dir, INTEGRATED)
+    set_state(task_dir, DONE)
+
+    state = get_state(task_dir)
     state["integratedSha"] = merged_sha
     state["integratedAt"] = _now_iso()
 
@@ -319,11 +328,10 @@ def integrate_loop(
     dry_run: bool = False,
     verify_command: list[str] | None = None,
 ) -> list[IntegrationResult]:
-    """Scan for DONE tasks not yet integrated and integrate them serially.
+    """Scan for APPROVED tasks and integrate them serially.
 
     A task is eligible if:
-    - State is DONE
-    - state.json does not have "integratedSha" set
+    - State is APPROVED (Review PASS, not yet integrated)
 
     Integrations are serialized: one at a time, no parallel merges.
     """
@@ -340,9 +348,7 @@ def integrate_loop(
             continue
         state = get_state(task_dir)
         status = state.get("status") or state.get("state", "")
-        if status != DONE:
-            continue
-        if state.get("integratedSha"):
+        if status != APPROVED:
             continue
         eligible.append(task_dir.name)
 

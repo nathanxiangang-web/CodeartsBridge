@@ -122,7 +122,7 @@ def _mock_ai_fix_reviewer(prompt: str, task_id: str) -> str:
 # --- Tests ---
 
 class TestReviewValidOutput:
-    """Test 1: Review a task with valid output -> PASS -> state DONE."""
+    """Test 1: Review a task with valid output -> PASS -> state APPROVED."""
 
     def test_valid_output_passes_to_done(self, bridge_root):
         task_dir = _create_task_with_state(bridge_root, "t1", state="REVIEW_REQUIRED")
@@ -137,7 +137,7 @@ class TestReviewValidOutput:
 
         assert verdict.decision == "PASS"
         assert verdict.fix_task_id is None
-        assert _get_task_state(bridge_root, "t1") == DONE
+        assert _get_task_state(bridge_root, "t1") == APPROVED
 
     def test_pass_verdict_has_reason(self, bridge_root):
         task_dir = _create_task_with_state(bridge_root, "t1", state="REVIEW_REQUIRED")
@@ -163,7 +163,7 @@ class TestReviewValidOutput:
         verdict = review_task("t1", bridge_root)
 
         assert verdict.decision == "PASS"
-        assert _get_task_state(bridge_root, "t1") == DONE
+        assert _get_task_state(bridge_root, "t1") == APPROVED
 
 
 class TestReviewInvalidOutput:

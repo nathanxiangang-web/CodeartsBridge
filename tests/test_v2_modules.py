@@ -509,12 +509,6 @@ class TestReviewService:
         assert check_review_independence("w1", "w2")
         assert not check_review_independence("w1", "w1")
 
-    def test_complete_task(self, tmp_path):
-        from bridge.application.review_service import review_pass, complete_task
-        self._setup_review_task(tmp_path)
-        review_pass(tmp_path, "t1", reviewer_id="w2")
-        result = complete_task(tmp_path, "t1")
-        assert result.success and result.new_state == "DONE"
 
 
 # ─── Policy: Integration ─────────────────────────────────────────────────────

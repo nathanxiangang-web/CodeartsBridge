@@ -365,7 +365,7 @@ def test_integration_uses_result_commit_and_cleans_local_worktree(tmp_path):
 
     set_state(
         task_dir,
-        "DONE",
+        "APPROVED",
         workspace_mode="local-worktree",
         workspace_path=str(worktree),
         commit_sha=commit_sha,
@@ -435,7 +435,7 @@ def test_integration_never_treats_baseline_as_result_commit(tmp_path):
             "projectRoot": str(project_root),
         }],
     }), encoding="utf-8")
-    set_state(task_dir, "DONE")
+    set_state(task_dir, "APPROVED")
 
     result = integrate_task(task_id, bridge_root, verify_command=[])
 
