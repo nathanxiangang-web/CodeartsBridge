@@ -103,6 +103,21 @@ class AgentServer:
                 job.exitCode = exit_code
                 job.lastEventAt = time.time()
                 self.store.save_job(job)
+
+                # Archive project-local outbox to agent artifacts, then clean up.
+                from .runner import archive_project_outbox
+                agent_outbox = self.store.job_dir(job.jobId) / "artifacts" / "outbox"
+                agent_outbox.mkdir(parents=True, exist_ok=True)
+                archived = archive_project_outbox(job.projectRoot, job.jobId, agent_outbox)
+                if archived:
+                    self.store.append_event(job.jobId, LogEvent(
+                        id=f"evt-{time.time_ns()}",
+                        time=time.time(),
+                        type="archived",
+                        text=f"Archived {archived} outbox file(s) from project-local",
+                        status="completed",
+                    ))
+
                 self.store.append_event(job.jobId, LogEvent(
                     id=f"evt-{time.time_ns()}",
                     time=time.time(),
