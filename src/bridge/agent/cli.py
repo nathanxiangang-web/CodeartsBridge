@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sys
+import threading
 from pathlib import Path
 
 from .config import AgentConfig
@@ -39,11 +41,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Token: {'***' + server.token[-4:] if server.token else '(auth off — trusted LAN)'}")
     print(f"  Capacity: {config.capacity}")
 
+    def _request_stop(signum, _frame):
+        print(f"\nShutting down on signal {signum}...")
+        # HTTPServer.shutdown() must be called from a different thread than
+        # serve_forever(), so do not call server.stop() directly here.
+        threading.Thread(target=server.stop, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _request_stop)
+    signal.signal(signal.SIGINT, _request_stop)
+
     try:
         server.start()
     except KeyboardInterrupt:
-        print("\nShutting down...")
-        server.stop()
+        threading.Thread(target=server.stop, daemon=True).start()
     return 0
 
 
