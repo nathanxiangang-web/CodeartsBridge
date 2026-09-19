@@ -39,6 +39,21 @@ def test_tasks_page_is_observation_only():
     assert "worker_id" not in source
 
 
+def test_tasks_clear_is_local_display_only():
+    source = _read("js/pages/tasks.js")
+    api = _read("js/api.js")
+    assert "清除已结束" in source
+    assert "恢复隐藏" in source
+    assert "localStorage" in source
+    assert "TASK_HIDDEN_KEY" in source
+    assert "TERMINAL_TASK_STATES" in source
+    assert "API.tasks()" in source
+    assert "API.delete" not in source
+    assert "API.cancel" not in source
+    assert "POST" not in api
+    assert "DELETE" not in api
+
+
 def test_task_detail_has_no_control_actions():
     source = _read("js/pages/task-detail.js")
     assert "最近事件" in source
