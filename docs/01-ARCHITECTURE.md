@@ -1,98 +1,91 @@
-# CodeartsBridge 架构
+# CodeartsBridge Architecture
 
-> 版本: 2.0.0 | 更新: 2026-09-18
+> Version: 2.0.0 | Updated: 2026-09-20
 
-## 代码结构
+## Code structure
 
 ```
 src/bridge/
-├── cli.py                    # CLI 入口（serve/dispatch/doctor/status/telemetry）
-├── daemon.py                 # daemon 模式运行
-├── dispatch.py               # 核心调度（execute_dispatch, check_host_affinity）
-├── state.py                  # 状态机 + 自动时间戳
-├── worker.py                 # Worker 执行逻辑（含 policy 门控）
-├── config.py                 # 配置解析（ProjectConfig, WorkerConfig, Registry）
-├── doctor.py                 # 生产级健康检查
-├── result_classifier.py      # 结果分类器
-├── telemetry.py              # 遥测统计
-├── atomic.py                 # 原子文件写入
-├── codearts.py               # CodeArts CLI 封装 + 模型路由
-├── git_ops.py                # Git 操作
-├── task.py                   # 任务管理
-├── progress.py               # 进度显示
-├── scheduler/                # 调度器包
-│   ├── priority.py           # 优先级调度
-│   ├── matcher.py            # 角色匹配
-│   ├── dependency.py         # 依赖解析
-│   ├── capacity.py           # 容量规划
-│   ├── affinity.py           # 亲和性
-│   ├── lease.py              # 租约管理
-│   └── planner.py            # 调度编排
+├── cli.py                    # CLI entry (serve/dispatch/doctor/status)
+├── dispatch.py               # Core dispatch (execute_dispatch, check_host_affinity)
+├── state.py                  # State machine + auto timestamps
+├── worker.py                 # Worker execution logic
+├── config.py                 # Config parsing (ProjectConfig, WorkerConfig, Registry)
+├── doctor.py                 # Health check
+├── result_classifier.py      # Result classifier
+├── telemetry.py              # Telemetry stats
+├── atomic.py                 # Atomic file writes
+├── codearts.py               # CodeArts CLI wrapper + model routing
+├── git_ops.py                # Git operations
+├── task.py                   # Task management
+├── progress.py               # Progress display
+├── scheduler/                # Scheduler package
+│   ├── matcher.py            # Role matching
+│   ├── dependency.py         # Dependency resolution
+│   ├── capacity.py           # Capacity planning
+│   ├── affinity.py           # Host affinity
+│   ├── lease.py              # Lease management
+│   └── planner.py            # Dispatch planning
 ├── runtime/
-│   ├── timeout.py            # 软/硬超时
-│   ├── events.py             # 事件回显
-│   ├── heartbeat.py          # 心跳
-│   ├── process_supervisor.py # 进程管理
-│   ├── cancellation.py       # 取消
-│   ├── session.py            # 会话
-│   └── recovery.py           # 恢复
+│   ├── timeout.py            # Soft/hard timeout
+│   ├── events.py             # Event echo
+│   ├── heartbeat.py          # Heartbeat
+│   ├── process_supervisor.py # Process management
+│   ├── cancellation.py       # Cancellation
+│   ├── session.py            # Session
+│   └── recovery.py           # Recovery
 ├── transport/
-│   ├── base.py               # 传输基类
-│   ├── local.py              # 本地传输
-│   ├── ssh.py                # SSH 传输
-│   ├── ssh_shell.py          # SSH-shell 传输
-│   └── remote_worktree.py    # 远程 worktree 传输
-├── policy/
-│   ├── engine.py             # 策略引擎（profile 加载/验证）
-│   ├── runtime.py            # 策略运行时（check 执行）
-│   ├── integration.py        # 策略接入（preCheck/postCheck/approvalGate）
-│   └── timeout.py            # 超时策略
-├── api/server.py             # HTTP API 服务
-└── application/              # v2 应用服务层
+│   ├── base.py               # Transport base class
+│   └── agent.py              # Agent transport (HTTP API, the one in use)
+├── agent/                    # Worker Agent (daemon)
+│   ├── cli.py                # Agent CLI entry
+│   ├── server.py             # HTTP Server (:8765)
+│   ├── runner.py             # CodeArts runner
+│   ├── watchdog.py           # Process watchdog
+│   ├── recovery.py           # Inflight recovery
+│   └── store.py              # Job store
+├── core/
+│   ├── events.py             # EventStore (flock + rotation)
+│   └── state.py              # State machine
+├── api/server.py             # HTTP API server
+├── application/              # Application service layer
+└── web/                      # Read-only Web UI
+    ├── index.html
+    ├── styles/app.css
+    └── js/pages/             # overview, tasks, task-detail, thinking
 ```
 
-## 状态机
+## State machine
 
 ```
-READY → QUEUED → STARTING → RUNNING → REVIEW_REQUIRED → DONE
+READY -> QUEUED -> STARTING -> RUNNING -> REVIEW_REQUIRED -> DONE
                                     ↓
                               BLOCKED / ASSISTANCE_REQUIRED / AUTH_REQUIRED
                               RETRYABLE / FAILED / CANCELLED
 
-REVIEW_REQUIRED → FIX_REQUIRED → QUEUED（重试）
+REVIEW_REQUIRED -> FIX_REQUIRED -> QUEUED (retry)
 ```
 
-状态转换时自动记录时间戳：queuedAt, startedAt, runningAt, finishedAt, doneAt, reviewedAt, cancelledAt 等。
+State transitions auto-record timestamps: queuedAt, startedAt, runningAt, finishedAt, doneAt, reviewedAt, cancelledAt, etc.
 
-## 模型路由
+## Model routing
 
-优先级：worker.model > project.model > ROLE_MODEL_MAP[role] > REQUIRED_MODEL
+Priority: worker.model > project.model > ROLE_MODEL_MAP[role] > REQUIRED_MODEL
 
-角色映射：
-- architect → 推理模型
-- implement → 编码模型
-- review → 推理模型
-- test → 快速模型
+Role mapping:
+- architect -> reasoning model
+- implement -> coding model
+- review -> reasoning model
+- test -> fast model
 
-## 策略门控
-
-```
-preChecks → Worker → postChecks → approvalGate → REVIEW_REQUIRED
-```
-
-- preCheck 失败（onFailure=block）→ BLOCKED，不执行 Worker
-- postCheck 失败（onFailure=block）→ BLOCKED
-- approvalGate → REVIEW_REQUIRED（等待批准）
-- 无 policy profile → 跳过（向后兼容）
-
-## 事件流
+## Event stream
 
 ```
-CodeArts/Worker → incremental event reader → sanitized normalizer
-→ events.jsonl → state heartbeat snapshot → UI
+CodeArts/Worker -> incremental event reader -> sanitized normalizer
+-> events.jsonl -> state heartbeat snapshot -> UI
 ```
 
-- 事件有单调递增 seq
-- STALE 检测：RUNNING + heartbeat 超时 → STALE（不改变 canonical state）
-- 敏感信息遮盖
-- 不暴露模型私有 reasoning
+- Events have a monotonically increasing seq
+- STALE detection: RUNNING + heartbeat timeout -> STALE (does not change canonical state)
+- Sensitive values are masked
+- Model private reasoning is not exposed

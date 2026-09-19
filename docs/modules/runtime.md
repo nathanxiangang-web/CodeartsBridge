@@ -1,33 +1,33 @@
-# runtime 模块
+# runtime module
 
 > 职责：进程生命周期、取消、事件回显
 
-## 关键文件
+## Key files
 
 - `src/bridge/runtime/process.py` — 进程管理
 - `src/bridge/runtime/cancellation.py` — 取消
 - `src/bridge/runtime/events.py` — 事件回显（P0-08）
 
-## 进程生命周期
+## Process lifecycle
 
 ```
-RUNNING → CANCEL_REQUESTED → terminate → grace period → kill if needed → CANCELLED
+RUNNING -> CANCEL_REQUESTED -> terminate -> grace period -> kill if needed -> CANCELLED
 ```
 
 ## 事件流
 
 ```
-Worker → incremental event reader → sanitized normalizer → events.jsonl → state snapshot → UI
+Worker -> incremental event reader -> sanitized normalizer -> events.jsonl -> state snapshot -> UI
 ```
 
-事件有单调递增 `seq`，支持类型：status, heartbeat, tool, test, warning, terminal。
+Events have a monotonically increasing `seq`. Supported types: status, heartbeat, tool, test, warning, terminal.
 
-## STALE 检测
+## STALE detection
 
 ```
-RUNNING + heartbeat fresh → LIVE
-RUNNING + heartbeat 超时 → STALE
-terminal state → DONE / FAILED / BLOCKED
+RUNNING + heartbeat fresh -> LIVE
+RUNNING + heartbeat timeout -> STALE
+terminal state -> DONE / FAILED / BLOCKED
 ```
 
 STALE 只是 UI 可观测状态，不改变 canonical task state。

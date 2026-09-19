@@ -1,51 +1,41 @@
-# worker 模块
+# worker module
 
-> 职责：Worker 执行逻辑，含策略门控和模型路由
+> Responsibility: Worker execution logic and model routing
 
-## 关键文件
+## Key files
 
-- `src/bridge/worker.py` — Worker 执行入口
-- `src/bridge/codearts.py` — CodeAr6ts CLI 封装 + 模型路由（P1-03）
-- `src/bridge/result_classifier.py` — 结果分类器（P0-07）
+- `src/bridge/worker.py` — Worker execution entry
+- `src/bridge/codearts.py` — CodeArts CLI wrapper + model routing
+- `src/bridge/result_classifier.py` — Result classifier
 
-## 执行流程
+## Execution flow
 
 ```
 run_worker()
-  → set STARTING
-  → load policy profile
-  → preChecks (if profile exists)
-  → set RUNNING
-  → resolve_model(role, worker, project)
-  → transport.run(model=resolved_model)
-  → parse telemetry
-  → result classifier
-  → postChecks (if profile exists)
-  → set terminal state
+  -> set STARTING
+  -> set RUNNING
+  -> resolve_model(role, worker, project)
+  -> transport.run(model=resolved_model)
+  -> parse telemetry
+  -> result classifier
+  -> set terminal state
 ```
 
-## 模型路由（P1-03）
+## Model routing
 
-优先级：worker.model > project.model > ROLE_MODEL_MAP[role] > REQUIRED_MODEL
+Priority: worker.model > project.model > ROLE_MODEL_MAP[role] > REQUIRED_MODEL
 
-`resolve_model()` 在 `codearts.py` 中实现。`"default"` 和空字符串作为 sentinel 触发角色映射。
+`resolve_model()` lives in `codearts.py`. `"default"` and empty string act as sentinels that trigger role mapping.
 
-## 策略门控（P1-04）
-
-- preCheck 失败（onFailure=block）→ BLOCKED，不执行 transport.run
-- postCheck 失败（onFailure=block）→ BLOCKED
-- approvalGate → REVIEW_REQUIRED（等待批准）
-- 无 profile → 跳过（向后兼容）
-
-## 结果分类（P0-07）
+## Result classification
 
 ```
-RESULT + TESTS + DIFF → REVIEW_REQUIRED
-BLOCKER.md → BLOCKED
-CHECKPOINT + ASSISTANCE_REQUEST → ASSISTANCE_REQUIRED
-authorization error → AUTH_REQUIRED
-temporary retry condition → RETRYABLE
-cancel → CANCELLED
-exit 0 but incomplete → FAILED
-transport/protocol failure → FAILED
+RESULT + TESTS + DIFF -> REVIEW_REQUIRED
+BLOCKER.md -> BLOCKED
+CHECKPOINT + ASSISTANCE_REQUEST -> ASSISTANCE_REQUIRED
+authorization error -> AUTH_REQUIRED
+temporary retry condition -> RETRYABLE
+cancel -> CANCELLED
+exit 0 but incomplete -> FAILED
+transport/protocol failure -> FAILED
 ```

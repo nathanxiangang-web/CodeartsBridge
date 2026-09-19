@@ -1,37 +1,36 @@
-# transport 模块
+# transport module
 
-> 职责：Worker 执行的传输层，支持 local/ssh/ssh-shell/remote-worktree
+> Responsibility: Worker execution transport. Agent transport is the only one in normal use.
 
-## 关键文件
+## Key files
 
-- `src/bridge/transport/base.py` — 传输基类（TransportBase, TransportResult）
-- `src/bridge/transport/local.py` — 本地传输
-- `src/bridge/transport/ssh.py` — SSH 传输
-- `src/bridge/transport/ssh_shell.py` — SSH-shell 传输
-- `src/bridge/bridge/transport/remote_worktree.py` — 远程 worktree 传输
+- `src/bridge/transport/base.py` — Transport base class (TransportBase, TransportResult)
+- `src/bridge/transport/agent.py` — Agent transport (HTTP API to Worker Agent on :8765)
 
-## TransportBase.run 签名
+## Agent transport
+
+The Bridge talks to each Worker over HTTP:
+
+```
+Bridge -> POST /v1/jobs          (create job)
+Bridge -> GET  /v1/jobs/<id>     (poll status)
+Bridge -> GET  /v1/jobs/<id>/events?cursor=N  (incremental events)
+Bridge -> POST /v1/jobs/<id>/cancel  (cancel)
+```
+
+The Worker Agent is a daemon (`bridge-worker-agent`) listening on :8765. No SSH, no local process spawn, no remote worktree in normal use.
+
+## TransportBase.run signature
 
 ```python
 def run(
     self, project, worker, task_dir, task_id,
     mode="auto", timeout_seconds=900, soft_timeout_seconds=0,
     session_id=None, attempt=0, baseline=None, quiet=False,
-    model=None,  # P1-03: 模型路由
+    model=None,
 ) -> TransportResult
 ```
 
-## 隔离方式（P0-03）
+## Model passing
 
-由 transport 决定，不由 workspaceMode 决定：
-
-| transport + role | 隔离方式 |
-|-----------------|---------|
-| local + implement | local isolated worktree |
-| remote-worktree + implement | remote isolated workspace |
-| ssh + implement | existing exclusive |
-| review/test | shared readonly |
-
-## 模型传递
-
-所有 transport 接收 `model` 参数，传递给 `new_worker_run_arguments(model=model or REQUIRED_MODEL)`。
+All transports accept a `model` parameter and forward it to `new_worker_run_arguments(model=model or REQUIRED_MODEL)`.
