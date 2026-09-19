@@ -26,4 +26,16 @@
 .evt-dispatch .evt-type{background:#a371f733;color:var(--accent-purple)}
 .evt-done .evt-type{background:#3fb95033;color:var(--accent-green)}
 .evt-error .evt-type{background:#f8514933;color:var(--accent-red)}
-.evt-hb .evt-type{background:#6e768133;color:var(--text-secondary)}
+.evt-hb .evt-type{background:#6e768133;color:var(--text-secondary)}.dag-layers{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+.dag-layer{border:1px solid var(--border-subtle);border-radius:6px;padding:8px}
+.dag-layer-header{margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.dag-layer-items{display:flex;flex-wrap:wrap;gap:8px}
+.dag-node{background:var(--bg-tertiary);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:12px;cursor:pointer}
+.dag-node:hover{border-color:var(--accent-blue)}
+.dag-node-id{font-weight:600;color:var(--accent-blue)}
+.dag-deps{font-size:10px;color:var(--text-secondary);margin-top:2px}
+.task-detail-section{margin-bottom:16px}
+.task-detail-section h3{font-size:13px;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
+.task-detail-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.task-detail-meta dt{color:var(--text-secondary);font-size:12px}
+.task-detail-meta dd{margin:0;font-size:13px}

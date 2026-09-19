@@ -1,5 +1,0 @@
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary)}
-.muted{color:var(--text-secondary)}
-.hidden{display:none}
-#content{min-height:400px}

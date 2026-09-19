@@ -1,4 +1,4 @@
-const pages={dashboard:loadDashboard,projects:loadProjects,tasks:loadTasks,workers:loadWorkers,review:loadReview,metrics:loadMetrics,thinking:loadThinking,settings:loadSettings}
+const pages={dashboard:loadDashboard,projects:loadProjects,tasks:loadTasks,'task-detail':loadTaskDetail,dag:loadDag,workers:loadWorkers,review:loadReview,metrics:loadMetrics,thinking:loadThinking,settings:loadSettings}
 async function navigate(page){
 document.querySelectorAll('.nav-link').forEach(a=>a.classList.remove('active'));
 document.querySelector(`[data-page="${page}"]`)?.classList.add('active');

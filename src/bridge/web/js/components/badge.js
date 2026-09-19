@@ -1,0 +1,2 @@
+function badge(text,kind){const cls=kind||'default';return `<span class="badge badge-${cls}">${esc(text)}</span>`}
+function statusBadge(s){const m={CREATED:'default',READY:'info',QUEUED:'info',STARTING:'warning',RUNNING:'warning',REVIEW_REQUIRED:'success',APPROVED:'success',DONE:'success',FAILED:'danger',BLOCKED:'danger',ASSISTANCE_REQUIRED:'danger',CANCELLED:'default',STALE:'danger',FIX_REQUIRED:'warning',RETRYABLE:'warning'};return badge(s,m[s]||'default')}
