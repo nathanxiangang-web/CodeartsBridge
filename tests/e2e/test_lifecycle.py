@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from bridge.atomic import atomic_write_json, read_json_or_none
 from bridge.state import get_state, set_state, READY, QUEUED, REVIEW_REQUIRED, DONE, FIX_REQUIRED
 CANCELLED = "CANCELLED"  # not yet in v1 state.py
-from bridge.dispatch import select_dispatch_plan, execute_dispatch
+from bridge.auto_dispatch import auto_dispatch
 from fake_runner import FakeRunner
 
 
@@ -56,9 +56,8 @@ class TestCreateDispatchRun:
         root = setup_bridge
         _create_task(root, "t1")
 
-        result = execute_dispatch(root / "tasks", root, max_workers=4, spawn_workers=False)
-        assert len(result.plan.plan) == 1
-        assert len(result.spawned) == 0  # spawn_workers=False
+        result = auto_dispatch(bridge_root=root, max_workers=4, dry_run=False)
+        assert result.dispatched == 1
 
         state = get_state(root / "tasks" / "t1")
         assert state["status"] == QUEUED
@@ -68,9 +67,9 @@ class TestCreateDispatchRun:
         root = setup_bridge
         _create_task(root, "t1")
 
-        result = execute_dispatch(root / "tasks", root, max_workers=4, dry_run=True)
-        assert len(result.plan.plan) == 1
-        assert len(result.spawned) == 0
+        result = auto_dispatch(bridge_root=root, max_workers=4, dry_run=True)
+        assert result.planned == 1
+        assert result.dispatched == 0
 
         state = get_state(root / "tasks" / "t1")
         assert state["status"] == READY
@@ -80,12 +79,9 @@ class TestCreateDispatchRun:
         root = setup_bridge
         _create_task(root, "t1")
 
-        # execute_dispatch with spawn_workers=True will try to spawn
-        # subprocess.Popen(["python", "-m", "bridge.cli", "run", "-t", "t1"])
-        # This may fail in test env, which should trigger revert
-        result = execute_dispatch(root / "tasks", root, max_workers=4, spawn_workers=True)
+        result = auto_dispatch(bridge_root=root, max_workers=4, dry_run=False)
 
-        if result.failed:
+        if result.errors:
             state = get_state(root / "tasks" / "t1")
             assert state["status"] == READY, f"Should revert to READY on spawn failure, got {state['status']}"
 
@@ -189,10 +185,9 @@ class TestWorkspaceIsolation:
         root = setup_bridge
         _create_task(root, "t1", project_id="test-remote", worker_id="w1")
 
-        plan = select_dispatch_plan(root / "tasks", root, max_workers=4)
+        result = auto_dispatch(bridge_root=root, max_workers=4, dry_run=True)
 
-        # Should not be skipped with "worktree only supported for local"
-        skip_reasons = [s.reason for s in plan.skipped]
+        skip_reasons = [s.get("reason", "") for s in result.skipped_details]
         assert not any("worktree only" in r for r in skip_reasons), \
             f"remote-worktree should not be rejected: {skip_reasons}"
 
@@ -202,14 +197,13 @@ class TestWorkspaceIsolation:
         _create_task(root, "dep1")
         _create_task(root, "t1")
 
-        # Set t1 to depend on dep1
         meta_path = root / "tasks" / "t1" / "META.json"
         meta = json.loads(meta_path.read_text())
         meta["dependsOn"] = ["dep1"]
         meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
-        plan = select_dispatch_plan(root / "tasks", root, max_workers=4)
-        skip_reasons = [s.reason for s in plan.skipped if s.task_id == "t1"]
+        result = auto_dispatch(bridge_root=root, max_workers=4, dry_run=True)
+        skip_reasons = [s.get("reason", "") for s in result.skipped_details if s.get("taskId") == "t1"]
         assert any("dependencies" in r for r in skip_reasons), \
             f"t1 should be skipped due to dependencies: {skip_reasons}"
 
@@ -219,15 +213,13 @@ class TestWorkspaceIsolation:
         _create_task(root, "dep1")
         _create_task(root, "t1")
 
-        # Mark dep1 as DONE
         set_state(root / "tasks" / "dep1", DONE, message="completed")
 
-        # Set t1 to depend on dep1
         meta_path = root / "tasks" / "t1" / "META.json"
         meta = json.loads(meta_path.read_text())
         meta["dependsOn"] = ["dep1"]
         meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
-        plan = select_dispatch_plan(root / "tasks", root, max_workers=4)
-        plan_ids = [item.task_id for item in plan.plan]
+        result = auto_dispatch(bridge_root=root, max_workers=4, dry_run=True)
+        plan_ids = [a["taskId"] for a in result.assignments]
         assert "t1" in plan_ids, f"t1 should be in plan when dep is DONE: {plan_ids}"
