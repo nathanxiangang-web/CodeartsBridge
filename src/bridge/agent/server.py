@@ -68,6 +68,20 @@ class AgentServer:
 
     def stop(self) -> None:
         self._stop.set()
+
+        # Do not leave CodeArts children behind when the Agent is restarted or
+        # redeployed. They run in their own process group, so without explicit
+        # cleanup they can become PPID=1 orphans and keep shared CLI state busy.
+        for job in self.store.list_active_jobs():
+            try:
+                self.runner.terminate(job, grace_seconds=2)
+                job.state = JobState.CANCELLED.value
+                job.lastEventAt = time.time()
+                self.store.save_job(job)
+                self.runner.release(job.jobId)
+            except Exception:
+                pass
+
         if self._server:
             self._server.shutdown()
 

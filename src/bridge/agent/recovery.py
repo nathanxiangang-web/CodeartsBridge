@@ -21,15 +21,25 @@ class Recovery:
                 continue
 
             if self.runner.check_process(job):
-                job.state = JobState.RUNNING.value
+                # After an Agent restart the child process may still exist, but
+                # its stdout/stderr pipe handles belonged to the old Agent
+                # process and cannot be re-attached. Pretending this is RUNNING
+                # creates exactly the "busy CodeArts + zero UI echo" failure.
+                self.runner.terminate(job, grace_seconds=2)
+                self.runner.release(job.jobId)
+                job.state = JobState.ASSISTANCE_REQUIRED.value
+                job.exitCode = -1
                 job.lastEventAt = time.time()
                 self.store.save_job(job)
                 self.store.append_event(job.jobId, LogEvent(
-                    id=f"evt-{int(time.time()*1000)}",
+                    id=f"evt-{time.time_ns()}",
                     time=time.time(),
                     type="reconciled",
-                    text="Re-attached to running process",
-                    status="running",
+                    text=(
+                        "Agent restarted while CodeArts was still alive; "
+                        "terminated orphan because its output stream cannot be re-attached"
+                    ),
+                    status="converged",
                 ))
                 reconciled.append(job)
             else:
@@ -43,7 +53,7 @@ class Recovery:
                 job.lastEventAt = time.time()
                 self.store.save_job(job)
                 self.store.append_event(job.jobId, LogEvent(
-                    id=f"evt-{int(time.time()*1000)}",
+                    id=f"evt-{time.time_ns()}",
                     time=time.time(),
                     type="reconciled",
                     text=f"Process gone, converged to {job.state}",

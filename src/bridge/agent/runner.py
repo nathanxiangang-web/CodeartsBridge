@@ -1,17 +1,15 @@
-"""Local process runner with live CodeArts event streaming.
+"""Local process runner with live CodeArts JSON streaming.
 
-The worker process is wrapped by util-linux `script` when available so
-CodeArts gets a real controlling terminal, while Bridge still receives a
-stream on stdout.  This avoids the previous openpty()+setsid combination,
-which handed the child PTY file descriptors without a controlling terminal
-and could leave CodeArts running with no visible output.
+CodeArts `run --format json` is a non-interactive machine-output mode.  Keep
+stdout/stderr as pipes: forcing a PTY changes the child's terminal semantics
+and, with current CodeArts CLI builds, can leave the process busy while no
+JSON reaches Bridge.
 """
 from __future__ import annotations
 
 import json as _json
 import os
 import re
-import shlex
 import shutil
 import signal
 import subprocess
@@ -33,6 +31,59 @@ _ANSI_RE = re.compile(
 def _event_id() -> str:
     """Return a collision-resistant event id for high-rate UI streams."""
     return f"evt-{time.time_ns()}"
+
+
+def _resolve_cli_path(cli: str) -> str:
+    """Resolve CodeArts to the official per-user install before PATH wrappers."""
+    if cli != "codearts":
+        return cli
+
+    candidates = (
+        # Prefer the resolved executable used by this host's ~/.local/bin
+        # symlink. The installers/codearts entry is a shell launcher and is
+        # intentionally only a fallback.
+        Path.home() / ".codeartsdoer" / "installers" / "bin" / "codearts",
+        Path.home() / ".local" / "bin" / "codearts",
+        Path.home() / ".codeartsdoer" / "installers" / "codearts",
+    )
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+
+    return shutil.which("codearts") or cli
+
+
+def _probe_cli(cli: str, timeout_seconds: float = 5.0) -> str:
+    """Fail fast when the CodeArts launcher itself is hung or broken."""
+    proc = subprocess.Popen(
+        [cli, "--version"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        proc.communicate()
+        raise RuntimeError(
+            f"CodeArts CLI unhealthy: '{cli} --version' timed out after "
+            f"{timeout_seconds:g}s"
+        )
+
+    if proc.returncode != 0:
+        detail = (stderr or stdout or "").strip()[:300]
+        raise RuntimeError(
+            f"CodeArts CLI unhealthy: '{cli} --version' exited "
+            f"{proc.returncode}: {detail}"
+        )
+
+    return (stdout or stderr or "").strip()
 
 
 def _parse_codearts_line(line: str) -> tuple[str, str] | None:
@@ -84,7 +135,8 @@ class Runner:
         self._streamers: dict[str, list[threading.Thread]] = {}
 
     def start(self, job: JobInfo) -> tuple[int, int]:
-        cli = job.cliPath
+        cli = _resolve_cli_path(job.cliPath)
+        _probe_cli(cli)
         args = self._build_args(job)
         job_dir = self.store.job_dir(job.jobId)
         session_log_path = job_dir / "session.log"
@@ -95,30 +147,19 @@ class Runner:
         env = dict(os.environ)
         env["CODEARTS_OUTBOX"] = str(outbox_path)
 
-        command = [cli] + args
-        script_bin = shutil.which("script")
-        if script_bin:
-            # `script` creates the controlling PTY correctly. -f flushes every
-            # write so JSONL events reach the UI immediately; -e preserves the
-            # CodeArts exit status; /dev/null avoids a second transcript file.
-            command = [
-                script_bin,
-                "-q",
-                "-e",
-                "-f",
-                "-c",
-                shlex.join(command),
-                "/dev/null",
-            ]
-
+        # IMPORTANT: do not wrap this in pty.openpty() or util-linux script.
+        # `codearts run --format json` is already non-interactive. A PTY makes
+        # CodeArts select terminal-oriented behaviour and has been observed to
+        # run at high CPU while emitting zero bytes to Bridge.
         proc = subprocess.Popen(
-            command,
+            [cli] + args,
             cwd=job.projectRoot,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
             env=env,
+            bufsize=0,
         )
         self._processes[job.jobId] = proc
 
@@ -136,18 +177,18 @@ class Runner:
             id=_event_id(),
             time=time.time(),
             type="started",
-            text=f"Process started: pid={pid}",
+            text=f"Process started: pid={pid} (json-pipe, cli={cli})",
             status="running",
         ))
 
         stdout_thread = threading.Thread(
-            target=self._read_stdout,
+            target=self._read_stream,
             args=(job.jobId, proc.stdout, session_log_path),
             daemon=True,
         )
         stderr_thread = threading.Thread(
-            target=self._read_stderr,
-            args=(proc.stderr, stderr_path),
+            target=self._read_stream,
+            args=(job.jobId, proc.stderr, stderr_path),
             daemon=True,
         )
         self._streamers[job.jobId] = [stdout_thread, stderr_thread]
@@ -156,19 +197,19 @@ class Runner:
 
         return pid, pgid
 
-    def _read_stdout(
+    def _read_stream(
         self,
         job_id: str,
         stream: BinaryIO | None,
-        session_log_path: Path,
+        log_path: Path,
     ) -> None:
-        """Persist raw terminal output and emit parsed events line-by-line."""
+        """Persist one child stream and emit any JSON events line-by-line."""
         if stream is None:
             return
 
         leftover = b""
         try:
-            with open(session_log_path, "wb") as log_f:
+            with open(log_path, "wb") as log_f:
                 while True:
                     data = os.read(stream.fileno(), 4096)
                     if not data:
@@ -188,24 +229,6 @@ class Runner:
             except OSError:
                 pass
 
-    @staticmethod
-    def _read_stderr(stream: BinaryIO | None, stderr_path: Path) -> None:
-        if stream is None:
-            return
-        try:
-            with open(stderr_path, "wb") as log_f:
-                while True:
-                    data = os.read(stream.fileno(), 4096)
-                    if not data:
-                        break
-                    log_f.write(data)
-                    log_f.flush()
-        finally:
-            try:
-                stream.close()
-            except OSError:
-                pass
-
     def _ingest_line(self, job_id: str, raw_line: bytes) -> None:
         text = raw_line.decode("utf-8", errors="replace")
         clean = _ANSI_RE.sub("", text).strip()
@@ -216,13 +239,25 @@ class Runner:
         if not parsed:
             return
 
+        now = time.time()
         self.store.append_event(job_id, LogEvent(
             id=_event_id(),
-            time=time.time(),
+            time=now,
             type=parsed[0],
             text=parsed[1],
             status="running",
         ))
+
+        # Keep job liveness aligned with the actual CodeArts stream. This is
+        # intentionally best-effort so event delivery is never blocked by a
+        # state-file update failure.
+        try:
+            job = self.store.load_job(job_id)
+            if job is not None:
+                job.lastEventAt = now
+                self.store.save_job(job)
+        except Exception:
+            pass
 
     def _build_args(self, job: JobInfo) -> list[str]:
         args = ["run", job.prompt, "--format", "json", "--thinking"]

@@ -13,18 +13,34 @@ from bridge.agent.runner import Runner
 
 class TestCancel:
     def test_cancel_running_job(self, tmp_path):
+        cli = tmp_path / "fake-codearts"
+        cli.write_text(
+            """#!/usr/bin/env python3
+import sys
+import time
+
+if "--version" in sys.argv:
+    print("test-version", flush=True)
+    raise SystemExit(0)
+
+time.sleep(30)
+""",
+            encoding="utf-8",
+        )
+        cli.chmod(0o755)
+
         store = JobStore(tmp_path / "agent")
         runner = Runner(store)
         job = JobInfo(
             jobId="cancel-1",
             taskId="T",
             projectRoot=str(tmp_path),
-            cliPath="sleep",
+            cliPath=str(cli),
             state=JobState.RUNNING.value,
             startedAt=time.time(),
+            prompt="wait",
         )
         store.save_job(job)
-        job.prompt = "30"
         runner.start(job)
 
         assert runner.check_process(job) is True

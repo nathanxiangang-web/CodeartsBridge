@@ -76,6 +76,17 @@ def test_thinking_echo_preserves_reliability_guards():
     assert "thinkingPoll=setTimeout(schedulePoll,2000)" in source
 
 
+def test_thinking_monitor_is_viewport_bounded():
+    source = _read("js/pages/thinking.js")
+    css = _read("styles/app.css")
+    assert "var MAX_MONITOR_LINES=120;" in source
+    assert "while(logEl.childElementCount>MAX_MONITOR_LINES)" in source
+    assert "grid-auto-rows:minmax(0,1fr)" in css
+    assert "height:calc(100dvh - 88px)" in css
+    assert ".monitor-grid" in css and "overflow:hidden" in css
+    assert ".monitor-log" in css and "overflow-y:auto" in css
+
+
 def test_sse_points_at_real_bridge_endpoint():
     source = _read("js/events.js")
     assert "EventSource('/api/events')" in source

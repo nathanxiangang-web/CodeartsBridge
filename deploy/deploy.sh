@@ -89,6 +89,7 @@ Type=simple
 ExecStart=/usr/bin/python3 -m bridge.agent.cli --listen 0.0.0.0 --port 8765
 WorkingDirectory=$BRIDGE_DIR
 Environment=PYTHONPATH=$BRIDGE_DIR/src
+Environment=PATH=/home/nathan/.local/bin:/home/nathan/.codeartsdoer/installers/bin:/home/nathan/.codeartsdoer/installers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
