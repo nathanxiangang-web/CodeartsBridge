@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "offsetsSeconds": [300, 480, 660, 780, 900, 960],
+  "heartbeatStaleSeconds": 90,
+  "noProgressThreshold": 2,
+  "repeatedErrorThreshold": 3,
+  "background": {
+    "enabled": false,
+    "maxSeconds": 90,
+    "reserveBeforeDeadlineSeconds": 30,
+    "minimumSlackSeconds": 120
+  },
+  "hardCollect": {
+    "graceSeconds": 5,
+    "salvage": true
+  },
+  "supervisionEnabled": true,
+  "supervisionShadowMode": true,
+  "architectEventReview": false,
+  "architectPollingReview": true,
+  "architectBackgroundEnabled": false,
+  "capacityEventsEnabled": false
+}
