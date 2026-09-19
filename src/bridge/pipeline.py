@@ -1,4 +1,4 @@
-# AI生成
+# AI generated
 """Pipeline orchestrator: ties auto-dispatch, architect loop, integration,
 and conflict resolution into a single continuous pipeline.
 
@@ -21,9 +21,6 @@ from .auto_dispatch import auto_dispatch, AutoDispatchResult
 from .architect_loop import architect_loop, ArchitectResult
 from .integration import integrate_loop, IntegrationResult
 from .conflict import detect_conflict, handle_conflict, ConflictResult
-from .supervision.config import SupervisionConfig, load_supervision_config
-from .supervision.supervisor import Supervisor
-from .supervision.reactor import ArchitectReactor
 
 
 @dataclass
@@ -36,9 +33,6 @@ class CycleResult:
     conflicts: int = 0
     errors: list[str] = field(default_factory=list)
     cycle_time: float = 0.0
-    supervision_tick_called: bool = False
-    supervision_events: list = field(default_factory=list)
-    reactor_processed: int = 0
 
 
 @dataclass
@@ -93,33 +87,6 @@ class PipelineConfig:
     max_workers: int = 4
     dry_run: bool = False
     once: bool = False
-    supervision_config: SupervisionConfig | None = None
-    supervisor: Any = None
-    reactor: Any = None
-
-
-class _DefaultInspector:
-    """No-op inspector used when no explicit Inspector is configured."""
-
-    def inspect(self, task_id: str, stage: int, plan: Any) -> Any:
-        from .supervision.model import InspectionResult
-        return InspectionResult(task_id=task_id, stage=stage)
-
-
-def _build_default_supervisor(bridge_root: Path) -> Supervisor:
-    from .supervision.schedule import DeadlineScheduler
-    return Supervisor(bridge_root, DeadlineScheduler(), _DefaultInspector())
-
-
-def _build_default_reactor(bridge_root: Path) -> ArchitectReactor:
-    from .supervision.queue import ArchitectQueue
-    return ArchitectReactor(ArchitectQueue(), bridge_root)
-
-
-def _resolve_supervision_config(bridge_root: Path, config: PipelineConfig) -> SupervisionConfig:
-    if config.supervision_config is not None:
-        return config.supervision_config
-    return load_supervision_config(bridge_root / "supervision.json")
 
 
 def _load_state(bridge_root: Path) -> PipelineState:
@@ -181,50 +148,27 @@ def run_pipeline_cycle(bridge_root: Path, state: PipelineState, config: Pipeline
     result = CycleResult(cycle=state.cycle_count + 1)
     conflict_task_ids: list[str] = []
 
-    sup_config = _resolve_supervision_config(bridge_root, config)
-
-    # Step 0: Supervision tick (per-task inspection deadlines)
-    if sup_config.supervisionEnabled:
-        sup = config.supervisor or _build_default_supervisor(bridge_root)
-        try:
-            now_mono = time.monotonic()
-            now_wc = datetime.now(timezone.utc).isoformat()
-            events = sup.tick(now_mono, now_wc)
-            result.supervision_tick_called = True
-            result.supervision_events = list(events)
-        except Exception as e:
-            result.errors.append(f"supervisor.tick: {e}")
-
     # Step 1: Architect review (polling mode, review REVIEW_REQUIRED tasks)
-    if sup_config.architectPollingReview:
-        if config.dry_run:
-            from .state import REVIEW_REQUIRED, get_state
-            tasks_root = bridge_root / "tasks"
-            if tasks_root.exists():
-                review_count = sum(
-                    1 for td in tasks_root.iterdir()
-                    if td.is_dir() and (get_state(td).get("status") or get_state(td).get("state", "")) == REVIEW_REQUIRED
-                )
-                result.reviewed = review_count
-        else:
-            try:
-                ar = architect_loop(bridge_root=bridge_root)
-                result.reviewed = ar.reviewed
-                state.total_reviewed += ar.reviewed
-                state.first_pass_count += _count_first_passes(bridge_root, ar)
-                state.total_pass_count += ar.passed
-                if ar.errors:
-                    result.errors.extend(ar.errors)
-            except Exception as e:
-                result.errors.append(f"architect_loop: {e}")
-
-    # Step 1b: Event-driven architect review (ArchitectReactor)
-    if sup_config.architectEventReview:
-        reactor = config.reactor or _build_default_reactor(bridge_root)
+    if config.dry_run:
+        from .state import REVIEW_REQUIRED, get_state
+        tasks_root = bridge_root / "tasks"
+        if tasks_root.exists():
+            review_count = sum(
+                1 for td in tasks_root.iterdir()
+                if td.is_dir() and (get_state(td).get("status") or get_state(td).get("state", "")) == REVIEW_REQUIRED
+            )
+            result.reviewed = review_count
+    else:
         try:
-            result.reactor_processed = reactor.process_batch()
+            ar = architect_loop(bridge_root=bridge_root)
+            result.reviewed = ar.reviewed
+            state.total_reviewed += ar.reviewed
+            state.first_pass_count += _count_first_passes(bridge_root, ar)
+            state.total_pass_count += ar.passed
+            if ar.errors:
+                result.errors.extend(ar.errors)
         except Exception as e:
-            result.errors.append(f"reactor.process_batch: {e}")
+            result.errors.append(f"architect_loop: {e}")
 
     # Step 2: Auto-dispatch (dispatch READY tasks)
     try:
@@ -327,7 +271,7 @@ def run_pipeline(bridge_root: Path, config: PipelineConfig | None = None) -> Non
                     print(f"  ERROR: {e}")
 
             if state.status == "BLOCKED":
-                print("Pipeline BLOCKED — stopping")
+                print("Pipeline BLOCKED - stopping")
                 break
 
             if state.status == "IDLE":
