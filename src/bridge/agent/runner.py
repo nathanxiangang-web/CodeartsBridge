@@ -228,6 +228,8 @@ class Runner:
         args = ["run", job.prompt, "--format", "json", "--thinking"]
         if job.sessionId:
             args += ["--session", job.sessionId]
+        elif job.taskId:
+            args += ["--title", job.taskId]
         if job.model:
             args += ["-m", job.model]
         if job.mode == "auto":
