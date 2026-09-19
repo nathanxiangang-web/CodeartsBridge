@@ -21,6 +21,27 @@ Do not ask the Architect to approve ordinary engineering steps one by one. The d
 9. If the task cannot be completed within its stated soft limit, the context becomes too large, or the remaining work crosses a new component boundary, stop the current implementation loop at a safe checkpoint. Preserve working changes and write `CHECKPOINT.md` plus `ASSISTANCE_REQUEST.md` in the current task outbox.
 10. Do not treat a checkpoint as failure. Report completed scope, exact remaining scope, current tests, and the smallest suggested follow-up task. Never keep consuming context merely to appear complete.
 11. A built-in editor refusal is not a user rejection when the task explicitly authorizes the target repository path. After verifying the exact in-scope path, use one quoted system-shell write as the standard fallback and inspect the diff immediately. Stop and write the checkpoint only after two independent shell/path/permission failures, or when the target is outside task scope. Do not spend the remaining task time building ad hoc file-splicing scripts.
+
+## File writing method (mandatory — avoids bash heredoc parser bugs)
+
+**DO NOT use bash heredoc (`<<'EOF'`, `<<'WR'`, etc.).** The bash tool cannot reliably parse heredocs, especially with triple quotes (`'''`, `"""`) or nested quoting. Heredoc commands will fail with "failed to parse target path" errors and waste task time.
+
+Use this standard file-writing procedure instead:
+
+1. **Preferred: use the built-in Write/edit tool** if the path is authorized.
+2. **Fallback for small files** — single-line python with the content as a quoted string:
+   ```
+   python3 -c "open('/path/to/file','w').write('file content here')"
+   ```
+3. **Fallback for large files or content with quotes/special chars** — base64-encoded python:
+   ```
+   python3 -c "import base64; open('/path/to/file','wb').write(base64.b64decode('BASE64_CONTENT'))"
+   ```
+   Generate the base64 locally: `python3 -c "import base64; print(base64.b64encode(open('local_file','rb').read()).decode())"`
+4. **For multi-file writes**, repeat the python3 -c command per file. Do NOT chain heredocs.
+5. **Always inspect the result immediately**: `head -5 /path/to/file` or `python3 -c "print(open('/path/to/file').read()[:200])"`.
+
+This method works reliably through SSH (`ssh host "python3 -c ..."`) and avoids all heredoc parsing issues.
 12. Protect the deliverable before using remaining time for broad checks. After the required focused tests pass, commit the scoped work and write `RESULT.md`, `DIFF.stat`, `TESTS.md`, and `DIFF.patch`. Run a full repository suite, optional build, or extra lint only after that checkpoint exists; update `TESTS.md` if those later checks finish.
 
 ## Soft and hard delivery
