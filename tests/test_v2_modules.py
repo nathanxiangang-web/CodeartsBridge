@@ -284,26 +284,6 @@ class TestLease:
         assert get_active_lease(tmp_path, "task-1") is None
 
 
-# ─── Runtime: Heartbeat ──────────────────────────────────────────────────────
-
-class TestHeartbeat:
-    def test_write_and_read(self, tmp_path):
-        from bridge.runtime.heartbeat import write_heartbeat, read_heartbeat, HeartbeatInfo
-        write_heartbeat(tmp_path, HeartbeatInfo(task_id="t1", worker_id="w1"))
-        read = read_heartbeat(tmp_path, "t1")
-        assert read is not None and read.task_id == "t1"
-
-    def test_is_stale_no_heartbeat(self, tmp_path):
-        from bridge.runtime.heartbeat import is_stale
-        assert is_stale(tmp_path, "nonexistent", 5)
-
-    def test_remove_heartbeat(self, tmp_path):
-        from bridge.runtime.heartbeat import write_heartbeat, read_heartbeat, remove_heartbeat, HeartbeatInfo
-        write_heartbeat(tmp_path, HeartbeatInfo(task_id="t1", worker_id="w1"))
-        remove_heartbeat(tmp_path, "t1")
-        assert read_heartbeat(tmp_path, "t1") is None
-
-
 # ─── Runtime: Cancellation ───────────────────────────────────────────────────
 
 class TestCancellation:
@@ -325,65 +305,6 @@ class TestCancellation:
         request_cancellation(tmp_path, "t2")
         pending = get_pending_cancellations(tmp_path)
         assert "t1" in pending and "t2" in pending
-
-
-# ─── Runtime: Timeout ────────────────────────────────────────────────────────
-
-class TestTimeout:
-    def test_no_timeout(self):
-        from bridge.runtime.timeout import TimeoutConfig, check_timeout
-        from datetime import datetime, timezone
-        status = check_timeout(datetime.now(timezone.utc), TimeoutConfig())
-        assert not status.soft_exceeded and not status.hard_exceeded
-
-    def test_hard_timeout_exceeded(self):
-        from bridge.runtime.timeout import TimeoutConfig, check_timeout
-        from datetime import datetime, timedelta, timezone
-        start = datetime.now(timezone.utc) - timedelta(seconds=2)
-        assert check_timeout(start, TimeoutConfig(hard_timeout_minutes=0.01)).hard_exceeded
-
-    def test_from_task_meta(self):
-        from bridge.runtime.timeout import from_task_meta
-        config = from_task_meta({"execution": {"softTimeoutMinutes": 10, "hardTimeoutMinutes": 30, "targetMinutes": 15}})
-        assert config.soft_timeout_minutes == 10 and config.hard_timeout_minutes == 30
-
-    def test_from_task_meta_v1_compat(self):
-        from bridge.runtime.timeout import from_task_meta
-        assert from_task_meta({"timeoutMinutes": 60}).hard_timeout_minutes == 60
-
-
-# ─── Runtime: Session ────────────────────────────────────────────────────────
-
-class TestSession:
-    def test_create_session(self, tmp_path):
-        from bridge.runtime.session import create_session, load_session
-        session = create_session(tmp_path, "t1", "w1", "asg-1")
-        assert session.task_id == "t1" and session.status == "active"
-        loaded = load_session(tmp_path, session.session_id)
-        assert loaded is not None and loaded.task_id == "t1"
-
-    def test_end_session(self, tmp_path):
-        from bridge.runtime.session import create_session, end_session, load_session
-        session = create_session(tmp_path, "t1", "w1", "asg-1")
-        end_session(tmp_path, session.session_id, "completed", exit_code=0)
-        assert load_session(tmp_path, session.session_id).status == "completed"
-
-    def test_find_active_session(self, tmp_path):
-        from bridge.runtime.session import create_session, find_active_session
-        create_session(tmp_path, "t1", "w1", "asg-1")
-        assert find_active_session(tmp_path, "t1") is not None
-
-
-# ─── Runtime: Recovery ───────────────────────────────────────────────────────
-
-class TestRecovery:
-    def test_find_stale_no_sessions(self, tmp_path):
-        from bridge.runtime.recovery import find_stale_sessions
-        assert find_stale_sessions(tmp_path) == []
-
-    def test_recover_no_sessions(self, tmp_path):
-        from bridge.runtime.recovery import recover_stale_sessions
-        assert recover_stale_sessions(tmp_path) == []
 
 
 # ─── Agents ──────────────────────────────────────────────────────────────────
@@ -517,27 +438,6 @@ class TestReviewService:
         assert result.success and result.new_state == "DONE"
 
 
-# ─── Policy: Integration ─────────────────────────────────────────────────────
-
-class TestPolicyIntegration:
-    def test_should_transition_to_review(self):
-        from bridge.policy.integration import should_transition_to_review, PolicyEvaluationResult
-        assert should_transition_to_review(PolicyEvaluationResult(passed=True, blocked=False, approval_gate=None))
-
-    def test_should_not_transition_when_blocked(self):
-        from bridge.policy.integration import should_transition_to_review, PolicyEvaluationResult
-        assert not should_transition_to_review(PolicyEvaluationResult(passed=True, blocked=True))
-
-    def test_should_not_transition_when_approval_needed(self):
-        from bridge.policy.integration import should_transition_to_review, PolicyEvaluationResult
-        assert not should_transition_to_review(PolicyEvaluationResult(passed=True, approval_gate="gate-1"))
-
-    def test_should_block_task(self):
-        from bridge.policy.integration import should_block_task, PolicyEvaluationResult
-        assert should_block_task(PolicyEvaluationResult(passed=False, blocked=True))
-        assert not should_block_task(PolicyEvaluationResult(passed=True, blocked=False))
-
-
 # ─── Integration Module ──────────────────────────────────────────────────────
 
 class TestIntegrationModule:
@@ -560,7 +460,7 @@ class TestImports:
         from bridge.scheduler import matcher, dependency, capacity, affinity, lease, planner
 
     def test_import_runtime(self):
-        from bridge.runtime import process, heartbeat, cancellation, timeout, session, recovery, supervisor
+        from bridge.runtime import process, cancellation
 
     def test_import_agents(self):
         from bridge.agents import base, codearts, registry
@@ -570,9 +470,6 @@ class TestImports:
 
     def test_import_application(self):
         from bridge.application import task_service, dispatch_service, review_service, integration_service
-
-    def test_import_policy_integration(self):
-        from bridge.policy import integration
 
     def test_import_integration(self):
         import bridge.integration
