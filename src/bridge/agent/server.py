@@ -40,9 +40,7 @@ class AgentServer:
         self.config.hostname = socket.gethostname()
 
         self.token = token or os.environ.get("BRIDGE_AGENT_TOKEN", "")
-        if not self.token:
-            from .auth import generate_token
-            self.token = generate_token()
+
 
         self.store = JobStore(self.data_root)
         self.runner = Runner(self.store)
@@ -99,7 +97,8 @@ class AgentServer:
                 ))
 
     def handle_health(self) -> tuple[int, dict[str, Any]]:
-        cli_path = self.config.allowed_roots[0] if self.config.allowed_roots else ""
+        import shutil
+        cli_path = shutil.which("codearts") or ""
         return (200, {
             "ok": True,
             "agentVersion": self.config.agent_version,
@@ -118,9 +117,6 @@ class AgentServer:
             return (429, {"error": "At capacity", "activeJobs": len(active)})
 
         req = JobRequest.from_dict(body)
-
-        if not self.config.is_project_allowed(req.projectRoot):
-            return (403, {"error": f"Project root not allowed: {req.projectRoot}"})
 
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         job = JobInfo(
@@ -230,8 +226,7 @@ def _make_handler(server: AgentServer):
 
         def _check_auth(self) -> bool:
             if not server.token:
-                self._send_json(500, {"error": "No token configured"})
-                return False
+                return True
             try:
                 headers = {k: v for k, v in self.headers.items()}
                 check_auth(headers, server.token)

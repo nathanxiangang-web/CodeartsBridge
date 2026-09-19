@@ -79,21 +79,45 @@ class AgentTransport(TransportBase):
         return result
 
     def _build_prompt(self, task_dir: Path, project: Any) -> str:
-        from ..codearts import build_worker_core_prompt, get_worker_local_access_directive
-        instructions = self._get_instructions(task_dir)
+        project_path = getattr(project, "project_root", "")
+
         worker_contract = task_dir.parent.parent / "protocol" / "WORKER.md"
         meta_path = task_dir / "META.json"
-        outbox_path = task_dir / "outbox"
-        project_path = getattr(project, "project_root", "")
-        directive = get_worker_local_access_directive(project_path)
-        return build_worker_core_prompt(
-            worker_contract=str(worker_contract),
-            meta_path=str(meta_path),
-            instructions=instructions,
-            outbox_path=str(outbox_path),
-            project_path=project_path,
-            remote_directive=directive,
+        inbox = task_dir / "inbox"
+        instruction_files = sorted(inbox.glob("*.md"))
+
+        parts = []
+        parts.append(f"You are a GLM Worker. Work autonomously inside project '{project_path}'.")
+        parts.append("The CodeArts process is already running on the target worker host. "
+                     f"Treat project '{project_path}' as a LOCAL project directory. "
+                     "Use normal local read/edit/write/test tools inside that project.")
+
+        if worker_contract.exists():
+            parts.append(f"=== WORKER.md ===\n{worker_contract.read_text(encoding='utf-8')}")
+
+        if meta_path.exists():
+            parts.append(f"=== META.json ===\n{meta_path.read_text(encoding='utf-8')}")
+
+        for f in instruction_files:
+            parts.append(f"=== {f.name} ===\n{f.read_text(encoding='utf-8')}")
+
+        latest = instruction_files[-1].name if instruction_files else "TASK"
+        parts.append(
+            f"Treat '{latest}' as the latest instruction while preserving the full context "
+            "of all earlier TASK/FIX files."
         )
+        parts.append(
+            "Write the formal deliverables (RESULT.md, DIFF.stat, TESTS.md, DIFF.patch) "
+            f"to the outbox directory. The outbox path is provided via the CODEARTS_OUTBOX "
+            "environment variable. Use $CODEARTS_OUTBOX or the value of os.environ['CODEARTS_OUTBOX'] "
+            "to find it. Do not return deliverables only in chat."
+        )
+        parts.append(
+            "Use English for all reasoning, analysis, tool summaries, console-visible event text, "
+            "and final output. Do not emit Chinese text in Worker-generated content."
+        )
+
+        return "\n\n".join(parts)
 
     def _get_instructions(self, task_dir: Path) -> list[str]:
         inbox = task_dir / "inbox"

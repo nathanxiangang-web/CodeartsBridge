@@ -1,9 +1,13 @@
-"""Local process runner — argv execution, no shell=True."""
+"""Local process runner — argv execution behind a real PTY."""
 from __future__ import annotations
 
+import json as _json
 import os
+import pty
+import re
 import signal
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -12,26 +16,74 @@ from .models import JobInfo, JobState, LogEvent
 from .store import JobStore
 
 
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\r|\x00')
+
+
+def _parse_codearts_line(line: str) -> tuple[str, str] | None:
+    """Parse one codearts JSON event line into (type, text)."""
+    try:
+        obj = _json.loads(line)
+    except (_json.JSONDecodeError, ValueError):
+        return None
+    if not obj or not isinstance(obj, dict):
+        return None
+
+    ptype = obj.get("type", "")
+    part = obj.get("part", {})
+    if not isinstance(part, dict):
+        part = {}
+
+    if ptype == "reasoning":
+        text = part.get("text", "")
+        if text:
+            return ("reasoning", str(text)[:200])
+    elif ptype == "tool_use":
+        tool = part.get("tool", "")
+        state = part.get("state", {}) or {}
+        inp = state.get("input", {}) or {}
+        summary = str(tool)
+        if tool == "read" and inp.get("filePath"):
+            summary += " " + str(inp["filePath"]).split("/")[-1]
+        elif tool == "write" and inp.get("filePath"):
+            summary += " " + str(inp["filePath"]).split("/")[-1]
+        elif tool == "bash" and inp.get("command"):
+            summary += " " + str(inp["command"])[:60]
+        elif tool == "edit" and inp.get("filePath"):
+            summary += " " + str(inp["filePath"]).split("/")[-1]
+        return ("tool", summary)
+    elif ptype == "step_start":
+        return ("step", "开始执行")
+
+    return None
+
+
 class Runner:
     def __init__(self, store: JobStore):
         self.store = store
+        self._streamers: dict[str, threading.Thread] = {}
 
     def start(self, job: JobInfo) -> tuple[int, int]:
         cli = job.cliPath
         args = self._build_args(job)
-        stdout_path = self.store.job_dir(job.jobId) / "stdout.jsonl"
-        stderr_path = self.store.job_dir(job.jobId) / "stderr.log"
+        job_dir = self.store.job_dir(job.jobId)
+        session_log_path = job_dir / "session.log"
+        outbox_path = job_dir / "artifacts" / "outbox"
+        outbox_path.mkdir(parents=True, exist_ok=True)
 
-        with open(stdout_path, "w", encoding="utf-8") as stdout_file:
-            with open(stderr_path, "w", encoding="utf-8") as stderr_file:
-                proc = subprocess.Popen(
-                    [cli] + args,
-                    cwd=job.projectRoot,
-                    stdout=stdout_file,
-                    stderr=stderr_file,
-                    text=True,
-                    start_new_session=True,
-                )
+        env = dict(os.environ)
+        env["CODEARTS_OUTBOX"] = str(outbox_path)
+
+        master_fd, slave_fd = pty.openpty()
+        proc = subprocess.Popen(
+            [cli] + args,
+            cwd=job.projectRoot,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            start_new_session=True,
+            env=env,
+        )
+        os.close(slave_fd)
 
         pid = proc.pid
         pgid = os.getpgid(pid)
@@ -51,15 +103,67 @@ class Runner:
             status="running",
         ))
 
+        t = threading.Thread(
+            target=self._read_master,
+            args=(job.jobId, master_fd, session_log_path, proc),
+            daemon=True,
+        )
+        self._streamers[job.jobId] = t
+        t.start()
+
         return pid, pgid
 
+    def _read_master(self, job_id: str, master_fd: int, session_log_path: Path, proc: subprocess.Popen) -> None:
+        leftover = b""
+        with open(session_log_path, "wb") as log_f:
+            while True:
+                try:
+                    data = os.read(master_fd, 4096)
+                except OSError:
+                    data = b""
+
+                if data:
+                    log_f.write(data)
+                    log_f.flush()
+                    leftover += data
+                    while b"\n" in leftover:
+                        raw_line, leftover = leftover.split(b"\n", 1)
+                        self._ingest_line(job_id, raw_line)
+                else:
+                    if proc.poll() is not None:
+                        break
+                    time.sleep(0.1)
+
+        if leftover:
+            self._ingest_line(job_id, leftover)
+
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+        self._streamers.pop(job_id, None)
+
+    def _ingest_line(self, job_id: str, raw_line: bytes) -> None:
+        text = raw_line.decode("utf-8", errors="replace")
+        clean = _ANSI_RE.sub('', text).strip()
+        if not clean:
+            return
+        parsed = _parse_codearts_line(clean)
+        if parsed:
+            self.store.append_event(job_id, LogEvent(
+                id=f"evt-{int(time.time()*1000)}",
+                time=time.time(),
+                type=parsed[0],
+                text=parsed[1],
+                status="running",
+            ))
+
     def _build_args(self, job: JobInfo) -> list[str]:
-        args = ["run", "--model", job.model or "huaweicloud-maas/GLM-5.2"]
-        if job.mode and job.mode != "auto":
-            args += ["--mode", job.mode]
+        args = ["run", job.prompt, "--format", "json", "--thinking", "--auto"]
         if job.sessionId:
             args += ["--session", job.sessionId]
-        args += ["--", job.prompt]
+        if job.model:
+            args += ["-m", job.model]
         return args
 
     def check_process(self, job: JobInfo) -> bool:

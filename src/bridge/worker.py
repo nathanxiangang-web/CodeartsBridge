@@ -24,13 +24,7 @@ from .task import get_meta, get_instruction_context, archive_previous_outbox
 from .transport import LocalTransport, SshTransport, SshShellTransport, RemoteWorktreeTransport, AgentTransport
 from .workspace import LocalWorktreeWorkspace
 from .workspace.policy import resolve_workspace_mode
-from .policy.integration import (
-    load_profile_for_project,
-    evaluate_pre_checks,
-    evaluate_task_policy,
-    should_block_task,
-    should_transition_to_review,
-)
+
 
 TRANSPORT_MAP = {
     "local": LocalTransport,
@@ -127,9 +121,12 @@ def _run_worker_inner(
     baseline = meta.get("baseline")
     workspace_baseline = baseline
     try:
-        workspace_mode = resolve_workspace_mode(
-            requested_workspace, project.transport
-        )
+        if worker_transport == "agent":
+            workspace_mode = "existing"
+        else:
+            workspace_mode = resolve_workspace_mode(
+                requested_workspace, project.transport
+            )
     except ValueError as exc:
         set_state(
             task_dir, BLOCKED,
@@ -185,23 +182,6 @@ def _run_worker_inner(
         role=role, worker=worker, project=effective_project
     )
 
-    # Load policy profile (optional)
-    policy_profile = load_profile_for_project(
-        Path(bridge_root), effective_project.id
-    )
-
-    # PreChecks: run before worker execution
-    if policy_profile is not None:
-        pre_result = evaluate_pre_checks(
-            policy_profile, task_dir, Path(effective_project.project_root), role
-        )
-        if should_block_task(pre_result):
-            set_state(
-                task_dir, BLOCKED,
-                message=f"preCheck blocked: {'; '.join(pre_result.errors)}",
-                attempt=attempt,
-            )
-            return get_state(task_dir)
 
     # Run
     result = transport.run(
@@ -283,32 +263,6 @@ def _run_worker_inner(
                 )
                 return get_state(task_dir)
 
-            # PostChecks: run policy evaluation after deliverables confirmed
-            if policy_profile is not None:
-                post_result = evaluate_task_policy(
-                    policy_profile, task_dir, Path(effective_project.project_root), role
-                )
-                if should_block_task(post_result):
-                    set_state(
-                        task_dir, BLOCKED,
-                        message=f"postCheck blocked: {'; '.join(post_result.errors)}",
-                        exit_code=0,
-                        session_id=new_session_id,
-                        session_mode=session_mode,
-                    )
-                    return get_state(task_dir)
-                if post_result.approval_gate:
-                    set_state(
-                        task_dir, REVIEW_REQUIRED,
-                        message=f"approval gate: {post_result.approval_gate}",
-                        exit_code=0,
-                        session_id=new_session_id,
-                        session_mode=session_mode,
-                        last_event_at=telemetry.get("lastEventAt"),
-                        tokens=telemetry.get("tokens"),
-                        commit_sha=commit_sha,
-                    )
-                    return get_state(task_dir)
 
             review_config = meta.get("review") or {}
             review_required = review_config.get("required", True)

@@ -75,16 +75,17 @@ class WorkerConfig:
 
     @classmethod
     def from_dict(cls, d: dict) -> "WorkerConfig":
+        endpoint = d.get("endpoint")
         return cls(
             id=d["id"],
-            transport=d.get("transport", "ssh"),
+            transport=d.get("transport", "agent" if endpoint else "ssh"),
             host=d.get("host"),
             cli_path=d.get("cliPath"),
             model=d.get("model", "huaweicloud-maas/GLM-5.2"),
             concurrency_limit=d.get("concurrencyLimit", 1),
             enabled=d.get("enabled", True),
-            capabilities=d.get("capabilities", []),
-            endpoint=d.get("endpoint"),
+            capabilities=d.get("capabilities", ["implement", "review", "test"]),
+            endpoint=endpoint,
             agent_token_env=d.get("agentTokenEnv"),
             agent_token=d.get("agentToken"),
         )

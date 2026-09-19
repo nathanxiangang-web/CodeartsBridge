@@ -36,9 +36,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Bridge Worker Agent v{config.agent_version}")
     print(f"  Listen: {args.listen}:{args.port}")
     print(f"  Data root: {os.path.expanduser(args.root)}")
-    print(f"  Token: {'***' + server.token[-4:] if server.token else '(generated)'}")
+    print(f"  Token: {'***' + server.token[-4:] if server.token else '(auth off — trusted LAN)'}")
     print(f"  Capacity: {config.capacity}")
-    print(f"  Allowed roots: {config.allowed_roots or ['(all)']}")
 
     try:
         server.start()

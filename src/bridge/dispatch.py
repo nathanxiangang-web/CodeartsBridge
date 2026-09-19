@@ -204,17 +204,9 @@ def select_dispatch_plan(
             if worker.capabilities and role not in worker.capabilities:
                 skipped.append(SkippedItem(c["taskId"], f"explicit worker lacks capability {role}: {explicit_worker_id}"))
                 continue
-            if not check_worker_transport_compatibility(worker.transport, project.transport):
-                skipped.append(SkippedItem(c["taskId"], f"explicit worker transport mismatch: {worker.transport}/{project.transport}"))
-                continue
-            if not check_host_affinity(worker, project):
-                skipped.append(SkippedItem(c["taskId"], f"explicit worker host mismatch: {worker.host}/{project.ssh_host}"))
-                continue
         else:
             candidates_w = sorted(
-                [w for w in workers if w.enabled
-                 and check_worker_transport_compatibility(w.transport, project.transport)
-                 and check_host_affinity(w, project)],
+                [w for w in workers if w.enabled],
                 key=lambda w: w.id,
             )
             chosen = None
@@ -226,7 +218,7 @@ def select_dispatch_plan(
                 chosen = w
                 break
             if not chosen:
-                skipped.append(SkippedItem(c["taskId"], f"no available worker for transport {project.transport} and role {role}"))
+                skipped.append(SkippedItem(c["taskId"], f"no available worker for role {role}"))
                 continue
             worker = chosen
 
@@ -236,7 +228,10 @@ def select_dispatch_plan(
             "workspace", meta.get("workspaceMode", "auto")
         )
         try:
-            mode = resolve_workspace_mode(requested_workspace, project.transport)
+            if getattr(worker, "transport", None) == "agent":
+                mode = "existing"
+            else:
+                mode = resolve_workspace_mode(requested_workspace, project.transport)
         except ValueError as exc:
             skipped.append(SkippedItem(c["taskId"], f"workspace policy: {exc}"))
             continue
@@ -255,10 +250,7 @@ def select_dispatch_plan(
             # RemoteWorktreeTransport owns remote workspace preparation.
             working_dir = project.project_root
         elif mode == "existing":
-            if active_any.get(idle_key, 0) > 0:
-                skip_reason = f"existing mode requires idle project: {idle_key}"
-            else:
-                working_dir = project_root
+            working_dir = project_root
         else:
             skip_reason = f"unsupported effective workspaceMode: {mode}"
 

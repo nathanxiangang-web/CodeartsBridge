@@ -1,54 +1,27 @@
-<!-- AI生成 -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CodeartsBridge 控制台</title>
-<link rel="stylesheet" href="/styles/tokens.css">
-<link rel="stylesheet" href="/styles/base.css">
-<link rel="stylesheet" href="/styles/layout.css">
-<link rel="stylesheet" href="/styles/components.css">
-<link rel="stylesheet" href="/styles/pages.css">
+<title>CodeartsBridge</title>
+<link rel="stylesheet" href="/styles/app.css">
 </head>
 <body>
 <nav class="nav">
 <span class="brand">CodeartsBridge</span>
-<a href="#dashboard" class="nav-link active" data-page="dashboard" data-i18n="nav_dashboard">仪表盘</a>
-<a href="#projects" class="nav-link" data-page="projects" data-i18n="nav_projects">项目</a>
-<a href="#tasks" class="nav-link" data-page="tasks" data-i18n="nav_tasks">任务</a>
-<a href="#workers" class="nav-link" data-page="workers" data-i18n="nav_workers">工作节点</a>
-<a href="#review" class="nav-link" data-page="review" data-i18n="nav_review">审查</a>
-<a href="#metrics" class="nav-link" data-page="metrics" data-i18n="nav_metrics">指标</a>
-<a href="#thinking" class="nav-link" data-page="thinking" data-i18n="nav_thinking">思考回显</a>
-<a href="#settings" class="nav-link" data-page="settings" data-i18n="nav_settings">设置</a>
-<span class="spacer"></span>
-<button class="lang-btn" onclick="toggleLang()">EN</button>
+<a href="#overview" class="nav-link active" data-page="overview">概览</a>
+<a href="#tasks" class="nav-link" data-page="tasks">任务</a>
+<a href="#thinking" class="nav-link" data-page="thinking">实时回显</a>
 </nav>
 <div class="container">
 <div id="content"></div>
 </div>
-<script src="/js/i18n.js"></script>
-<script src="/js/utils.js"></script>
 <script src="/js/api.js"></script>
 <script src="/js/events.js"></script>
-<script src="/js/components/badge.js"></script>
-<script src="/js/components/table.js"></script>
-<script src="/js/components/modal.js"></script>
-<script src="/js/components/toast.js"></script>
-<script src="/js/components/worker-card.js"></script>
-<script src="/js/components/task-card.js"></script>
-<script src="/js/components/timeline.js"></script>
-<script src="/js/pages/dashboard.js"></script>
-<script src="/js/pages/projects.js"></script>
+<script src="/js/pages/overview.js"></script>
 <script src="/js/pages/tasks.js"></script>
 <script src="/js/pages/task-detail.js"></script>
-<script src="/js/pages/dag.js"></script>
-<script src="/js/pages/workers.js"></script>
-<script src="/js/pages/review.js"></script>
 <script src="/js/pages/thinking.js"></script>
-<script src="/js/pages/metrics.js"></script>
-<script src="/js/pages/settings.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>

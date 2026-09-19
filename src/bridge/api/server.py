@@ -681,6 +681,29 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         meta = read_json_or_none(task_dir / "META.json")
         if not meta:
             return self._send_json(404, {"error": f"Task {task_id} not found"})
+
+        inflight = read_json_or_none(task_dir / "inflight.json")
+        if inflight and inflight.get("jobId") and inflight.get("endpoint"):
+            try:
+                import urllib.request
+                url = f"{inflight['endpoint']}/v1/jobs/{inflight['jobId']}/events"
+                req = urllib.request.Request(url)
+                token = inflight.get("token", "")
+                if token:
+                    req.add_header("Authorization", f"Bearer {token}")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                events = data.get("events", [])
+                return self._send_json(200, {
+                    "startTime": 0,
+                    "elapsed": 0,
+                    "events": events,
+                    "toolCount": 0,
+                    "reasoningCount": 0,
+                })
+            except Exception:
+                pass
+
         project_id = meta.get("projectId", "")
         try:
             registry = load_registry(self.bridge_root / "projects.json")
