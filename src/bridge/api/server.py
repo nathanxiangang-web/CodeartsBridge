@@ -168,13 +168,93 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         return parts, query
 
     def _serve_static(self):
-        """Serve static web UI files from src/bridge/web/."""
+        """Serve static web UI files from src/bridge/web/.
+
+        Routing:
+          /            -> index.html
+          /js/*        -> web/js/*      (application/javascript)
+          /css/*       -> web/styles/*  (text/css)
+          /styles/*    -> web/styles/*  (text/css)
+          other        -> index.html    (SPA fallback)
+        """
         web_dir = Path(__file__).resolve().parent.parent / "web"
         index_file = web_dir / "index.html"
+
+        parsed = urlparse(self.path)
+        raw_path = parsed.path
+
+        # Root -> index.html
+        if raw_path == "/" or raw_path == "":
+            if index_file.exists():
+                return self._send_html(200, index_file.read_bytes())
+            return self._send_json(404, {"error": "Web UI not found"})
+
+        parts = [p for p in raw_path.split("/") if p]
+
+        # Static file directories
+        if parts and parts[0] in ("js", "css", "styles"):
+            return self._serve_static_file(web_dir, parts)
+
+        # SPA fallback -> index.html
         if index_file.exists():
-            content = index_file.read_bytes()
-            return self._send_html(200, content)
+            return self._send_html(200, index_file.read_bytes())
         return self._send_json(404, {"error": "Web UI not found"})
+
+    def _serve_static_file(self, web_dir: Path, parts: list):
+        """Serve a static file with path-traversal protection."""
+        top = parts[0]
+        if top == "js":
+            rel_dir = Path("js")
+        else:  # css or styles both map to web/styles
+            rel_dir = Path("styles")
+
+        rel_parts = parts[1:]
+        if not rel_parts:
+            return self._send_json(404, {"error": "Not found"})
+
+        # Reject path traversal
+        if any(p == ".." or "\x00" in p for p in rel_parts):
+            return self._send_json(403, {"error": "Forbidden"})
+
+        target = web_dir / rel_dir
+        for p in rel_parts:
+            target = target / p
+
+        try:
+            target = target.resolve()
+            target.relative_to(web_dir.resolve())
+        except ValueError:
+            return self._send_json(403, {"error": "Forbidden"})
+
+        if not target.is_file():
+            return self._send_json(404, {"error": "Not found"})
+
+        content = target.read_bytes()
+
+        # Content-Type by extension
+        ext = target.suffix.lower()
+        content_types = {
+            ".js": "application/javascript; charset=utf-8",
+            ".css": "text/css; charset=utf-8",
+            ".html": "text/html; charset=utf-8",
+            ".json": "application/json; charset=utf-8",
+            ".svg": "image/svg+xml",
+            ".png": "image/png",
+            ".ico": "image/x-icon",
+        }
+        ctype = content_types.get(ext, "application/octet-stream")
+
+        # Cache-Control: hashed files (name.<hash>.ext) get long cache
+        import re
+        has_hash = bool(re.search(r"\.[a-f0-9]{8,}\.", target.name))
+        cache = "public, max-age=31536000, immutable" if has_hash else "no-cache"
+
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", cache)
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
 
     def do_GET(self):
         parts, query = self._parse_path()
@@ -234,6 +314,8 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                         return self._handle_cancel_task(task_id)
                     if action == "retry":
                         return self._handle_retry_task(task_id)
+                    if action == "reassign":
+                        return self._handle_reassign_task(task_id)
                     if action == "review" and len(parts) >= 5:
                         review_action = parts[4]
                         if review_action == "pass":
@@ -361,11 +443,41 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
 
     def _handle_list_tasks(self, query: dict):
         from bridge.application.task_service import list_tasks
+        from bridge.atomic import read_json_or_none
         try:
             tasks = list_tasks(self.bridge_root)
-            state_filter = query.get("state", [None])[0]
+
+            state_filter = query.get("state", [None])[0] or query.get("status", [None])[0]
+            project_filter = query.get("project", [None])[0]
+            worker_filter = query.get("worker", [None])[0]
+            role_filter = query.get("role", [None])[0]
+            search_filter = query.get("search", [None])[0]
+            priority_filter = query.get("priority", [None])[0]
+
             if state_filter:
                 tasks = [t for t in tasks if t.get("state") == state_filter]
+            if project_filter:
+                tasks = [t for t in tasks if t.get("projectId") == project_filter]
+            if worker_filter:
+                tasks = [t for t in tasks if t.get("workerId") == worker_filter]
+            if role_filter:
+                tasks = [t for t in tasks if t.get("role") == role_filter]
+            if search_filter:
+                tasks = [t for t in tasks if search_filter.lower() in t.get("taskId", "").lower()]
+            if priority_filter:
+                try:
+                    priority_val = int(priority_filter)
+                    filtered = []
+                    for t in tasks:
+                        meta = read_json_or_none(
+                            self.bridge_root / "tasks" / t["taskId"] / "META.json"
+                        )
+                        if meta and meta.get("priority") == priority_val:
+                            filtered.append(t)
+                    tasks = filtered
+                except (ValueError, TypeError):
+                    pass
+
             return self._send_json(200, {"tasks": tasks})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
@@ -378,12 +490,88 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             status = get_task_status(self.bridge_root, task_id)
             task_dir = self.bridge_root / "tasks" / task_id
             state_data = get_state(task_dir)
-            status["heartbeatSummary"] = state_data.get("heartbeatSummary")
-            status["heartbeatThink"] = state_data.get("heartbeatThink")
-            status["heartbeatTool"] = state_data.get("heartbeatTool")
-            status["lastHeartbeat"] = state_data.get("lastHeartbeat")
-            status["message"] = state_data.get("message")
-            return self._send_json(200, status)
+            meta = status.get("meta") or {}
+            execution = meta.get("execution") or {}
+            review = meta.get("review") or {}
+
+            outbox_files = []
+            outbox_dir = task_dir / "outbox"
+            if outbox_dir.is_dir():
+                from datetime import datetime, timezone
+                for f in sorted(outbox_dir.rglob("*")):
+                    if f.is_file():
+                        rel = str(f.relative_to(outbox_dir))
+                        st = f.stat()
+                        mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+                        outbox_files.append({"name": rel, "size": st.st_size, "mtime": mtime})
+
+            result_content = None
+            result_file = task_dir / "outbox" / "RESULT.md"
+            if result_file.is_file():
+                try:
+                    result_content = result_file.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+
+            tests_content = None
+            tests_file = task_dir / "outbox" / "TESTS.md"
+            if tests_file.is_file():
+                try:
+                    tests_content = tests_file.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+
+            response = {
+                "taskId": task_id,
+                "state": status.get("state"),
+                "workerId": status.get("workerId"),
+                "attempt": status.get("attempt"),
+                "meta": meta,
+                "projectId": meta.get("projectId"),
+                "role": meta.get("role"),
+                "priority": meta.get("priority"),
+                "dependsOn": meta.get("dependsOn", []),
+                "requiredSkills": meta.get("requiredSkills", []),
+                "baseline": meta.get("baseline"),
+                "createdAt": meta.get("createdAt"),
+                "queuedAt": state_data.get("queuedAt"),
+                "startedAt": state_data.get("startedAt"),
+                "runningAt": state_data.get("runningAt"),
+                "finishedAt": state_data.get("finishedAt"),
+                "doneAt": state_data.get("doneAt"),
+                "cancelledAt": state_data.get("cancelledAt"),
+                "failedAt": state_data.get("failedAt"),
+                "updatedAt": state_data.get("updatedAt"),
+                "heartbeatSummary": state_data.get("heartbeatSummary"),
+                "heartbeatThink": state_data.get("heartbeatThink"),
+                "heartbeatTool": state_data.get("heartbeatTool"),
+                "heartbeatEvents": state_data.get("heartbeatEvents"),
+                "lastHeartbeat": state_data.get("lastHeartbeat"),
+                "processId": state_data.get("processId"),
+                "exitCode": state_data.get("exitCode"),
+                "sessionId": state_data.get("sessionId"),
+                "sessionMode": state_data.get("sessionMode"),
+                "lastEventAt": state_data.get("lastEventAt"),
+                "message": state_data.get("message"),
+                "targetMinutes": execution.get("targetMinutes"),
+                "softTimeoutMinutes": execution.get("softTimeoutMinutes"),
+                "hardTimeoutMinutes": execution.get("hardTimeoutMinutes"),
+                "preferredWorker": execution.get("preferredWorker"),
+                "excludedWorkers": execution.get("excludedWorkers", []),
+                "workspace": execution.get("workspace"),
+                "reviewRequired": review.get("required"),
+                "independentReview": review.get("independentWorker"),
+                "tokens": state_data.get("tokens"),
+                "assignedWorkerId": state_data.get("assignedWorkerId"),
+                "workspaceMode": state_data.get("workspaceMode"),
+                "workspacePath": state_data.get("workspacePath"),
+                "commitSha": state_data.get("commitSha"),
+                "outbox": outbox_files,
+                "result": result_content,
+                "tests": tests_content,
+                "integrationState": state_data.get("integrationState"),
+            }
+            return self._send_json(200, response)
         except TaskNotFoundError as e:
             return self._send_json(404, {"error": str(e)})
         except Exception as e:
@@ -553,6 +741,40 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                 return self._send_json(400, {"error": f"Cannot retry from state {current}"})
             set_state(task_dir, READY)
             return self._send_json(200, {"taskId": task_id, "state": "READY"})
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_reassign_task(self, task_id: str):
+        from bridge.atomic import atomic_write_json, read_json_or_none
+        from bridge.config import assert_safe_id
+        body = self._read_body()
+        worker_id = body.get("workerId") or body.get("worker_id")
+        if not worker_id:
+            return self._send_json(400, {"error": "workerId required"})
+        task_dir = self.bridge_root / "tasks" / task_id
+        if not task_dir.exists():
+            return self._send_json(404, {"error": f"Task not found: {task_id}"})
+        try:
+            assert_safe_id(worker_id, "workerId")
+            meta_path = task_dir / "META.json"
+            meta = read_json_or_none(meta_path) or {}
+            old_worker_id = meta.get("workerId")
+            meta["workerId"] = worker_id
+            atomic_write_json(meta_path, meta)
+
+            state_path = task_dir / "state.json"
+            state_data = read_json_or_none(state_path) or {}
+            state_data["assignedWorkerId"] = worker_id
+            atomic_write_json(state_path, state_data)
+
+            return self._send_json(200, {
+                "taskId": task_id,
+                "oldWorkerId": old_worker_id,
+                "workerId": worker_id,
+                "state": state_data.get("state", ""),
+            })
+        except ValueError as e:
+            return self._send_json(400, {"error": str(e)})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
