@@ -194,18 +194,15 @@ class TestLoadProfile:
 
 
 class TestWorkerPolicyIntegration:
-    """Test that worker.py correctly integrates policy gates."""
+    """Local-First runtime no longer executes Policy Engine gates in worker.py."""
 
-    def test_worker_imports_policy(self):
-        from bridge.worker import load_profile_for_project as _imp
-        assert _imp is not None
-
-    def test_worker_has_policy_imports(self):
+    def test_worker_does_not_import_policy_runtime(self):
         import bridge.worker as w
-        assert hasattr(w, "evaluate_pre_checks")
-        assert hasattr(w, "evaluate_task_policy")
-        assert hasattr(w, "should_block_task")
-        assert hasattr(w, "should_transition_to_review")
+        assert not hasattr(w, "load_profile_for_project")
+        assert not hasattr(w, "evaluate_pre_checks")
+        assert not hasattr(w, "evaluate_task_policy")
+        assert not hasattr(w, "should_block_task")
+        assert not hasattr(w, "should_transition_to_review")
 
 
 class TestDefaultProfile:
