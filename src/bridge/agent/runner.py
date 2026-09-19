@@ -128,6 +128,55 @@ def _parse_codearts_line(line: str) -> tuple[str, str] | None:
     return None
 
 
+def _ensure_git_exclude(project_root: Path) -> None:
+    """Add .codeartsbridge/ to .git/info/exclude (idempotent, never errors)."""
+    try:
+        git_dir = project_root / ".git"
+        if not git_dir.is_dir():
+            return
+        exclude_path = git_dir / "info" / "exclude"
+        exclude_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = ""
+        if exclude_path.exists():
+            existing = exclude_path.read_text(encoding="utf-8")
+        if ".codeartsbridge/" not in existing:
+            with open(exclude_path, "a", encoding="utf-8") as f:
+                if existing and not existing.endswith("\n"):
+                    f.write("\n")
+                f.write(".codeartsbridge/\n")
+    except OSError:
+        pass
+
+
+def archive_project_outbox(
+    project_root: str | Path,
+    job_id: str,
+    agent_outbox: Path,
+) -> int:
+    """Copy project-local outbox files to agent archive, then clean up.
+
+    Returns number of files archived. Archive happens BEFORE cleanup so
+    a cleanup failure never loses artifacts.
+    """
+    project_outbox = Path(project_root) / ".codeartsbridge" / "outbox" / job_id
+    if not project_outbox.is_dir():
+        return 0
+
+    count = 0
+    for f in sorted(project_outbox.iterdir()):
+        if f.is_file():
+            dest = agent_outbox / f.name
+            shutil.copy2(f, dest)
+            count += 1
+
+    try:
+        shutil.rmtree(project_outbox)
+    except OSError:
+        pass
+
+    return count
+
+
 class Runner:
     def __init__(self, store: JobStore):
         self.store = store
@@ -141,11 +190,19 @@ class Runner:
         job_dir = self.store.job_dir(job.jobId)
         session_log_path = job_dir / "session.log"
         stderr_path = job_dir / "stderr.log"
-        outbox_path = job_dir / "artifacts" / "outbox"
-        outbox_path.mkdir(parents=True, exist_ok=True)
+
+        # Agent-side archive target (files copied here after job ends).
+        agent_outbox = job_dir / "artifacts" / "outbox"
+        agent_outbox.mkdir(parents=True, exist_ok=True)
+
+        # Project-local outbox: inside projectRoot so CodeArts built-in
+        # write/edit can directly write deliverables without rejection.
+        project_outbox = Path(job.projectRoot) / ".codeartsbridge" / "outbox" / job.jobId
+        project_outbox.mkdir(parents=True, exist_ok=True)
+        _ensure_git_exclude(Path(job.projectRoot))
 
         env = dict(os.environ)
-        env["CODEARTS_OUTBOX"] = str(outbox_path)
+        env["CODEARTS_OUTBOX"] = str(project_outbox)
 
         # IMPORTANT: do not wrap this in pty.openpty() or util-linux script.
         # `codearts run --format json` is already non-interactive. A PTY makes
