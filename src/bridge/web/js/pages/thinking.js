@@ -9,6 +9,7 @@ function fmtElapsed(s){s=Math.max(0,s|0);if(s<60)return s+'秒';var m=Math.floor
 function mapState(s){s=String(s||'').toUpperCase();if(s==='RUNNING'||s==='STARTING')return 'thinking';if(s==='QUEUED')return 'queued';if(s==='DONE'||s==='CANCELLED'||s==='REVIEW_PASSED')return 'done';if(s==='FAILED'||s==='REVIEW_REQUIRED'||s==='ASSISTANCE_REQUIRED'||s==='FIX_REQUIRED')return 'failed';return 'done';}
 
 var thinkingPoll=null;
+var MAX_MONITOR_LINES=120;
 
 async function renderThinking(){
 var r=await API.get('workers');
@@ -78,6 +79,7 @@ seen.add(key);fresh.push(e);
 }
 while(seen.size>300)seen.delete(seen.values().next().value);
 if(fresh.length){
+var nearBottom=(logEl.scrollHeight-logEl.scrollTop-logEl.clientHeight)<48;
 var fhtml='';
 for(var fi=0;fi<fresh.length;fi++){
 var e=fresh[fi];
@@ -93,7 +95,8 @@ if((e.text||e.part||'').length>150)txt+=' …';
 fhtml+='<div class="'+cls+'">'+icon+' '+esc(txt)+'</div>';
 }
 if(logEl.childElementCount===0)logEl.innerHTML=fhtml;else logEl.insertAdjacentHTML('beforeend',fhtml);
-logEl.scrollTop=logEl.scrollHeight;
+while(logEl.childElementCount>MAX_MONITOR_LINES)logEl.removeChild(logEl.firstElementChild);
+if(nearBottom)logEl.scrollTop=logEl.scrollHeight;
 }else if(logEl.childElementCount===0){
 logEl.innerHTML='<div class="log-line muted">等待 Worker 事件...</div>';
 }
