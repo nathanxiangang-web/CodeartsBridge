@@ -35,7 +35,7 @@ class Watchdog:
         self.store.save_job(job)
 
         self.store.append_event(job.jobId, LogEvent(
-            id=f"evt-{int(time.time()*1000)}",
+            id=f"evt-{time.time_ns()}",
             time=time.time(),
             type="soft_timeout",
             text=f"Soft limit reached at {job.softTimeoutSeconds}s",
@@ -48,6 +48,7 @@ class Watchdog:
 
     def _handle_hard_timeout(self, job: JobInfo) -> JobState:
         self.runner.terminate(job)
+        self.runner.release(job.jobId)
 
         has_deliverables = self._check_deliverables(job)
         has_diff = self._check_git_diff(job)
@@ -65,7 +66,7 @@ class Watchdog:
         self.store.save_job(job)
 
         self.store.append_event(job.jobId, LogEvent(
-            id=f"evt-{int(time.time()*1000)}",
+            id=f"evt-{time.time_ns()}",
             time=time.time(),
             type="hard_timeout",
             text=f"Hard timeout at {job.hardTimeoutSeconds}s -> {new_state.value}",
