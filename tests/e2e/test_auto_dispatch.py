@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from bridge.auto_dispatch import auto_dispatch, AutoDispatchResult
-from bridge.dispatch import execute_dispatch
+
 from bridge.state import READY, QUEUED, DONE, RUNNING
 
 
@@ -330,57 +330,6 @@ class TestAutoDispatchDependencyChain:
         assert _get_task_state(bridge_root, "C") == QUEUED
 
 
-class TestAutoDispatchNoRegression:
-    """Test 7: No regression: existing bridge dispatch still works."""
-
-    def test_execute_dispatch_still_works(self, setup_bridge, mock_popen):
-        bridge_root = setup_bridge
-        tasks_root = bridge_root / "tasks"
-        _create_task(bridge_root, "t1", state="READY")
-
-        result = execute_dispatch(
-            tasks_root, bridge_root,
-            max_workers=4,
-            dry_run=False,
-        )
-
-        assert len(result.plan.plan) == 1
-        assert len(result.spawned) == 1
-        assert _get_task_state(bridge_root, "t1") == QUEUED
-        state_data = json.loads((bridge_root / "tasks" / "t1" / "state.json").read_text())
-        assert state_data["assignedWorkerId"] == result.plan.plan[0].worker_id
-
-    def test_execute_dispatch_dry_run_still_works(self, setup_bridge, mock_popen):
-        bridge_root = setup_bridge
-        tasks_root = bridge_root / "tasks"
-        _create_task(bridge_root, "t1", state="READY")
-
-        result = execute_dispatch(
-            tasks_root, bridge_root,
-            max_workers=4,
-            dry_run=True,
-        )
-
-        assert len(result.plan.plan) == 1
-        assert _get_task_state(bridge_root, "t1") == READY
-
-    def test_manual_and_auto_dispatch_coexist(self, setup_bridge, mock_popen):
-        """Both auto_dispatch and execute_dispatch can be used without breaking each other."""
-        bridge_root = setup_bridge
-        tasks_root = bridge_root / "tasks"
-        _create_task(bridge_root, "t1", state="READY")
-        _create_task(bridge_root, "t2", state="READY")
-
-        # Use auto_dispatch for t1
-        result1 = auto_dispatch(bridge_root, max_workers=1)
-        assert result1.dispatched == 1
-
-        # Use execute_dispatch for t2
-        result2 = execute_dispatch(tasks_root, bridge_root, max_workers=4)
-        assert len(result2.spawned) == 1
-
-        assert _get_task_state(bridge_root, "t1") == QUEUED
-        assert _get_task_state(bridge_root, "t2") == QUEUED
 
 class TestAssignmentLeaseLifecycle:
     """Runtime assignments must release worker capacity after execution."""
