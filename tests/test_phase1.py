@@ -147,7 +147,7 @@ class TestConfig:
         assert len(reg.projects) > 0
         # The Local-First registry intentionally keeps one logical project.
         p = get_project(reg, "bridge")
-        assert p.transport == "local"
+        assert p.transport == "agent"
         assert p.project_root == "/home/nathan/bridge-python"
         assert p.model == "huaweicloud-maas/GLM-5.2"
 

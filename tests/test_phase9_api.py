@@ -489,45 +489,6 @@ class TestIntegrationAPI:
         assert code == 400
 
 
-class TestMetricsCostAPI:
-    def test_cost_endpoint_normalizes_structured_tokens_and_runtime_worker(self, api_server, tmp_path):
-        task_dir = tmp_path / "tasks" / "cost-task"
-        task_dir.mkdir(parents=True)
-        (task_dir / "META.json").write_text(json.dumps({
-            "taskId": "cost-task",
-            "projectId": "p1",
-            "workerId": "requested-worker",
-            "role": "implement",
-        }), encoding="utf-8")
-        (task_dir / "state.json").write_text(json.dumps({
-            "taskId": "cost-task",
-            "status": "DONE",
-            "state": "DONE",
-            "attempt": 1,
-            "assignedWorkerId": "runtime-worker",
-            "tokens": {
-                "input_tokens": 120,
-                "output_tokens": 80,
-                "reasoning_tokens": 50,
-            },
-        }), encoding="utf-8")
-        (tmp_path / "cost_rates.json").write_text(json.dumps({
-            "ratePerMTokens": 10.0,
-            "byRole": {},
-        }), encoding="utf-8")
-
-        code, data = _get(api_server, "/api/cost")
-        assert code == 200
-        assert data["hasCostData"] is True
-        assert data["totalTokens"] == 250
-        assert data["totalEstimatedCost"] == pytest.approx(0.0025)
-        assert data["byWorker"] == [{
-            "key": "runtime-worker",
-            "tasks": 1,
-            "tokens": 250,
-            "estimatedCost": pytest.approx(0.0025),
-        }]
-
 
 class TestEventStreamAPI:
     def test_event_stream_connects(self, api_server):

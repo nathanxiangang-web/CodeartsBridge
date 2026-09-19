@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from bridge.task import create_task, get_meta, get_instruction_context, write_review_pass, write_review_fix
-from bridge.dispatch import check_worker_transport_compatibility
+
 from bridge.state import get_state, set_state, READY, QUEUED, DONE, REVIEW_REQUIRED, FIX_REQUIRED
 from bridge.atomic import atomic_write_json
 
@@ -67,14 +67,6 @@ class TestTask:
         instructions = get_instruction_context(tdir)
         assert any("FIX" in p for p in instructions)
 
-
-class TestTransportCompatibility:
-    def test_transport_compatibility(self):
-        assert check_worker_transport_compatibility("local", "local")
-        assert check_worker_transport_compatibility("ssh", "ssh")
-        assert check_worker_transport_compatibility("ssh", "remote-worktree")
-        assert not check_worker_transport_compatibility("local", "ssh")
-        assert not check_worker_transport_compatibility("local", "remote-worktree")
 
 
 class TestCLI:

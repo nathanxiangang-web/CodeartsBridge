@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from bridge.atomic import atomic_write_json
 from bridge.state import get_state, set_state, READY, QUEUED, CANCELLED, CANCEL_REQUESTED, RUNNING
-from bridge.dispatch import check_host_affinity
+
 from bridge.auto_dispatch import auto_dispatch
 from bridge.config import ProjectConfig, WorkerConfig
 from fake_runner import FakeRunner
@@ -38,33 +38,6 @@ def _create_task(bridge_root, task_id, project_id="test-local", worker_id="w1", 
     return tdir
 
 
-class TestHostAffinity:
-    """The legacy helper still documents SSH matching, but dispatch no longer blocks on it."""
-
-    def test_matching_host_passes(self):
-        worker = WorkerConfig(id="w1", transport="ssh", host="user@host1")
-        project = ProjectConfig(id="p1", transport="ssh", project_root="/repo", ssh_host="user@host1")
-        assert check_host_affinity(worker, project) is True
-
-    def test_mismatched_host_fails(self):
-        worker = WorkerConfig(id="w1", transport="ssh", host="user@host1")
-        project = ProjectConfig(id="p1", transport="ssh", project_root="/repo", ssh_host="user@host2")
-        assert check_host_affinity(worker, project) is False
-
-    def test_local_project_no_check(self):
-        worker = WorkerConfig(id="w1", transport="local")
-        project = ProjectConfig(id="p1", transport="local", project_root="/repo")
-        assert check_host_affinity(worker, project) is True
-
-    def test_no_ssh_host_no_check(self):
-        worker = WorkerConfig(id="w1", transport="ssh", host="user@host1")
-        project = ProjectConfig(id="p1", transport="ssh", project_root="/repo")
-        assert check_host_affinity(worker, project) is True
-
-    def test_worker_without_host_fails(self):
-        worker = WorkerConfig(id="w1", transport="ssh")
-        project = ProjectConfig(id="p1", transport="ssh", project_root="/repo", ssh_host="user@host1")
-        assert check_host_affinity(worker, project) is False
 
     def test_explicit_worker_host_mismatch_no_longer_blocks_dispatch(self, tmp_path):
         """auto_dispatch checks project-worker placement compatibility."""

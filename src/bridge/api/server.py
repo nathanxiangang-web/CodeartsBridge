@@ -336,8 +336,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             if len(parts) >= 3 and parts[2] == "history":
                 return self._handle_metrics_history(query)
             return self._handle_metrics()
-        if resource == "cost":
-            return self._handle_cost()
+
         return self._send_json(404, {"error": f"Unknown endpoint: {resource}"})
 
     def do_POST(self):
@@ -1071,70 +1070,6 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
-    def _handle_cost(self):
-        from bridge.telemetry import collect_all_metrics
-        from bridge.cost import token_total
-        from bridge.atomic import read_json_or_none
-        try:
-            tasks_dir = self.bridge_root / "tasks"
-            metrics = collect_all_metrics(tasks_dir)
-            rates = self._load_cost_rates()
-            rate_per_mtok = float(rates.get("ratePerMTokens", 0.0) or 0.0)
-            role_rates = rates.get("byRole", {}) or {}
-
-            by_project: dict = {}
-            by_worker: dict = {}
-            by_role: dict = {}
-            total_tokens = 0
-            total_cost = 0.0
-
-            for m in metrics:
-                meta = read_json_or_none(tasks_dir / m.task_id / "META.json") or {}
-                project_id = meta.get("projectId", "unknown")
-                worker_id = m.worker_id or "unknown"
-                role = m.role or "unknown"
-                tokens = token_total(m.tokens)
-                total_tokens += tokens
-                rate = float(role_rates.get(role, rate_per_mtok) or 0.0)
-                cost = tokens / 1_000_000.0 * rate
-                total_cost += cost
-
-                for key, bucket in ((project_id, by_project), (worker_id, by_worker), (role, by_role)):
-                    b = bucket.setdefault(key, {"tasks": 0, "tokens": 0, "estimatedCost": 0.0})
-                    b["tasks"] += 1
-                    b["tokens"] += tokens
-                    b["estimatedCost"] += cost
-
-            def _to_list(d):
-                return [{"key": k, "tasks": v["tasks"], "tokens": v["tokens"],
-                         "estimatedCost": round(v["estimatedCost"], 6)}
-                        for k, v in sorted(d.items())]
-
-            data = {
-                "byProject": _to_list(by_project),
-                "byWorker": _to_list(by_worker),
-                "byRole": _to_list(by_role),
-                "totalTasks": len(metrics),
-                "totalTokens": total_tokens,
-                "totalEstimatedCost": round(total_cost, 6),
-                "costRates": rates,
-                "hasCostData": total_tokens > 0,
-                "generatedAt": time.time(),
-            }
-            return self._send_json(200, data)
-        except Exception as e:
-            return self._send_json(500, {"error": str(e)})
-
-    def _load_cost_rates(self) -> dict:
-        cf = self.bridge_root / "cost_rates.json"
-        if cf.exists():
-            try:
-                data = json.loads(cf.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    return data
-            except Exception:
-                pass
-        return {"ratePerMTokens": 0.0, "byRole": {}}
 
     # ── Event Stream (SSE) ──────────────────────────────────────────────────
 

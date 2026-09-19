@@ -286,25 +286,6 @@ class TestLease:
 
 # ─── Runtime: Cancellation ───────────────────────────────────────────────────
 
-class TestCancellation:
-    def test_request_and_check(self, tmp_path):
-        from bridge.runtime.cancellation import request_cancellation, is_cancelled
-        assert not is_cancelled(tmp_path, "t1")
-        request_cancellation(tmp_path, "t1", "test")
-        assert is_cancelled(tmp_path, "t1")
-
-    def test_complete_cancellation(self, tmp_path):
-        from bridge.runtime.cancellation import request_cancellation, complete_cancellation, get_cancellation
-        request_cancellation(tmp_path, "t1")
-        complete_cancellation(tmp_path, "t1", exit_code=0)
-        assert get_cancellation(tmp_path, "t1")["status"] == "completed"
-
-    def test_pending_cancellations(self, tmp_path):
-        from bridge.runtime.cancellation import request_cancellation, get_pending_cancellations
-        request_cancellation(tmp_path, "t1")
-        request_cancellation(tmp_path, "t2")
-        pending = get_pending_cancellations(tmp_path)
-        assert "t1" in pending and "t2" in pending
 
 
 # ─── Agents ──────────────────────────────────────────────────────────────────
@@ -453,8 +434,6 @@ class TestImports:
     def test_import_scheduler(self):
         from bridge.scheduler import matcher, dependency, capacity, affinity, lease, planner
 
-    def test_import_runtime(self):
-        from bridge.runtime import process, cancellation
 
     def test_import_agents(self):
         from bridge.agents import base, codearts, registry

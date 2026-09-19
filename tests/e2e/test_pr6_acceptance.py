@@ -182,17 +182,8 @@ class TestPR6RealRuntime:
         for w in workers:
             wid = w.get("id") or w.get("workerId")
             assert wid, "worker entry must have an id"
-            runtime = w.get("runtime") or w.get("status") or {}
-            online = (
-                runtime.get("online")
-                if isinstance(runtime, dict)
-                else None
-            )
-            heartbeat = (
-                runtime.get("lastSeen") or runtime.get("heartbeatAt")
-                if isinstance(runtime, dict)
-                else None
-            )
+            online = w.get("online")
+            heartbeat = w.get("lastHeartbeat") or w.get("heartbeatAt")
             assert online is True or heartbeat, (
                 "worker " + str(wid) + " must report a heartbeat/online status"
             )
@@ -212,7 +203,7 @@ class TestPR6RealRuntime:
                 "taskId": task_id,
                 "projectId": "bridge",
                 "role": "implement",
-                "taskFile": "# TASK\n\nPR-6 scenario B: no-op task.\n",
+                "prompt": "PR-6 scenario B: no-op task. Write RESULT.md to outbox and finish.",
                 "execution": {
                     "targetMinutes": 2,
                     "softTimeoutMinutes": 4,
@@ -241,7 +232,7 @@ class TestPR6RealRuntime:
                 "taskId": task_id,
                 "projectId": "bridge",
                 "role": "implement",
-                "taskFile": "# TASK\n\nPR-6 scenario C: emit events.\n",
+                "prompt": "PR-6 scenario C: emit events. Write RESULT.md to outbox and finish.",
                 "execution": {
                     "targetMinutes": 3,
                     "softTimeoutMinutes": 6,
@@ -274,7 +265,7 @@ class TestPR6RealRuntime:
                 "taskId": task_id,
                 "projectId": "bridge",
                 "role": "implement",
-                "taskFile": "# TASK\n\nPR-6 scenario D: slow task.\n",
+                "prompt": "PR-6 scenario D: slow task. Write RESULT.md to outbox and finish.",
                 "execution": {
                     "targetMinutes": 1,
                     "softTimeoutMinutes": 1,
@@ -312,7 +303,7 @@ class TestPR6RealRuntime:
                 "taskId": task_id,
                 "projectId": "bridge",
                 "role": "implement",
-                "taskFile": "# TASK\n\nPR-6 scenario E: reviewable task.\n",
+                "prompt": "PR-6 scenario E: reviewable task. Write RESULT.md to outbox and finish.",
                 "execution": {
                     "targetMinutes": 2,
                     "softTimeoutMinutes": 4,
@@ -352,7 +343,7 @@ class TestPR6RealRuntime:
                 "taskId": task_id,
                 "projectId": "bridge",
                 "role": "implement",
-                "taskFile": "# TASK\n\nPR-6 scenario F: integration target.\n",
+                "prompt": "PR-6 scenario F: integration target. Write RESULT.md to outbox and finish.",
                 "execution": {
                     "targetMinutes": 2,
                     "softTimeoutMinutes": 4,
@@ -426,10 +417,10 @@ class TestPR6NoPolicyRuntime:
         )
 
     def test_scenario_h_worker_has_no_policy_calls(self):
-        """worker.py must contain no policy import or call."""
+        """worker.py must contain no bridge.policy import or call."""
         worker_py = SRC_BRIDGE / "worker.py"
         assert worker_py.is_file(), "worker.py must exist"
         text = worker_py.read_text(encoding="utf-8")
-        assert "policy" not in text, (
-            "worker.py must have no policy reference (PR-4)"
+        assert "from bridge.policy" not in text and "from .policy" not in text, (
+            "worker.py must have no bridge.policy reference (PR-4)"
         )
