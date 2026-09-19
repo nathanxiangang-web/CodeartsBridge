@@ -135,4 +135,14 @@ def set_state(task_dir: Path, state: str, **extra) -> dict:
     current["state"] = state
     current["status"] = state
     atomic_write_json(task_dir / "state.json", current)
+
+    # Emit unified state event (best-effort). bridge_root is inferred
+    # from the standard layout <bridge_root>/tasks/<task_id>.
+    try:
+        from ..state_events import emit_state_changed
+        bridge_root = task_dir.parent.parent
+        emit_state_changed(bridge_root, task_dir, from_state, state, current)
+    except Exception:
+        pass
+
     return current

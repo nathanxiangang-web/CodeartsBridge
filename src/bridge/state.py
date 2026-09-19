@@ -192,6 +192,17 @@ def set_state(
         state[ts_field] = _now_iso()
 
     atomic_write_json(path, state)
+
+    # Emit unified state event (best-effort). bridge_root is inferred
+    # from the standard layout <bridge_root>/tasks/<task_id>.
+    try:
+        from .state_events import emit_state_changed
+        bridge_root = Path(task_dir).parent.parent
+        old_state_val = (old.get("state") or old.get("status")) if old else None
+        emit_state_changed(bridge_root, Path(task_dir), old_state_val, status, state)
+    except Exception:
+        pass
+
     return state
 
 
