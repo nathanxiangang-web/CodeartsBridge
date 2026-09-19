@@ -32,8 +32,13 @@
 .dag-layer-items{display:flex;flex-wrap:wrap;gap:8px}
 .dag-node{background:var(--bg-tertiary);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:12px;cursor:pointer}
 .dag-node:hover{border-color:var(--accent-blue)}
+.dag-node-blocked{opacity:0.6;border-color:var(--accent-red)}
 .dag-node-id{font-weight:600;color:var(--accent-blue)}
+.dag-node-info{font-size:10px;color:var(--text-secondary);margin-top:2px}
 .dag-deps{font-size:10px;color:var(--text-secondary);margin-top:2px}
+.dag-dep-done{color:var(--accent-green);cursor:pointer}
+.dag-dep-pending{color:var(--accent-orange);cursor:pointer}
+.dag-blocked-reason{font-size:9px;color:var(--accent-red);margin-top:2px}
 .task-detail-section{margin-bottom:16px}
 .task-detail-section h3{font-size:13px;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
 .task-detail-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
