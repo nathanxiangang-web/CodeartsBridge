@@ -89,8 +89,8 @@ class TestDispatch:
         tdir = create_task(
             tasks_root=tasks_root,
             task_id="dispatch-001",
-            project_id="cloudsite-rc1-w01",
-            worker_id="bus-w01-dev",
+            project_id="bridge",
+            worker_id="w01",
             workspace_mode="existing",
         )
         set_state(tdir, READY, message="ready")
@@ -106,8 +106,8 @@ class TestDispatch:
             tdir = create_task(
                 tasks_root=tasks_root,
                 task_id=f"max-{i:03d}",
-                project_id="cloudsite-rc1-w01",
-                worker_id="bus-w01-dev",
+                project_id="bridge",
+                worker_id="w01",
                 workspace_mode="existing",
             )
             set_state(tdir, READY, message="ready")
@@ -121,8 +121,8 @@ class TestDispatch:
         tdir = create_task(
             tasks_root=tasks_root,
             task_id="skip-001",
-            project_id="cloudsite-rc1-w01",
-            worker_id="bus-w01-dev",
+            project_id="bridge",
+            worker_id="w01",
             workspace_mode="existing",
         )
         set_state(tdir, DONE, message="done")
@@ -137,8 +137,8 @@ class TestDispatch:
         dep_dir = create_task(
             tasks_root=tasks_root,
             task_id="dep-001",
-            project_id="cloudsite-rc1-w01",
-            worker_id="bus-w01-dev",
+            project_id="bridge",
+            worker_id="w01",
             workspace_mode="existing",
         )
         set_state(dep_dir, READY, message="ready")
@@ -147,8 +147,8 @@ class TestDispatch:
         tdir = create_task(
             tasks_root=tasks_root,
             task_id="dependent-001",
-            project_id="cloudsite-rc1-w02",
-            worker_id="bus-w02-dev",
+            project_id="bridge",
+            worker_id="w02",
             workspace_mode="existing",
             depends_on=["dep-001"],
         )
