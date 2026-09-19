@@ -422,10 +422,51 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
 
     # ── Workers ─────────────────────────────────────────────────────────────
 
+    def _compute_worker_runtime(self, workers: list[dict]) -> None:
+        """Enrich each worker with runtimeState, currentTasks, lastHeartbeat."""
+        from bridge.atomic import read_json_or_none
+
+        tasks_dir = self.bridge_root / "tasks"
+        worker_tasks: dict[str, list[dict]] = {}
+        if tasks_dir.exists():
+            for d in tasks_dir.iterdir():
+                if not d.is_dir():
+                    continue
+                state = read_json_or_none(d / "state.json")
+                if not state or state.get("status") != "RUNNING":
+                    continue
+                wid = state.get("assignedWorkerId")
+                if wid:
+                    worker_tasks.setdefault(wid, []).append(
+                        {
+                            "taskId": d.name,
+                            "startedAt": state.get("startedAt"),
+                            "runningAt": state.get("runningAt"),
+                            "lastHeartbeat": state.get("lastHeartbeat"),
+                            "heartbeatSummary": state.get("heartbeatSummary"),
+                        }
+                    )
+
+        now = time.time()
+        for w in workers:
+            wid = w.get("id")
+            running = worker_tasks.get(wid, [])
+            if not w.get("enabled", True):
+                w["runtimeState"] = "disabled"
+            elif running:
+                w["runtimeState"] = "busy"
+            else:
+                w["runtimeState"] = "idle"
+            w["currentTasks"] = running
+            w["lastHeartbeat"] = running[0]["lastHeartbeat"] if running else None
+            w["online"] = w.get("enabled", True)
+
     def _handle_list_workers(self):
         from bridge.application.workers import list_workers
         try:
-            return self._send_json(200, {"workers": list_workers(self.bridge_root)})
+            workers = list_workers(self.bridge_root)
+            self._compute_worker_runtime(workers)
+            return self._send_json(200, {"workers": workers})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 
@@ -435,6 +476,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             worker = get_worker(self.bridge_root, worker_id)
             if worker is None:
                 return self._send_json(404, {"error": f"Worker {worker_id} not found"})
+            self._compute_worker_runtime([worker])
             return self._send_json(200, worker)
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
@@ -521,6 +563,30 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
 
+            evidence_content = None
+            evidence_file = task_dir / "outbox" / "EVIDENCE.md"
+            if evidence_file.is_file():
+                try:
+                    evidence_content = evidence_file.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+
+            changed_files = None
+            diff_stat_file = task_dir / "outbox" / "DIFF.stat"
+            if diff_stat_file.is_file():
+                try:
+                    changed_files = diff_stat_file.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+
+            diff_patch = None
+            diff_patch_file = task_dir / "outbox" / "DIFF.patch"
+            if diff_patch_file.is_file():
+                try:
+                    diff_patch = diff_patch_file.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+
             response = {
                 "taskId": task_id,
                 "state": status.get("state"),
@@ -569,6 +635,9 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                 "outbox": outbox_files,
                 "result": result_content,
                 "tests": tests_content,
+                "evidence": evidence_content,
+                "changedFiles": changed_files,
+                "diffPatch": diff_patch,
                 "integrationState": state_data.get("integrationState"),
             }
             return self._send_json(200, response)
