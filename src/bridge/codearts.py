@@ -55,18 +55,18 @@ THINK_LANGUAGE_DIRECTIVE = (
 
 
 def find_codearts_cli() -> str | None:
-    """Find the codearts CLI binary."""
-    path = shutil.which("codearts")
-    if path:
-        return path
+    """Find CodeArts CLI, preferring Huawei's per-user install directory."""
     candidates = [
+        Path.home() / ".codeartsdoer/installers/codearts",
         Path.home() / ".codeartsdoer/installers/bin/codearts",
-        Path("/usr/local/bin/codearts"),
     ]
     for c in candidates:
         if c.is_file():
             return str(c)
-    return None
+
+    # PATH is fallback only. This avoids stale /usr/local/bin wrappers taking
+    # precedence over the installation managed under ~/.codeartsdoer.
+    return shutil.which("codearts")
 
 
 def get_mode_flag(mode: str) -> str | None:
