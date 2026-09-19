@@ -1,5 +1,5 @@
 # AI生成
-"""Tests for host affinity (P0-04) and process supervisor (P0-05)."""
+"""Legacy transport helper coverage and process supervisor tests."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _create_task(bridge_root, task_id, project_id="test-local", worker_id="w1", 
 
 
 class TestHostAffinity:
-    """P0-04: worker-to-host affinity enforcement."""
+    """The legacy helper still documents SSH matching, but dispatch no longer blocks on it."""
 
     def test_matching_host_passes(self):
         worker = WorkerConfig(id="w1", transport="ssh", host="user@host1")
@@ -65,8 +65,8 @@ class TestHostAffinity:
         project = ProjectConfig(id="p1", transport="ssh", project_root="/repo", ssh_host="user@host1")
         assert check_host_affinity(worker, project) is False
 
-    def test_explicit_worker_host_mismatch_skipped(self, tmp_path):
-        """Explicit worker with wrong host should be skipped."""
+    def test_explicit_worker_host_mismatch_no_longer_blocks_dispatch(self, tmp_path):
+        """Local-First dispatch does not add a host-affinity gate."""
         root = tmp_path / "bridge"
         for d in ("tasks", "runtime", "runtime/worktrees", "work"):
             (root / d).mkdir(parents=True, exist_ok=True)
@@ -85,8 +85,8 @@ class TestHostAffinity:
         _create_task(root, "t1", project_id="p1", worker_id="w1")
 
         plan = select_dispatch_plan(root / "tasks", root, max_workers=4)
-        skip_reasons = [s.reason for s in plan.skipped]
-        assert any("host mismatch" in r for r in skip_reasons), f"Expected host mismatch skip: {skip_reasons}"
+        assert [item.task_id for item in plan.plan] == ["t1"]
+        assert not any("host mismatch" in s.reason for s in plan.skipped)
 
 
 class TestProcessSupervisor:

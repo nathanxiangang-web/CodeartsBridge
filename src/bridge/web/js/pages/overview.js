@@ -53,9 +53,12 @@ async function _refreshOverview() {
 
   const el = document.getElementById('ov-workers');
   if (el) el.innerHTML = workers.map(w => {
-    const st = w.online === false ? 'OFFLINE' : (w.currentTask ? 'RUNNING' : 'IDLE');
+    const current = Array.isArray(w.currentTasks) && w.currentTasks.length
+      ? (w.currentTasks[0].taskId || '')
+      : (w.currentTask || '');
+    const st = w.online === false ? 'OFFLINE' : (current ? 'RUNNING' : 'IDLE');
     const cls = st === 'OFFLINE' ? 'badge-offline' : (st === 'RUNNING' ? 'badge-running' : 'badge-idle');
-    return `<div class="worker-row"><span class="badge ${cls}">${st}</span><span>${w.id||w.workerId||'?'}</span><span class="muted">${w.currentTask||''}</span></div>`;
+    return `<div class="worker-row"><span class="badge ${cls}">${st}</span><span>${w.id||w.workerId||'?'}</span><span class="muted">${current}</span></div>`;
   }).join('') || '<p class="muted">无 Worker</p>';
 
   const el2 = document.getElementById('ov-tasks');

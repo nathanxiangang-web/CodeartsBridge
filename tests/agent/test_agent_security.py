@@ -1,13 +1,16 @@
-"""Tests for Agent security — auth, path traversal, project allowlist."""
+"""Tests for the remaining optional Agent auth/path helpers.
+
+The Local-First refactor intentionally removed project-root allowlists from the
+runtime path.  Do not reintroduce allowlist tests: Agent accepts the projectRoot
+chosen by the trusted Bridge and fails only if execution itself cannot use it.
+"""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 from bridge.agent.auth import check_auth, AuthError, compare_token, generate_token
-from bridge.agent.config import AgentConfig
 from bridge.agent.fs_guard import validate_path, is_safe_write_path, FsGuardError
 
 
@@ -31,29 +34,6 @@ class TestAuth:
     def test_check_auth_invalid_token(self):
         with pytest.raises(AuthError, match="Invalid"):
             check_auth({"Authorization": "Bearer wrong"}, "expected")
-
-
-class TestProjectAllowlist:
-    def test_allowed_project(self, tmp_path):
-        config = AgentConfig()
-        config.allowed_roots = [str(tmp_path)]
-        assert config.is_project_allowed(str(tmp_path)) is True
-
-    def test_disallowed_project(self, tmp_path):
-        config = AgentConfig()
-        config.allowed_roots = [str(tmp_path)]
-        assert config.is_project_allowed("/etc") is False
-
-    def test_no_allowlist_allows_all(self):
-        config = AgentConfig()
-        assert config.is_project_allowed("/anywhere") is True
-
-    def test_subpath_allowed(self, tmp_path):
-        config = AgentConfig()
-        config.allowed_roots = [str(tmp_path)]
-        sub = tmp_path / "subproject"
-        sub.mkdir()
-        assert config.is_project_allowed(str(sub)) is True
 
 
 class TestFsGuard:

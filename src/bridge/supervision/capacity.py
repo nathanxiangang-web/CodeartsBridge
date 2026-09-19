@@ -26,7 +26,9 @@ class CapacityMonitor:
     def can_fire(self, project_id: str) -> bool:
         """Check if cooldown has elapsed for the given project."""
         now = time.monotonic()
-        last = self._last_fired.get(project_id, 0.0)
+        last = self._last_fired.get(project_id)
+        if last is None:
+            return True
         return (now - last) >= self._cooldown
 
     def check(

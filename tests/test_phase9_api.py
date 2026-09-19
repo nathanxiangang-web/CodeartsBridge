@@ -583,18 +583,19 @@ class TestAPIImports:
         assert ThreadingHTTPServer is not None
 
 class TestThinkingEchoWebRegression:
-    def test_metrics_dashboard_keeps_hardened_thinking_echo(self):
+    def test_read_only_thinking_page_keeps_hardened_echo(self):
         web_dir = Path(__file__).parent.parent / "src" / "bridge" / "web"
-        parts = [(web_dir / "index.html").read_text(encoding="utf-8")]
-        for f in sorted((web_dir / "js").rglob("*.js")):
-            parts.append(f.read_text(encoding="utf-8"))
-        html = "\n".join(parts)
-        assert "async function loadMetrics()" in html
-        assert "const seenEventIds={};" in html
-        assert "const activityRank={RUNNING:3,STARTING:2,QUEUED:1};" in html
-        assert "task.workerId||(task.meta&&task.meta.workerId)||''" in html
-        assert "loadHistory();" in html
-        assert "const shownCount={};" not in html
+        thinking = (web_dir / "js" / "pages" / "thinking.js").read_text(encoding="utf-8")
+        index = (web_dir / "index.html").read_text(encoding="utf-8")
+
+        assert 'data-page="thinking"' in index
+        assert "var seenEventIds={};" in thinking
+        assert "var activityRank={RUNNING:3,STARTING:2,QUEUED:1};" in thinking
+        assert "task.workerId||(task.meta&&task.meta.workerId)||''" in thinking
+        assert "等待 Worker 事件..." in thinking
+        assert "回显读取失败：" in thinking
+        assert "loadMetrics" not in index
+        assert "const shownCount={};" not in thinking
 
 
 class TestTaskLogParsing:

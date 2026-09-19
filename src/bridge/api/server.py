@@ -118,6 +118,50 @@ def _parse_task_session_log(raw_text: str) -> dict:
     }
 
 
+def _summarize_agent_events(events: list[dict]) -> dict:
+    """Normalize Agent job events for the read-only UI monitor."""
+    normalized: list[dict] = []
+    times_ms: list[int] = []
+    reasoning_count = 0
+    tool_count = 0
+
+    for raw in events:
+        if not isinstance(raw, dict):
+            continue
+        event = dict(raw)
+        value = event.get("time")
+        ts_ms = 0
+        if isinstance(value, (int, float)):
+            ts_ms = int(value * 1000) if value < 100_000_000_000 else int(value)
+        if ts_ms:
+            times_ms.append(ts_ms)
+            event.setdefault("timestamp", value)
+        etype = str(event.get("type", ""))
+        if etype == "reasoning":
+            reasoning_count += 1
+        elif etype in {"tool", "tool_use"}:
+            tool_count += 1
+        normalized.append(event)
+
+    start = min(times_ms) if times_ms else 0
+    terminal_types = {"completed", "cancelled", "hard_timeout"}
+    is_terminal = any(str(e.get("type", "")) in terminal_types for e in normalized)
+    if start:
+        end = max(times_ms) if is_terminal and times_ms else int(time.time() * 1000)
+        elapsed_seconds = max(0, (end - start) // 1000)
+    else:
+        elapsed_seconds = 0
+
+    return {
+        "startTime": start,
+        "elapsed": elapsed_seconds,
+        "events": normalized[-100:],
+        "eventCount": len(normalized),
+        "toolCount": tool_count,
+        "reasoningCount": reasoning_count,
+    }
+
+
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
@@ -694,13 +738,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                 events = data.get("events", [])
-                return self._send_json(200, {
-                    "startTime": 0,
-                    "elapsed": 0,
-                    "events": events,
-                    "toolCount": 0,
-                    "reasoningCount": 0,
-                })
+                return self._send_json(200, _summarize_agent_events(events))
             except Exception:
                 pass
 

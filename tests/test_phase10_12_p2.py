@@ -22,15 +22,16 @@ class TestWebUI:
         web_dir = Path(__file__).resolve().parent.parent / "src" / "bridge" / "web"
         assert (web_dir / "index.html").exists(), "Web UI index.html must exist"
 
-    def test_index_html_has_dashboard(self):
+    def test_index_html_has_read_only_monitor_pages(self):
         web_dir = Path(__file__).resolve().parent.parent / "src" / "bridge" / "web"
         content = (web_dir / "index.html").read_text(encoding="utf-8")
-        assert 'data-page="dashboard"' in content
-        assert 'data-page="projects"' in content
+        assert 'data-page="overview"' in content
         assert 'data-page="tasks"' in content
-        assert 'data-page="workers"' in content
-        assert 'data-page="review"' in content
-        assert 'data-page="settings"' in content
+        assert 'data-page="thinking"' in content
+        # v1 Local-First UI is an observation surface, not a second control plane.
+        assert 'data-page="projects"' not in content
+        assert 'data-page="review"' not in content
+        assert 'data-page="settings"' not in content
 
     def test_web_ui_served_by_api(self, tmp_path):
         """Test that GET / returns the HTML page, not JSON."""
@@ -49,7 +50,7 @@ class TestWebUI:
             body = resp.read().decode("utf-8")
             assert "text/html" in content_type
             assert "<html" in body.lower()
-            assert 'data-page="dashboard"' in body
+            assert 'data-page="overview"' in body
         finally:
             server.stop()
 
