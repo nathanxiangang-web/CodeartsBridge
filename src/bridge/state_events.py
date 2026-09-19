@@ -52,17 +52,11 @@ def emit_state_changed(
     bridge_root = Path(bridge_root)
     task_dir = Path(task_dir)
 
-    # Bump revision. Old tasks without revision default to 0, so the
-    # first transition sets revision to 1.
-    old_revision = state.get("revision", 0)
-    if not isinstance(old_revision, int):
-        old_revision = 0
-    state["revision"] = old_revision + 1
-
-    # Re-write state.json with the bumped revision so the persisted
-    # state reflects the new revision. This is reliable: atomic write.
-    from .atomic import atomic_write_json
-    atomic_write_json(task_dir / "state.json", state)
+    # Revision is already bumped by the caller (state.py / core/state.py).
+    # Ensure it exists for the event payload; default to 0 if missing.
+    revision = state.get("revision", 0)
+    if not isinstance(revision, int):
+        revision = 0
 
     # Emit event to EventStore. Best-effort: failures must not roll
     # back the state change or the revision bump above.
@@ -80,7 +74,7 @@ def emit_state_changed(
             payload={
                 "oldState": old_state,
                 "newState": new_state,
-                "revision": state["revision"],
+                "revision": revision,
             },
         )
         store.append(event)

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
+import subprocess
 import time
 from pathlib import Path
 from typing import Protocol
@@ -13,7 +16,7 @@ from bridge.supervision.model import (
     SupervisionPlan,
 )
 from bridge.supervision.schedule import DeadlineScheduler
-from bridge.supervision.policy import should_escalate
+from bridge.supervision.policy import should_escalate, classify_completion
 
 
 class Inspector(Protocol):
@@ -237,3 +240,155 @@ class Supervisor:
             self._scheduler.start_task(
                 plan.task_id, virtual_start, plan.running_at
             )
+    def hard_collect(
+        self,
+        task_id: str,
+        bridge_root: Path,
+        grace_seconds: int = 5,
+    ) -> str:
+        """Stage 5: Hard collect at T+15 (SUP-04).
+
+        1. Stop worker (graceful stop request)
+        2. Wait grace period
+        3. If still alive, kill process
+        4. Pull outbox
+        5. Save git status + git diff
+        6. Classify result and return state
+        """
+        bridge_root = Path(bridge_root)
+        task_dir = bridge_root / "tasks" / task_id
+        state_path = task_dir / "state.json"
+
+        state: dict = {}
+        if state_path.exists():
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        pid = state.get("processId")
+        if pid and self._is_process_alive(pid):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            time.sleep(grace_seconds)
+            if self._is_process_alive(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+        deliverables = self._collect_deliverables(task_dir, bridge_root)
+        classified = classify_completion(deliverables)
+
+        if classified == "FAILED" and deliverables.get("diff"):
+            classified = "ASSISTANCE_REQUIRED"
+
+        self._save_salvage(task_dir, deliverables)
+
+        return classified
+
+    def cleanup(
+        self,
+        task_id: str,
+        bridge_root: Path,
+    ) -> str:
+        """Stage 6: Cleanup at T+16 (SUP-05).
+
+        Converge all orphan states. No new work is created.
+        Returns the final state the task was converged to.
+        """
+        bridge_root = Path(bridge_root)
+        task_dir = bridge_root / "tasks" / task_id
+        state_path = task_dir / "state.json"
+
+        state: dict = {}
+        if state_path.exists():
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        pid = state.get("processId")
+        if pid and self._is_process_alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        current_status = state.get("status") or state.get("state") or ""
+        if current_status == "RUNNING":
+            deliverables = self._collect_deliverables(task_dir, bridge_root)
+            classified = classify_completion(deliverables)
+            if classified == "FAILED" and deliverables.get("diff"):
+                classified = "ASSISTANCE_REQUIRED"
+            state["status"] = classified
+            state["state"] = classified
+            state["revision"] = int(state.get("revision", 0)) + 1
+            try:
+                state_path.write_text(
+                    json.dumps(state, indent=2), encoding="utf-8"
+                )
+            except OSError:
+                pass
+            return classified
+
+        return current_status
+
+    @staticmethod
+    def _is_process_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (ProcessLookupError, PermissionError):
+            return False
+
+    @staticmethod
+    def _collect_deliverables(task_dir: Path, bridge_root: Path) -> dict:
+        """Collect deliverables from task directory and outbox."""
+        deliverables: dict = {}
+
+        outbox = task_dir / "outbox"
+        if outbox.exists():
+            for path in outbox.iterdir():
+                if path.is_file():
+                    deliverables[path.name] = str(path)
+
+        result_path = task_dir / "RESULT.md"
+        if result_path.exists():
+            deliverables["result"] = True
+
+        tests_path = task_dir / "TESTS.md"
+        if tests_path.exists():
+            deliverables["tests"] = True
+
+        assistance_path = task_dir / "ASSISTANCE_REQUEST.md"
+        if assistance_path.exists():
+            deliverables["assistance"] = True
+
+        try:
+            diff_result = subprocess.run(
+                ["git", "diff", "--stat"],
+                capture_output=True, text=True, timeout=10,
+                cwd=bridge_root,
+            )
+            if diff_result.stdout.strip():
+                deliverables["diff"] = diff_result.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+        return deliverables
+
+    @staticmethod
+    def _save_salvage(task_dir: Path, deliverables: dict) -> None:
+        """Save salvage data for post-mortem analysis."""
+        salvage_dir = task_dir / "salvage"
+        salvage_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            (salvage_dir / "deliverables.json").write_text(
+                json.dumps(deliverables, indent=2, default=str),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass

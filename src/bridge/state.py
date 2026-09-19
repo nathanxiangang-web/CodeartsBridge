@@ -138,6 +138,9 @@ def set_state(
     if old:
         state.update(old)
 
+    # Revision: monotonically increasing on each state change (ST-01)
+    state["revision"] = int(old.get("revision", 0)) + 1 if old else 1
+
     # Required fields
     state["schemaVersion"] = 1
     state["taskId"] = old.get("taskId", Path(task_dir).name) if old else Path(task_dir).name

@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -73,12 +76,23 @@ class Event:
 
 
 class EventStore:
-    """Append-only event log backed by a JSONL file."""
+    """Append-only event log backed by a JSONL file.
 
-    def __init__(self, events_dir: Path):
+    Supports file locking (EV-04) for safe concurrent writes and
+    rotation (EV-05) to prevent unbounded growth.
+    """
+
+    def __init__(
+        self,
+        events_dir: Path,
+        max_size_mb: int = 10,
+        keep_files: int = 7,
+    ):
         self._dir = Path(events_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._next_seq = self._read_max_seq() + 1
+        self._max_size_bytes = max_size_mb * 1024 * 1024
+        self._keep_files = keep_files
 
     def _read_max_seq(self) -> int:
         """Read the maximum seq from the events file, or 0 if none.
@@ -118,9 +132,26 @@ class EventStore:
 
         line = json.dumps(event.to_dict(), ensure_ascii=False) + "\n"
         path = self._dir / "events.jsonl"
-        with path.open("a", encoding="utf-8") as f:
-            f.write(line)
-            f.flush()
+
+        for attempt in range(3):
+            try:
+                with path.open("a", encoding="utf-8") as f:
+                    fcntl.flock(f, fcntl.LOCK_EX)
+                    f.write(line)
+                    f.flush()
+                    os.fsync(f.fileno())
+                    fcntl.flock(f, fcntl.LOCK_UN)
+                break
+            except BlockingIOError:
+                time.sleep(0.1)
+        else:
+            with path.open("a", encoding="utf-8") as f:
+                fcntl.flock(f, fcntl.LOCK_EX)
+                f.write(line)
+                f.flush()
+                fcntl.flock(f, fcntl.LOCK_UN)
+
+        self.rotate_if_needed()
 
     def recent(self, limit: int = 50) -> list[Event]:
         path = self._dir / "events.jsonl"
@@ -162,3 +193,31 @@ class EventStore:
                 if isinstance(event_seq, int) and event_seq > seq:
                     result.append(d)
         return result
+    def rotate_if_needed(self) -> bool:
+        """Rotate events.jsonl if it exceeds max_size_mb.
+
+        Renames current file to events.YYYYMMDD.jsonl, keeps last
+        keep_files rotated files, deletes older ones. Returns True if
+        rotation occurred.
+        """
+        path = self._dir / "events.jsonl"
+        if not path.exists():
+            return False
+        if path.stat().st_size < self._max_size_bytes:
+            return False
+
+        date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+        rotated = self._dir / f"events.{date_str}.jsonl"
+        if rotated.exists():
+            rotated.unlink()
+        path.rename(rotated)
+
+        rotated_files = sorted(
+            self._dir.glob("events.*.jsonl"),
+            key=lambda p: p.name,
+        )
+        while len(rotated_files) > self._keep_files:
+            oldest = rotated_files.pop(0)
+            oldest.unlink()
+
+        return True

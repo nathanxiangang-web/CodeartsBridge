@@ -134,6 +134,8 @@ def set_state(task_dir: Path, state: str, **extra) -> dict:
     # Extra payloads must not be able to re-introduce alias divergence.
     current["state"] = state
     current["status"] = state
+    # Revision: monotonically increasing on each state change (ST-01)
+    current["revision"] = int(current.get("revision", 0)) + 1
     atomic_write_json(task_dir / "state.json", current)
 
     # Emit unified state event (best-effort). bridge_root is inferred
