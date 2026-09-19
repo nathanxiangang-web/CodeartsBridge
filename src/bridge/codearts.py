@@ -57,8 +57,9 @@ THINK_LANGUAGE_DIRECTIVE = (
 def find_codearts_cli() -> str | None:
     """Find CodeArts CLI, preferring Huawei's per-user install directory."""
     candidates = [
-        Path.home() / ".codeartsdoer/installers/codearts",
         Path.home() / ".codeartsdoer/installers/bin/codearts",
+        Path.home() / ".local/bin/codearts",
+        Path.home() / ".codeartsdoer/installers/codearts",
     ]
     for c in candidates:
         if c.is_file():
