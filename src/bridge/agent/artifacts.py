@@ -41,4 +41,14 @@ def collect_artifacts(job_dir: Path) -> dict[str, Any]:
             "size": stderr.stat().st_size,
         })
 
+    # session.log is the raw CodeArts JSONL/PTY transcript used by the
+    # Bridge UI after inflight.json is cleared. Without exporting it the
+    # live monitor goes blank as soon as a task completes.
+    session_log = job_dir / "session.log"
+    if session_log.exists():
+        artifacts["files"].append({
+            "name": "session.log",
+            "size": session_log.stat().st_size,
+        })
+
     return artifacts
