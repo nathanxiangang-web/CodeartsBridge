@@ -32,3 +32,27 @@ class DeadlineEntry:
     task_id: str = field(compare=False)
     stage: int = field(compare=False)
     generation: int = field(compare=False)
+
+
+@dataclass
+class InspectionResult:
+    """Result of inspecting a task at a supervision stage."""
+
+    task_id: str
+    stage: int
+    alert: bool = False
+    summary: str = ""
+    deliverables: dict = field(default_factory=dict)
+    progress_hash: str | None = None
+    error_signature: str | None = None
+
+
+@dataclass
+class ArchitectEvent:
+    """Event emitted by Supervisor for the Architect to handle."""
+
+    task_id: str
+    event_type: str
+    stage: int
+    summary: str
+    payload: dict = field(default_factory=dict)
