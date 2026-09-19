@@ -35,13 +35,11 @@ class TestAgentTransport:
         inbox.mkdir()
         (inbox / "TASK.md").write_text("# Task")
 
-        protocol = tmp_path.parent / "protocol"
-        protocol.mkdir(exist_ok=True)
-        (protocol / "WORKER.md").write_text("# Worker")
-
         prompt = transport._build_prompt(tmp_path, project)
         assert "LOCAL" in prompt or "local" in prompt
-        assert "WORKER.md" in prompt
+        assert "=== TASK.md ===" in prompt
+        assert "# Task" in prompt
+        assert "CODEARTS_OUTBOX" in prompt
 
     def test_poll_job_completed(self):
         transport = AgentTransport()
