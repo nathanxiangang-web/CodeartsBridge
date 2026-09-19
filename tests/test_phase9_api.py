@@ -584,8 +584,11 @@ class TestAPIImports:
 
 class TestThinkingEchoWebRegression:
     def test_metrics_dashboard_keeps_hardened_thinking_echo(self):
-        web_path = Path(__file__).parent.parent / "src" / "bridge" / "web" / "index.html"
-        html = web_path.read_text(encoding="utf-8")
+        web_dir = Path(__file__).parent.parent / "src" / "bridge" / "web"
+        parts = [(web_dir / "index.html").read_text(encoding="utf-8")]
+        for f in sorted((web_dir / "js").rglob("*.js")):
+            parts.append(f.read_text(encoding="utf-8"))
+        html = "\n".join(parts)
         assert "async function loadMetrics()" in html
         assert "const seenEventIds={};" in html
         assert "const activityRank={RUNNING:3,STARTING:2,QUEUED:1};" in html

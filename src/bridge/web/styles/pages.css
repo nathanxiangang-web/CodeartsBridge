@@ -1,0 +1,29 @@
+.thinking-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.thinking-log{background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:12px;max-height:70vh;overflow-y:auto;font-family:monospace;font-size:12px}
+.monitor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,1fr);gap:8px;height:calc(100vh - 140px)}
+.monitor-window{background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;display:flex;flex-direction:column;overflow:hidden}
+.monitor-header{padding:6px 10px;background:var(--bg-secondary);border-bottom:1px solid var(--border);font-size:12px;display:flex;align-items:center;gap:6px}
+.monitor-tid{color:var(--accent-blue);font-weight:600}
+.monitor-log{flex:1;overflow-y:auto;padding:8px;font-family:monospace;font-size:11px}
+.monitor-content{margin:0;white-space:pre-wrap;word-break:break-all;color:var(--text-primary);font-size:11px;line-height:1.4}
+.log-line{padding:1px 0;color:var(--text-primary);line-height:1.5;word-break:break-all;white-space:pre-wrap}
+.log-err{color:var(--accent-red)}
+.log-tool{color:var(--accent-blue)}
+.log-ok{color:var(--accent-green)}
+.log-info{color:var(--accent-yellow)}
+.log-summary{padding:4px 0;color:var(--text-secondary);font-size:11px;border-bottom:1px solid var(--border-subtle);margin-bottom:2px}
+.monitor-timer{font-size:11px;color:var(--accent-blue);font-variant-numeric:tabular-nums}
+.monitor-host{font-size:12px;color:var(--accent-orange);font-weight:600}
+@keyframes logFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.log-fadein{animation:logFadeIn 0.3s ease-out}
+.thinking-entry{padding:4px 0;border-bottom:1px solid var(--border-subtle)}
+.evt-time{color:var(--text-secondary);margin-right:8px}
+.evt-type{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600;margin-right:8px}
+.evt-task{color:var(--accent-blue);margin-right:8px}
+.evt-payload{margin:4px 0 0 20px;color:var(--text-primary);white-space:pre-wrap;font-size:11px;max-height:200px;overflow:auto}
+.evt-default .evt-type{background:#1f6feb33;color:var(--accent-blue)}
+.evt-state .evt-type{background:#d2992233;color:var(--accent-yellow)}
+.evt-dispatch .evt-type{background:#a371f733;color:var(--accent-purple)}
+.evt-done .evt-type{background:#3fb95033;color:var(--accent-green)}
+.evt-error .evt-type{background:#f8514933;color:var(--accent-red)}
+.evt-hb .evt-type{background:#6e768133;color:var(--text-secondary)}

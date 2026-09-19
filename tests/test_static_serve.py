@@ -128,10 +128,10 @@ class TestStaticServe:
         web_dir = Path(__file__).resolve().parent.parent / "src" / "bridge" / "web"
         js_dir = web_dir / "js"
         js_dir.mkdir(parents=True, exist_ok=True)
-        plain = js_dir / "app.js"
+        plain = js_dir / "test_unhashed_plain.js"
         plain.write_text("console.log('plain');", encoding="utf-8")
         try:
-            url = api_server.url("/js/app.js")
+            url = api_server.url("/js/test_unhashed_plain.js")
             with urllib.request.urlopen(url, timeout=5) as resp:
                 cache = resp.headers.get("Cache-Control", "")
             assert "no-cache" in cache

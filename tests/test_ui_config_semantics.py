@@ -4,11 +4,29 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-WEB = ROOT / "src" / "bridge" / "web" / "index.html"
+WEB_DIR = ROOT / "src" / "bridge" / "web"
 
 
 def _html() -> str:
-    return WEB.read_text(encoding="utf-8")
+    """Return merged content of all frontend files in index.html load order."""
+    import re
+    parts = []
+    index = WEB_DIR / "index.html"
+    if not index.exists():
+        return ""
+    html = index.read_text(encoding="utf-8")
+    parts.append(html)
+    for m in re.finditer(r'<link[^>]+href="([^"]+)"', html):
+        path = m.group(1).lstrip("/")
+        f = WEB_DIR / path
+        if f.exists() and f.suffix == ".css":
+            parts.append(f.read_text(encoding="utf-8"))
+    for m in re.finditer(r'<script\s+src="([^"]+)"', html):
+        path = m.group(1).lstrip("/")
+        f = WEB_DIR / path
+        if f.exists():
+            parts.append(f.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 def test_projects_ui_uses_runtime_project_config_fields():

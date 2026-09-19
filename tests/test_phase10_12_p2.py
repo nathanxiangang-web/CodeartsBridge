@@ -25,12 +25,12 @@ class TestWebUI:
     def test_index_html_has_dashboard(self):
         web_dir = Path(__file__).resolve().parent.parent / "src" / "bridge" / "web"
         content = (web_dir / "index.html").read_text(encoding="utf-8")
-        assert "Dashboard" in content
-        assert "Projects" in content
-        assert "Tasks" in content
-        assert "Workers" in content
-        assert "Review" in content
-        assert "Settings" in content
+        assert 'data-page="dashboard"' in content
+        assert 'data-page="projects"' in content
+        assert 'data-page="tasks"' in content
+        assert 'data-page="workers"' in content
+        assert 'data-page="review"' in content
+        assert 'data-page="settings"' in content
 
     def test_web_ui_served_by_api(self, tmp_path):
         """Test that GET / returns the HTML page, not JSON."""
@@ -49,7 +49,7 @@ class TestWebUI:
             body = resp.read().decode("utf-8")
             assert "text/html" in content_type
             assert "<html" in body.lower()
-            assert "Dashboard" in body
+            assert 'data-page="dashboard"' in body
         finally:
             server.stop()
 
