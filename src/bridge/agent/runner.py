@@ -39,8 +39,12 @@ def _resolve_cli_path(cli: str) -> str:
         return cli
 
     candidates = (
-        Path.home() / ".codeartsdoer" / "installers" / "codearts",
+        # Prefer the resolved executable used by this host's ~/.local/bin
+        # symlink. The installers/codearts entry is a shell launcher and is
+        # intentionally only a fallback.
         Path.home() / ".codeartsdoer" / "installers" / "bin" / "codearts",
+        Path.home() / ".local" / "bin" / "codearts",
+        Path.home() / ".codeartsdoer" / "installers" / "codearts",
     )
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
