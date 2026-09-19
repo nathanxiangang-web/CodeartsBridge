@@ -259,6 +259,16 @@ class Runner:
             return None
         return proc.poll()
 
+    def wait_for_streams(self, job_id: str, timeout: float = 1.0) -> None:
+        """Give stdout/stderr readers a short chance to drain final output."""
+        threads = list(self._streamers.get(job_id, []))
+        deadline = time.monotonic() + timeout
+        for thread in threads:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            thread.join(timeout=remaining)
+
     def release(self, job_id: str) -> None:
         """Drop completed in-memory process bookkeeping."""
         self._processes.pop(job_id, None)
