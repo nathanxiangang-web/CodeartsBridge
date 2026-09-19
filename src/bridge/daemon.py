@@ -21,7 +21,7 @@ from . import __version__
 from .atomic import atomic_write_json, atomic_write_text, read_json_or_none
 from .locks import file_lock, try_file_lock
 from .state import get_state, set_state, QUEUED, ACTIVE_STATES
-from .dispatch import select_dispatch_plan, execute_dispatch
+from .auto_dispatch import auto_dispatch
 
 
 DAEMON_VERSION = "2.0.0"
@@ -92,20 +92,19 @@ def cmd_run(args) -> int:
 
         # Dispatch
         try:
-            result = execute_dispatch(root / "tasks", root, max_workers=max_workers)
-            plan = result.plan
+            result = auto_dispatch(bridge_root=root, max_workers=max_workers)
 
-            if result.spawned:
+            if result.dispatched:
                 write_health(state_dir, "running", {
-                    "dispatched": len(result.spawned),
-                    "active": len(plan.active),
-                    "skipped": len(plan.skipped),
+                    "dispatched": result.dispatched,
+                    "planned": result.planned,
+                    "skipped": result.skipped,
                 })
                 backoff = args.base_backoff_seconds
             else:
                 write_health(state_dir, "idle", {
-                    "active": len(plan.active),
-                    "skipped": len(plan.skipped),
+                    "planned": result.planned,
+                    "skipped": result.skipped,
                 })
 
         except Exception as e:
@@ -113,7 +112,7 @@ def cmd_run(args) -> int:
             backoff = min(backoff * 2, max_backoff)
 
         # Sleep
-        sleep_time = interval if not plan.plan else 1
+        sleep_time = interval if not result.planned else 1
         for _ in range(sleep_time):
             if shutting_down[0] or stop_sentinel.exists():
                 break
@@ -126,17 +125,16 @@ def cmd_run(args) -> int:
 def cmd_once(args) -> int:
     """Run a single dispatch cycle."""
     root = _bridge_root()
-    result = execute_dispatch(root / "tasks", root, max_workers=args.max_workers, dry_run=args.dry_run)
-    plan = result.plan
+    result = auto_dispatch(bridge_root=root, max_workers=args.max_workers, dry_run=args.dry_run)
 
     if args.dry_run:
-        print(f"Active: {len(plan.active)}, Plan: {len(plan.plan)}, Skipped: {len(plan.skipped)}")
-        for item in plan.plan:
-            print(f"  {item.task_id} -> {item.worker_id}")
+        print(f"Planned: {result.planned}, Dispatched: {result.dispatched}, Skipped: {result.skipped}")
+        for a in result.assignments:
+            print(f"  {a['taskId']} -> {a['workerId']}")
         return 0
 
-    for tid in result.spawned:
-        print(f"Dispatched {tid}")
+    for a in result.assignments:
+        print(f"Dispatched {a['taskId']}")
 
     return 0
 
