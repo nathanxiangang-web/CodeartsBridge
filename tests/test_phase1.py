@@ -145,9 +145,10 @@ class TestConfig:
         reg = load_registry(root / "projects.json")
         assert reg.schema_version == 1
         assert len(reg.projects) > 0
-        # Check a known project
-        p = get_project(reg, "bridge-selftest")
+        # The Local-First registry intentionally keeps one logical project.
+        p = get_project(reg, "bridge")
         assert p.transport == "local"
+        assert p.project_root == "/home/nathan/bridge-python"
         assert p.model == "huaweicloud-maas/GLM-5.2"
 
     def test_load_workers(self):
@@ -155,7 +156,9 @@ class TestConfig:
         wr = load_workers_registry(root / "workers.json")
         assert wr.schema_version == 1
         assert len(wr.workers) == 4
-        w = get_worker(wr, "bus-w04-dev")
+        w = get_worker(wr, "w04")
+        assert w.transport == "agent"
+        assert w.endpoint == "http://192.168.178.51:8765"
         assert "implement" in w.capabilities
         assert "review" in w.capabilities
         assert "test" in w.capabilities
