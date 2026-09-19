@@ -89,12 +89,13 @@ class AgentServer:
                 job.lastEventAt = time.time()
                 self.store.save_job(job)
                 self.store.append_event(job.jobId, LogEvent(
-                    id=f"evt-{int(time.time()*1000)}",
+                    id=f"evt-{time.time_ns()}",
                     time=time.time(),
                     type="completed",
                     text=f"Process exited with code {exit_code}",
                     status="completed" if exit_code == 0 else "failed",
                 ))
+                self.runner.release(job.jobId)
 
     def handle_health(self) -> tuple[int, dict[str, Any]]:
         import shutil
@@ -169,6 +170,7 @@ class AgentServer:
         job.state = JobState.CANCELLED.value
         job.lastEventAt = time.time()
         self.store.save_job(job)
+        self.runner.release(job.jobId)
         return (200, {"jobId": job_id, "state": job.state})
 
     def handle_artifacts(self, job_id: str) -> tuple[int, dict[str, Any]]:
