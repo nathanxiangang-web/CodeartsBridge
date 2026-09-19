@@ -119,8 +119,8 @@ def cmd_status(args) -> int:
             "taskId": state.get("taskId", d.name),
             "status": state.get("status", "?"),
             "project": meta.get("projectId", "?"),
-            "worker": meta.get("workerId", "-"),
-            "role": meta.get("role", "-"),
+            "worker": meta.get("workerId") or "-",
+            "role": meta.get("role") or "-",
             "attempt": state.get("attempt", 0),
         })
 
