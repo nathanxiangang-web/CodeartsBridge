@@ -1,5 +1,5 @@
 {
   "projects": [
-    {"id": "bridge", "projectRoot": "/home/nathan/bridge-python"}
+    {"id": "bridge", "transport": "agent", "projectRoot": "/home/nathan/bridge-python"}
   ]
 }

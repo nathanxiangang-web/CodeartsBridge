@@ -1,8 +1,8 @@
 {
   "workers": [
-    {"id": "w01", "transport": "local", "endpoint": "http://192.168.178.52:8765", "enabled": true},
-    {"id": "w02", "transport": "local", "endpoint": "http://192.168.178.50:8765", "enabled": true},
-    {"id": "w03", "transport": "local", "endpoint": "http://192.168.178.53:8765", "enabled": true},
-    {"id": "w04", "transport": "local", "endpoint": "http://192.168.178.51:8765", "enabled": true}
+    {"id": "w01", "transport": "agent", "endpoint": "http://192.168.178.52:8765", "enabled": true},
+    {"id": "w02", "transport": "agent", "endpoint": "http://192.168.178.50:8765", "enabled": true},
+    {"id": "w03", "transport": "agent", "endpoint": "http://192.168.178.53:8765", "enabled": true},
+    {"id": "w04", "transport": "agent", "endpoint": "http://192.168.178.51:8765", "enabled": true}
   ]
 }
