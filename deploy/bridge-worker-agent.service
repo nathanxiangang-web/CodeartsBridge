@@ -7,6 +7,7 @@ Type=simple
 User=nathan
 WorkingDirectory=/home/nathan/bridge-python
 Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/home/nathan/.codeartsdoer/installers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
 EnvironmentFile=-/home/nathan/.config/codeartsbridge/agent.env
 ExecStart=/home/nathan/bridge-python/.venv/bin/bridge-worker-agent \
   --listen 0.0.0.0 \
