@@ -3,7 +3,8 @@ let _taskStateFilter = '';
 let _lastTasks = [];
 
 const TERMINAL_TASK_STATES = new Set([
-  'DONE', 'FAILED', 'CANCELLED', 'BLOCKED', 'AUTH_REQUIRED', 'INTEGRATION_FAILED'
+  'DONE', 'FAILED', 'CANCELLED', 'BLOCKED', 'AUTH_REQUIRED', 'INTEGRATION_FAILED',
+  'REVIEW_REQUIRED', 'ASSISTANCE_REQUIRED', 'REVIEW_PASSED', 'FIX_REQUIRED'
 ]);
 
 function _taskId(task) {
@@ -55,7 +56,7 @@ async function loadTasksTable() {
     if (_taskStateFilter) ts = ts.filter(t => (t.state||t.status) === _taskStateFilter);
     if (_taskFilter) ts = ts.filter(t => _taskId(t).includes(_taskFilter));
 
-    const ACTIVE_STATES = new Set(['RUNNING','STARTING','QUEUED','REVIEW_REQUIRED','APPROVED','INTEGRATING','INTEGRATED','ASSISTANCE_REQUIRED']);
+    const ACTIVE_STATES = new Set(['RUNNING','STARTING','QUEUED','APPROVED','INTEGRATING','INTEGRATED']);
     ts.sort((a, b) => {
       const aActive = ACTIVE_STATES.has(a.state || a.status || '');
       const bActive = ACTIVE_STATES.has(b.state || b.status || '');
