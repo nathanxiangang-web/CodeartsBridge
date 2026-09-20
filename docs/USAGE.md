@@ -4,6 +4,81 @@
 >
 > 快速理解项目先读仓库根目录 `AGENTS.md`。
 
+## 0. AI 操作入口
+
+AI / Coding Agent 接管本项目时，先建立下面四个事实，再做任何变更：
+
+```text
+1. 我正在修改哪个 Git checkout / commit？
+2. Bridge 和 Worker Agent 当前是否健康？
+3. 当前服务是 system scope 还是 user scope？
+4. CodeArts 实际版本、data path、权限和进程环境是什么？
+```
+
+最小只读检查：
+
+```bash
+git status --short
+git rev-parse HEAD
+cat projects.json
+cat workers.json
+curl -fsS http://192.168.178.50:8080/api/health
+```
+
+每台 Worker：
+
+```bash
+codearts --version
+curl -fsS http://127.0.0.1:8765/v1/health
+
+if systemctl --user is-enabled bridge-worker-agent.service >/dev/null 2>&1; then
+  systemctl --user --no-pager --full status bridge-worker-agent.service
+else
+  sudo systemctl --no-pager --full status bridge-worker-agent.service
+fi
+
+python3 deploy/codearts-worker-runtime.py audit \
+  --expected-version 26.8.12 \
+  --require-aksk
+```
+
+安全边界：
+
+- 不输出或提交 AK/SK、Agent token、私钥。
+- 不在生产 Worker 执行 `codearts upgrade`。
+- 不把 shell/Python fallback 当成 built-in write 已修复的证据。
+- 不因为 `exit 0` 就宣告任务完成；必须检查 outbox、测试、diff、review 和 integration。
+- 不把 CodeartsBridge runtime checkout 与 `projects.json` 中的目标 `projectRoot` 混为一谈。
+
+### 0.1 当前实验室运行真相
+
+最后核验：**2026-09-20**。
+
+| 项目 | 当前状态 |
+|---|---|
+| Bridge host | `192.168.178.50` |
+| Workers | `192.168.178.50/51/52/53:8765` |
+| Worker service scope | 用户级 systemd，unit 为 `~/.config/systemd/user/bridge-worker-agent.service` |
+| Linger | 四台 `nathan` 用户均为 `Linger=yes` |
+| Agent runtime checkout | `/home/nathan/codeartsbridge-runtime-5bda01d`，部署提交 `5bda01d` |
+| 目标项目 | `/home/nathan/bridge-python` |
+| Agent data root | `/home/nathan/.codex-glm-bridge/agent` |
+| CodeArts executable | `/home/nathan/.codeartsdoer/installers/bin/codearts`，全局 `/usr/local/bin/codearts` 已指向它 |
+| CodeArts version | `26.8.12` |
+| Credential file | `~/.config/codeartsbridge/codearts.env`，mode `600` |
+| Effective CodeArts data dir | `~/.local/share/opencode` |
+| Native write evidence | 四台 Agent Job 均为 `COMPLETED`、exit `0`、`write → read`、文件正确、无 fallback |
+
+当前 Agent 的常用操作必须使用用户级命令：
+
+```bash
+systemctl --user status bridge-worker-agent
+systemctl --user restart bridge-worker-agent
+journalctl --user -u bridge-worker-agent -f
+```
+
+仓库安装脚本当前创建的是系统级 service。它适合满足 `python3-venv` 和 sudo 前置条件的新安装；它不是当前四台用户级部署的无差别覆盖命令。迁移 service scope 前，先记录当前 unit、运行目录、环境文件和回滚方式。
+
 ## 1. 运行拓扑
 
 ```text
@@ -43,13 +118,14 @@ Bridge 主机：
 - `codearts --version` 能在运行 Agent 的用户下成功，并且当前必须是 **26.8.12**
 - 目标项目已经 checkout 到 `projects.json` 里的 `projectRoot`
 
-建议所有机器上的 CodeartsBridge 仓库使用同一路径，当前实验室是：
+新安装建议所有机器上的 CodeartsBridge 仓库使用同一路径。当前实验室需要明确区分：
 
 ```text
-/home/nathan/bridge-python
+/home/nathan/codeartsbridge-runtime-5bda01d  # Agent 运行时代码
+/home/nathan/bridge-python                   # Worker 被操作的目标项目
 ```
 
-但代码本身不依赖这个固定路径；安装脚本会以当前仓库路径生成 systemd unit。
+代码本身不依赖这两个固定路径；以 live unit 的 `WorkingDirectory`、`PYTHONPATH` 和 `projects.json` 为准。
 
 ## 3. 第一次安装
 
@@ -212,14 +288,15 @@ journalctl -u bridge -f
 ### Worker
 
 ```bash
-sudo systemctl status bridge-worker-agent
 curl -fsS http://127.0.0.1:8765/v1/health
-```
 
-日志：
-
-```bash
-journalctl -u bridge-worker-agent -f
+if systemctl --user is-enabled bridge-worker-agent.service >/dev/null 2>&1; then
+  systemctl --user status bridge-worker-agent
+  journalctl --user -u bridge-worker-agent -f
+else
+  sudo systemctl status bridge-worker-agent
+  journalctl -u bridge-worker-agent -f
+fi
 ```
 
 从 Bridge 主机检查所有 Worker：
@@ -413,6 +490,20 @@ python3 deploy/codearts-worker-runtime.py fix-permissions --apply
 
 shell/python fallback 仍可作为任务级应急路径，但不能代替 built-in write 的部署验收。
 
+### 10.3 built-in write 真实验收
+
+权限 audit 全绿仍只是配置证据。最终必须通过 Agent HTTP Job 或 Bridge 真实 task 验证，并同时满足：
+
+```text
+state = COMPLETED
+exitCode = 0
+事件中存在 tool=write
+目标文件内容与要求一致
+没有 bash/python/printf/heredoc fallback
+```
+
+推荐让任务在 native write 后再用 built-in read 回读文件。完整请求样例、事件证据和验收矩阵见 `docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md`。
+
 ## 11. 升级
 
 这里的“升级”默认只指 **CodeartsBridge 自身**，不包括 CodeArts CLI。
@@ -435,7 +526,14 @@ git pull --ff-only
 ./deploy/install-worker-agent.sh
 ```
 
-脚本是幂等的：重新安装 editable package，并重启对应 systemd 服务。
+以上命令适用于由安装脚本管理的系统级 service。当前实验室四台是用户级 service，不要在原 runtime 目录直接 `git pull` 后假设服务已升级。安全升级步骤是：
+
+1. 新建干净 runtime checkout，并固定到准备部署的 commit。
+2. 验证 CLI、测试和 `bridge.agent.cli --help`。
+3. 备份现有用户 unit，更新其中的 `WorkingDirectory` / `PYTHONPATH`。
+4. `systemctl --user daemon-reload && systemctl --user restart bridge-worker-agent`。
+5. 运行 runtime audit、四台 health 和一个真实 native write Job。
+6. 验证完成前保留旧 runtime，以便把 unit 指回原路径回滚。
 
 ## 12. 常见排障
 
@@ -454,7 +552,15 @@ sudo systemctl restart bridge
 ```bash
 codearts --version
 curl -fsS http://127.0.0.1:8765/v1/health
-journalctl -u bridge-worker-agent -n 100 --no-pager
+systemctl --user is-enabled bridge-worker-agent.service || true
+systemctl is-enabled bridge-worker-agent.service || true
+```
+
+确认 scope 后只查对应日志：
+
+```bash
+journalctl --user -u bridge-worker-agent -n 100 --no-pager
+# 或系统级：journalctl -u bridge-worker-agent -n 100 --no-pager
 ```
 
 再从 Bridge 主机：

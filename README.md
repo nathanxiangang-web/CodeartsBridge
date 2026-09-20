@@ -8,6 +8,35 @@
 >
 > **CodeArts Worker 当前固定使用 26.8.12：读 [docs/CODEARTS-PINNED-RUNTIME.md](docs/CODEARTS-PINNED-RUNTIME.md)。**
 
+## AI 快速接管
+
+如果你是第一次进入仓库的 AI / Coding Agent，先按这个顺序做，不要直接升级或重装：
+
+1. 读 `AGENTS.md`、本文件和 `docs/USAGE.md`。
+2. 用 `git status --short`、`git rev-parse HEAD` 确认正在看的 checkout。
+3. 区分三个位置：CodeartsBridge 控制代码、Worker 的目标 `projectRoot`、Agent 自己的数据目录；它们不是同一个目录。
+4. 读 `projects.json` 和 `workers.json`，不要把实验室 IP 或路径写死到代码。
+5. 先检查 Bridge `:8080` 和四个 Agent `:8765` 的健康，再创建任务。
+6. 在每台 Worker 运行 CodeArts runtime audit；只有全部 `PASS` 才能判断部署正常。
+7. 涉及 write/edit 时必须跑真实 Agent Job；shell/Python fallback 不算原生 write 验收通过。
+8. 任务完成以 outbox 交付物、review 和真实 integration 为准，不以进程退出码或 UI 动画为准。
+
+当前实验室部署快照最后核验于 **2026-09-20**：
+
+| 项目 | 当前值 |
+|---|---|
+| Bridge | `192.168.178.50:8080` |
+| Worker Agent | `192.168.178.50` 至 `.53`，端口 `8765` |
+| CodeArts CLI | 四台固定 `26.8.12`，禁止自动升级 |
+| Agent 服务 | 当前四台使用用户级 `bridge-worker-agent.service`，检查时用 `systemctl --user` |
+| Agent runtime checkout | `/home/nathan/codeartsbridge-runtime-5bda01d` |
+| 默认目标项目 | `/home/nathan/bridge-python` |
+| Agent 数据目录 | `/home/nathan/.codex-glm-bridge/agent` |
+| CodeArts 生效数据目录 | `/home/nathan/.local/share/opencode` |
+| Native write | 四台真实 Agent Job 均为 `COMPLETED`、exit `0`、`write → read`、无 fallback |
+
+这是一个已验证快照，不是永久硬编码。操作前仍要以 live health、systemd scope、当前 Git commit 和 `codearts debug paths` 为准。
+
 ## 当前主链
 
 ```text
@@ -67,6 +96,8 @@ git clone https://github.com/nathanxiangang-web/CodeartsBridge.git
 cd CodeartsBridge
 ./deploy/install-worker-agent.sh
 ```
+
+安装脚本安装的是系统级 systemd unit，并要求 Python venv 可用和 sudo。当前实验室四台运行的是用户级 unit；维护现有部署时先读 `docs/USAGE.md` 的“当前实验室运行真相”，不要在未确认迁移范围时直接覆盖。
 
 默认安装并启动：
 
@@ -218,6 +249,16 @@ python3 deploy/codearts-worker-runtime.py audit \
 ```
 
 看到 shell/python fallback 不能代替原生 write 验收。完整证据、修复与回滚见 [docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md](docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md)。
+
+原生 write 的最小成功证据必须同时满足：
+
+```text
+Agent Job = COMPLETED
+exitCode = 0
+events 中出现 write（最好随后 read 回读）
+目标文件内容正确
+没有 bash/python fallback
+```
 
 ## 常用 CLI
 
