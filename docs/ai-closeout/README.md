@@ -12,6 +12,7 @@
 /AGENTS.md
 /README.md
 /docs/USAGE.md
+/docs/CODEARTS-PINNED-RUNTIME.md
 /docs/ai-closeout/NEXT.md
 ```
 
@@ -69,6 +70,18 @@ deploy/install-worker-agent.sh
 - legacy `application/integration_service.py` 已删除
 - Task DELETE 已实现，运行中采用 deferred delete
 - Tasks / Task Detail 已完成第一轮产品化
+
+## CodeArts 运行时固定规则
+
+当前实验室生产 Worker 固定使用：
+
+```text
+CodeArts CLI 26.8.12
+```
+
+恢复包已上传到 GitHub Release `codearts-cli-26.8.12-pinned`，SHA-256 与安装步骤见 `docs/CODEARTS-PINNED-RUNTIME.md`。
+
+26.9.7 在现有账号上会在 Model Queuing 阶段被 package/account gate 拒绝，因此不要在生产 Worker 执行 `codearts upgrade`。
 
 ## 当前已知未决
 
