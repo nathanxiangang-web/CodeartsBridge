@@ -73,6 +73,12 @@ class WorkerConfig:
     agent_token_env: str | None = None
     agent_token: str | None = None
 
+    def __repr__(self) -> str:
+        return (
+            f"WorkerConfig(id={self.id!r}, endpoint={self.endpoint!r}, "
+            f"enabled={self.enabled!r})"
+        )
+
     @classmethod
     def from_dict(cls, d: dict) -> "WorkerConfig":
         endpoint = d.get("endpoint")

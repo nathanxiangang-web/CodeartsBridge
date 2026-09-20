@@ -53,20 +53,6 @@ THINK_LANGUAGE_DIRECTIVE = (
     "non-ASCII console output may be corrupted."
 )
 
-WRITE_STRATEGY_DIRECTIVE = (
-    "File-writing strategy (follow in priority order): "
-    "1) Always read the target file before modifying it. "
-    "2) Try the built-in 'edit' tool for small localized changes and the built-in 'write' tool "
-    "for creating new files. "
-    "3) If the built-in editor is rejected (non-interactive mode auto-rejects write/edit), "
-    "fall back to the shell: "
-    "for small changes use python3 -c with targeted string replacement, NOT a full file rewrite; "
-    "for new files use python3 -c to write the complete content; "
-    "for complex modifications to existing source, write a Python patch script to /tmp that "
-    "loads the file, applies targeted transformations, and writes it back, then run and verify it. "
-    "4) NEVER rewrite an entire existing source file when only a few lines change — prefer "
-    "targeted edits over full rewrites."
-)
 
 
 def find_codearts_cli() -> str | None:
@@ -140,7 +126,7 @@ def build_worker_core_prompt(
         base += f" {remote_directive}"
     base += (
         f" Write the formal deliverables to '{outbox_path}'; do not return them only in chat. "
-        f"{WRITE_STRATEGY_DIRECTIVE} {directive}"
+        f"{directive}"
     )
     return base
 
@@ -215,6 +201,7 @@ def sensitive_mask(text: str) -> str:
     """Mask sensitive information in text for display. Matches Invoke-SensitiveMask."""
     text = re.sub(r"CODEARTS_CLI_AK=\S+", "CODEARTS_CLI_AK=***", text)
     text = re.sub(r"CODEARTS_CLI_SK=\S+", "CODEARTS_CLI_SK=***", text)
+    text = re.sub(r"CODEARTS_CLI_ENDPOINT=\S+", "CODEARTS_CLI_ENDPOINT=***", text)
     text = re.sub(r"(?i)Bearer\s+\S+", "Bearer ***", text)
     text = re.sub(r"(?i)(password|token|secret|api_key)=\S+", r"\1=***", text)
     return text
