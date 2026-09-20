@@ -30,14 +30,18 @@ Task
 
 Issue #38 已关闭。CodeArts `--format json` 下 built-in write/edit 仍可能立即拒绝，这是 CLI 限制；当前 bash fallback 是已验证的正式成果写入路径。不要再次围绕该限制重做 Agent/outbox 架构。
 
-PR #35 已合入 main。任务页现在已有：
+PR #35 已合入 main，但它实现的是浏览器 localStorage 隐藏，不是真正的“删除任务”。
+
+真实删除需求以 `08-TASK-DELETION-SEMANTICS.md` 为准：
 
 ```
-清除已结束
-恢复隐藏 (N)
+Delete != Cancel
+删除任务记录不能取消正在运行的 Agent / CodeArts
+运行中删除采用 deferred delete
+终态任务可直接物理删除
 ```
 
-实现只使用浏览器 localStorage，不删除 task，不修改 state，不产生控制面写操作。
+PR #35 只能算临时显示功能，不得作为删除需求完成证据。
 
 ---
 
@@ -118,13 +122,24 @@ curl http://<bridge-host>:8080/js/pages/tasks.js | grep task-clear-finished
 
 ### 2.2 Tasks 页面
 
-保持 read-only，重点提高每天使用效率：
+重点提高每天使用效率，并补上真实任务删除：
 
+- 增加真正的“删除任务”动作。
+- Delete 与 Cancel 必须彻底分离。
+- RUNNING/STARTING/VERIFYING 或存在 inflight/assignment 时，删除只登记 deletion intent，不 cancel、不 kill，任务自然结束后再物理清理。
+- DONE/FAILED 等无活动执行任务可以直接物理删除。
+- scheduler / review / integration 必须跳过 delete-requested task，避免竞态。
 - 活跃任务优先，已结束任务靠后。
-- 状态筛选覆盖当前真实状态，不只 RUNNING/DONE/FAILED。
+- 状态筛选覆盖当前真实状态。
 - 增加更新时间 / 执行耗时等已有数据展示。
-- 隐藏数量、恢复隐藏语义保持简单。
-- 不增加真正删除 task 的按钮。
+
+详细语义见：
+
+```
+08-TASK-DELETION-SEMANTICS.md
+```
+
+PR #35 的“清除已结束/恢复隐藏”若保留，必须明确叫“隐藏”，不能冒充删除。
 
 ### 2.3 Task Detail
 
@@ -298,8 +313,10 @@ adaptive/cost
 ```
 Agent 是保留的核心运行时
 bash fallback 是当前 CodeArts JSON 模式的正式写成果路径
-Web UI 仍是 read-only
-PR #35 的“清除已结束”仅隐藏本浏览器显示
+UI 不承担 cancel/retry/review/integrate 等执行控制
+UI 允许“删除任务记录”这一项管理动作
+Delete != Cancel；运行中删除采用 deferred delete
+PR #35 的 localStorage 功能只是隐藏，不是真删除
 ```
 
 ---
