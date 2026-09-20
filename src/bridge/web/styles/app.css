@@ -76,6 +76,10 @@ tr:hover{background:var(--bg3)}
 /* filter bar */
 .filter-bar{display:flex;gap:12px;margin-bottom:16px;align-items:center}
 .filter-bar input,.filter-bar select{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:6px;font-size:13px}
+.ui-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:13px;cursor:pointer}
+.ui-btn:hover{border-color:var(--text2);background:#2b3138}
+.task-display-note{font-size:12px}
+.task-empty{padding:12px 0 4px}
 /* monitor grid (thinking page) */
 .monitor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:10px;height:calc(100dvh - 88px);min-height:0;overflow:hidden}
 .monitor-window{background:var(--bg2);border:1px solid var(--border);border-radius:6px;display:flex;flex-direction:column;overflow:hidden;min-width:0;min-height:0}
