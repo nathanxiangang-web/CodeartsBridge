@@ -123,6 +123,16 @@ case "$AUTH_MODE" in
     ;;
 esac
 
+AGENT_ENV_DIRECTIVE="EnvironmentFile=-$ENV_FILE"
+AGENT_TOKEN_UNSET=""
+if [ "$AUTH_MODE" = "off" ]; then
+  # Keep trusted-LAN auth-off explicit in the generated unit. Otherwise an
+  # agent.env created later would silently re-enable token auth while the
+  # Bridge registry still has no matching token.
+  AGENT_ENV_DIRECTIVE=""
+  AGENT_TOKEN_UNSET="BRIDGE_AGENT_TOKEN "
+fi
+
 if [ "$BRIDGE_INSTALL_SYSTEMD" != "1" ]; then
   echo "systemd install skipped (BRIDGE_INSTALL_SYSTEMD=$BRIDGE_INSTALL_SYSTEMD)"
   echo "Run manually:"
@@ -148,9 +158,9 @@ Environment=PYTHONUNBUFFERED=1
 Environment=HOME=$RUN_HOME
 Environment=PATH=$RUN_HOME/.local/bin:$RUN_HOME/.codeartsdoer/installers/bin:$RUN_HOME/.codeartsdoer/installers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
 Environment=CODEARTS_DISABLE_AUTO_UPDATE=$DISABLE_CODEARTS_AUTO_UPDATE
-EnvironmentFile=-$ENV_FILE
+$AGENT_ENV_DIRECTIVE
 EnvironmentFile=-$CODEARTS_ENV_FILE
-UnsetEnvironment=OPENCODE OPENCODE_CHANNEL OPENCODE_CONFIG OPENCODE_CONFIG_FILE OPENCODE_PID OPENCODE_SERVER_PASSWORD OPENCODE_SERVER_USERNAME OPENCODE_SKIP_MIGRATIONS
+UnsetEnvironment=${AGENT_TOKEN_UNSET}OPENCODE OPENCODE_CHANNEL OPENCODE_CONFIG OPENCODE_CONFIG_FILE OPENCODE_PID OPENCODE_SERVER_PASSWORD OPENCODE_SERVER_USERNAME OPENCODE_SKIP_MIGRATIONS
 ExecStart=$VENV_DIR/bin/python -m bridge.agent.cli --listen 0.0.0.0 --port $AGENT_PORT --root $AGENT_ROOT --config $CONFIG_DIR/agent.json
 Restart=always
 RestartSec=2

@@ -81,6 +81,8 @@ var rc=log.reasoningCount||0;
 var ms=mapState(state);
 var taskChanged=slotData[i]&&slotData[i].tid!==tid;
 if(taskChanged){logEl.innerHTML='';logEl.classList.remove('log-retained');}
+var transientLines=logEl.querySelectorAll('[data-echo-status]');
+for(var si=0;si<transientLines.length;si++)transientLines[si].remove();
 slotData[i]={host:host,state:state,ms:ms,tid:tid,rc:rc,tc:tc,startTime:log.startTime||0,elapsed:log.elapsed||0};
 var elapsed=ms==='thinking'&&log.startTime>0?Math.floor((Date.now()-log.startTime)/1000):(log.elapsed||0);
 hdr.innerHTML='<span class="monitor-host">'+esc(host)+'</span> '+badge(state)+' <span class="monitor-timer">⏱'+fmtElapsed(elapsed)+'</span> <span class="muted" style="font-size:10px">思考'+rc+' 工具'+tc+'</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="'+esc(wid)+'">'+esc(tid)+'</span>';
@@ -113,10 +115,12 @@ if(logEl.childElementCount===0)logEl.innerHTML=fhtml;else logEl.insertAdjacentHT
 while(logEl.childElementCount>MAX_MONITOR_LINES)logEl.removeChild(logEl.firstElementChild);
 if(nearBottom)logEl.scrollTop=logEl.scrollHeight;
 }else if(logEl.childElementCount===0){
-logEl.innerHTML='<div class="log-line muted">等待 Worker 事件...</div>';
+logEl.innerHTML='<div class="log-line muted" data-echo-status="waiting">等待 Worker 事件...</div>';
 }
 }catch(e){
-logEl.innerHTML='<div class="log-line log-info">回显读取失败：'+esc(e&&e.message?e.message:String(e))+'</div>';
+var oldStatus=logEl.querySelector('[data-echo-status]');
+if(oldStatus)oldStatus.remove();
+logEl.insertAdjacentHTML('afterbegin','<div class="log-line log-info" data-echo-status="error">回显读取失败：'+esc(e&&e.message?e.message:String(e))+'</div>');
 }
 }else{
 if(slotData[i]){var lastTid=slotData[i].tid||'';slotData[i].ms='done';hdr.innerHTML='<span class="monitor-host">'+esc(host)+'</span> <span class="mbadge mbadge-done">已结束</span> <span class="muted" style="font-size:10px">历史保留</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="'+esc(wid)+'">'+esc(lastTid)+'</span>';logEl.classList.add('log-retained');}

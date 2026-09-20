@@ -60,6 +60,7 @@ python3 deploy/codearts-worker-runtime.py audit \
 | Workers | `192.168.178.50/51/52/53:8765` |
 | Worker service scope | 用户级 systemd，unit 为 `~/.config/systemd/user/bridge-worker-agent.service` |
 | Linger | 四台 `nathan` 用户均为 `Linger=yes` |
+| Agent HTTP auth | 可信 LAN、auth off；当前 unit 不加载 `agent.env`，并显式清除 `BRIDGE_AGENT_TOKEN` |
 | Agent runtime checkout | `/home/nathan/codeartsbridge-runtime-5bda01d`，部署提交 `5bda01d` |
 | 目标项目 | `/home/nathan/bridge-python` |
 | Agent data root | `/home/nathan/.codex-glm-bridge/agent` |
@@ -175,7 +176,9 @@ cd CodeartsBridge
 
 codearts --version
 # expected: 26.8.12
-BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 ./deploy/install-worker-agent.sh
+BRIDGE_AGENT_AUTH=off \
+BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 \
+./deploy/install-worker-agent.sh
 ```
 
 安装脚本会：
@@ -191,11 +194,15 @@ CodeArts AK/SK 使用独立文件 `~/.config/codeartsbridge/codearts.env`，权�
 
 新安装默认是可信 LAN 模式，不自动生成 token。
 
-如果已有 `~/.config/codeartsbridge/agent.env`，默认 `auto` 模式会保留它。旧安装若留下了 Bridge 未配置的 token，可明确关闭：
+如果已有 `~/.config/codeartsbridge/agent.env`，默认 `auto` 模式会保留它。若 Bridge 的 `workers.json` 没有相同 token，`/v1/health` 仍可能正常，但真实 Job API 会返回 401，表现为任务立即失败且 UI 没有 Worker 回显。当前实验室使用可信 LAN，安装或重装时必须明确关闭：
 
 ```bash
-BRIDGE_AGENT_AUTH=off ./deploy/install-worker-agent.sh
+BRIDGE_AGENT_AUTH=off \
+BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 \
+./deploy/install-worker-agent.sh
 ```
+
+auth-off 生成的 unit 不加载 `agent.env`，并通过 `UnsetEnvironment` 清除父环境里的 `BRIDGE_AGENT_TOKEN`；以后即使该文件再次出现，也不会静默恢复 token 鉴权。
 
 如需 token 模式：
 
@@ -523,6 +530,8 @@ Worker：
 ```bash
 cd /path/to/CodeartsBridge
 git pull --ff-only
+BRIDGE_AGENT_AUTH=off \
+BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 \
 ./deploy/install-worker-agent.sh
 ```
 

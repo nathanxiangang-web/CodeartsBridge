@@ -94,6 +94,8 @@ codearts --version
 ```bash
 git clone https://github.com/nathanxiangang-web/CodeartsBridge.git
 cd CodeartsBridge
+BRIDGE_AGENT_AUTH=off \
+BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 \
 ./deploy/install-worker-agent.sh
 ```
 
@@ -106,7 +108,7 @@ bridge-worker-agent.service
 Agent HTTP :8765
 ```
 
-新安装默认可信 LAN、auth off；不会自动生成一个 Bridge 不知道的 token。
+新安装默认可信 LAN、auth off；不会自动生成一个 Bridge 不知道的 token。显式使用 `BRIDGE_AGENT_AUTH=off` 时，生成的 unit 也不会加载 `agent.env`，并会清除父环境残留的 `BRIDGE_AGENT_TOKEN`。
 
 ### 3. 配置
 
@@ -299,7 +301,7 @@ deploy/install-worker-agent.sh
 ```bash
 git pull --ff-only
 ./deploy/install-bridge.sh        # Bridge 主机
-./deploy/install-worker-agent.sh  # Worker
+BRIDGE_AGENT_AUTH=off BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 ./deploy/install-worker-agent.sh  # Worker
 ```
 
 部署目录说明见 [deploy/README.md](deploy/README.md)。

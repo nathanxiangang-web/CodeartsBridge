@@ -11,9 +11,8 @@ Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/home/nathan
 Environment=PATH=/home/nathan/.local/bin:/home/nathan/.codeartsdoer/installers/bin:/home/nathan/.codeartsdoer/installers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
 Environment=CODEARTS_DISABLE_AUTO_UPDATE=true
-EnvironmentFile=-/home/nathan/.config/codeartsbridge/agent.env
 EnvironmentFile=-/home/nathan/.config/codeartsbridge/codearts.env
-UnsetEnvironment=OPENCODE OPENCODE_CHANNEL OPENCODE_CONFIG OPENCODE_CONFIG_FILE OPENCODE_PID OPENCODE_SERVER_PASSWORD OPENCODE_SERVER_USERNAME OPENCODE_SKIP_MIGRATIONS
+UnsetEnvironment=BRIDGE_AGENT_TOKEN OPENCODE OPENCODE_CHANNEL OPENCODE_CONFIG OPENCODE_CONFIG_FILE OPENCODE_PID OPENCODE_SERVER_PASSWORD OPENCODE_SERVER_USERNAME OPENCODE_SKIP_MIGRATIONS
 ExecStart=/home/nathan/bridge-python/.venv/bin/python -m bridge.agent.cli   --listen 0.0.0.0   --port 8765   --root /home/nathan/.codex-glm-bridge/agent   --config /home/nathan/.config/codeartsbridge/agent.json
 Restart=always
 RestartSec=2

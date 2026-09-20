@@ -83,6 +83,8 @@ systemctl is-enabled bridge-worker-agent.service || true
 
 当前用户级 Agent runtime 是 `/home/nathan/codeartsbridge-runtime-5bda01d`；`/home/nathan/bridge-python` 是任务目标项目，不是同一职责。
 
+当前实验室 Agent HTTP 使用可信 LAN、auth off。四台用户级 unit 不加载 `agent.env`，并显式清除 `BRIDGE_AGENT_TOKEN`；不要只凭 `/v1/health` 判断鉴权一致，真实任务 401 会表现为 UI 无 Worker 回显。
+
 Worker 本机必须满足：
 
 - Python 3.10+

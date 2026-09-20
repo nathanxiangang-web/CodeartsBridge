@@ -29,6 +29,8 @@ BRIDGE_INSTALL_SYSTEMD=0 ./deploy/install-bridge.sh
 ### Worker
 
 ```bash
+BRIDGE_AGENT_AUTH=off \
+BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 \
 ./deploy/install-worker-agent.sh
 ```
 
@@ -54,10 +56,12 @@ CodeArts 凭据与 Agent token 分开保存：
 当前实验室安装时增加固定版本门禁：
 
 ```bash
-BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 ./deploy/install-worker-agent.sh
+BRIDGE_AGENT_AUTH=off \
+BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 \
+./deploy/install-worker-agent.sh
 ```
 
-生成的 systemd unit 会禁用 CodeArts 自动升级，并清除可能污染运行时选择的旧 `OPENCODE_*` 环境。
+生成的 systemd unit 会禁用 CodeArts 自动升级，并清除可能污染运行时选择的旧 `OPENCODE_*` 环境。显式 auth off 时，unit 还会停止加载 `agent.env` 并清除 `BRIDGE_AGENT_TOKEN`，防止健康检查正常但真实 Job API 因 401 无回显。
 
 如果旧安装脚本曾自动生成 token，但当前 `workers.json` 没有对应 token，请明确恢复可信 LAN 模式：
 
@@ -107,6 +111,8 @@ Worker：
 
 ```bash
 git pull --ff-only
+BRIDGE_AGENT_AUTH=off \
+BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 \
 ./deploy/install-worker-agent.sh
 ```
 

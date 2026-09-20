@@ -90,6 +90,16 @@ def test_thinking_echo_preserves_reliability_guards():
     assert "thinkingPoll=setTimeout(schedulePoll,2000)" in source
 
 
+def test_thinking_echo_clears_transient_status_without_erasing_events():
+    source = _read("js/pages/thinking.js")
+    assert "querySelectorAll('[data-echo-status]')" in source
+    assert 'data-echo-status="waiting"' in source
+    assert 'data-echo-status="error"' in source
+    assert "oldStatus.remove()" in source
+    assert "insertAdjacentHTML('afterbegin'" in source
+    assert "logEl.innerHTML='<div class=\"log-line log-info\">回显读取失败" not in source
+
+
 def test_thinking_monitor_is_viewport_bounded():
     source = _read("js/pages/thinking.js")
     css = _read("styles/app.css")
