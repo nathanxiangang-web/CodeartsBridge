@@ -31,8 +31,8 @@ Task
 2. `docs/USAGE.md` — 安装、配置、日常操作、升级、排障
 3. `docs/CODEARTS-PINNED-RUNTIME.md` — CodeArts 26.8.12 固定版本与恢复规则
 4. `docs/ai-closeout/NEXT.md` — 当前下一步
-4. `docs/ai-closeout/README.md` — 当前架构约束
-5. `protocol/WORKER.md` — 注入给 Worker/CodeArts 的执行契约
+5. `docs/ai-closeout/README.md` — 当前架构约束
+6. `protocol/WORKER.md` — 注入给 Worker/CodeArts 的执行契约
 
 `docs/ai-closeout/01~08` 中有历史审计和收口记录。它们用于理解“为什么这样设计”，不是默认待办清单。
 
@@ -73,6 +73,15 @@ python -m bridge.agent.cli --listen 0.0.0.0 --port 8765
 ```
 
 安装。
+
+当前实验室四台 Agent 最后核验于 2026-09-20，使用的是用户级 systemd unit，而安装脚本默认创建系统级 unit。维护现有部署时先用下面两条命令识别 scope，不要盲目覆盖：
+
+```bash
+systemctl --user is-enabled bridge-worker-agent.service || true
+systemctl is-enabled bridge-worker-agent.service || true
+```
+
+当前用户级 Agent runtime 是 `/home/nathan/codeartsbridge-runtime-5bda01d`；`/home/nathan/bridge-python` 是任务目标项目，不是同一职责。
 
 Worker 本机必须满足：
 
