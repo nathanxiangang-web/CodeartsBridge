@@ -2,55 +2,12 @@ let _taskFilter = '';
 let _taskStateFilter = '';
 let _lastTasks = [];
 
-const TASK_HIDDEN_KEY = 'codeartsbridge.hiddenTasks.v1';
 const TERMINAL_TASK_STATES = new Set([
   'DONE', 'FAILED', 'CANCELLED', 'BLOCKED', 'AUTH_REQUIRED', 'INTEGRATION_FAILED'
 ]);
 
 function _taskId(task) {
   return String((task && (task.taskId || task.id)) || '');
-}
-
-function _readHiddenTaskIds() {
-  try {
-    const raw = localStorage.getItem(TASK_HIDDEN_KEY);
-    const ids = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(ids) ? ids.map(String) : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function _saveHiddenTaskIds(ids) {
-  try {
-    localStorage.setItem(TASK_HIDDEN_KEY, JSON.stringify(Array.from(ids)));
-  } catch {}
-}
-
-function _updateHiddenTaskUi() {
-  const hidden = _readHiddenTaskIds();
-  const count = document.getElementById('task-hidden-count');
-  const restore = document.getElementById('task-restore-hidden');
-  if (count) count.textContent = String(hidden.size);
-  if (restore) restore.classList.toggle('hidden', hidden.size === 0);
-}
-
-function clearFinishedTaskDisplay() {
-  const hidden = _readHiddenTaskIds();
-  for (const task of _lastTasks) {
-    const state = task.state || task.status || '';
-    const id = _taskId(task);
-    if (id && TERMINAL_TASK_STATES.has(state)) hidden.add(id);
-  }
-  _saveHiddenTaskIds(hidden);
-  _updateHiddenTaskUi();
-  loadTasksTable();
-}
-
-function restoreHiddenTaskDisplay() {
-  try { localStorage.removeItem(TASK_HIDDEN_KEY); } catch {}
-  _updateHiddenTaskUi();
-  loadTasksTable();
 }
 
 function renderTasks() {
@@ -72,9 +29,7 @@ function renderTasks() {
       <option value="BLOCKED">BLOCKED</option>
       <option value="INTEGRATION_FAILED">INTEG_FAILED</option>
     </select>
-    <button type="button" class="ui-btn" id="task-clear-finished">清除已结束</button>
-    <button type="button" class="ui-btn hidden" id="task-restore-hidden">恢复隐藏 (<span id="task-hidden-count">0</span>)</button>
-    <span class="muted task-display-note">仅清除本浏览器显示，不删除任务</span>
+    <button type="button" class="ui-btn" id="task-batch-delete">一键删除已结束</button>
   </div>
   <div class="card"><div id="tasks-table">加载中...</div></div>`;
 }
@@ -82,14 +37,11 @@ function renderTasks() {
 async function mountTasks() {
   const search = document.getElementById('task-search');
   const sel = document.getElementById('task-state-sel');
-  const clearFinished = document.getElementById('task-clear-finished');
-  const restoreHidden = document.getElementById('task-restore-hidden');
+  const batchDelete = document.getElementById('task-batch-delete');
   if (search) search.oninput = (e) => { _taskFilter = e.target.value; loadTasksTable(); };
   if (sel) sel.onchange = (e) => { _taskStateFilter = e.target.value; loadTasksTable(); };
   if (sel) sel.value = _taskStateFilter;
-  if (clearFinished) clearFinished.onclick = clearFinishedTaskDisplay;
-  if (restoreHidden) restoreHidden.onclick = restoreHiddenTaskDisplay;
-  _updateHiddenTaskUi();
+  if (batchDelete) batchDelete.onclick = _batchDeleteFinished;
   loadTasksTable();
   if (!window._tasksTimer) window._tasksTimer = setInterval(loadTasksTable, 5000);
 }
@@ -99,9 +51,6 @@ async function loadTasksTable() {
     let r = await API.tasks();
     let ts = (r && r.tasks) ? r.tasks : (Array.isArray(r) ? r : []);
     _lastTasks = ts.slice();
-
-    const hidden = _readHiddenTaskIds();
-    ts = ts.filter(t => !hidden.has(_taskId(t)));
 
     if (_taskStateFilter) ts = ts.filter(t => (t.state||t.status) === _taskStateFilter);
     if (_taskFilter) ts = ts.filter(t => _taskId(t).includes(_taskFilter));
@@ -123,15 +72,21 @@ async function loadTasksTable() {
       const state = t.state || t.status || '?';
       const updated = t.updatedAt || t.finishedAt || t.createdAt || '';
       const elapsedStr = (t.startedAt && t.finishedAt) ? _fmtElapsed(t.startedAt, t.finishedAt) : '-';
-      return `<tr><td><a href="#task-detail/${t.taskId||t.id}">${t.taskId||t.id||'?'}</a></td><td>${t.workerId||t.assignedWorkerId||'-'}</td><td>${stateBadge(state)}</td><td class="muted">${t.projectId||'-'}</td><td class="muted">${_fmtShort(updated)}</td><td class="muted">${elapsedStr}</td></tr>`;
+      const id = _taskId(t);
+      const delBtn = t.deleteRequested
+        ? `<span class="muted">删除中</span>`
+        : `<button type="button" class="ui-btn ui-btn-sm task-delete-btn" data-task-id="${id}">删除</button>`;
+      return `<tr><td><a href="#task-detail/${id}">${id||'?'}</a></td><td>${t.workerId||t.assignedWorkerId||'-'}</td><td>${stateBadge(state)}</td><td class="muted">${t.projectId||'-'}</td><td class="muted">${_fmtShort(updated)}</td><td class="muted">${elapsedStr}</td><td>${delBtn}</td></tr>`;
     }).join('');
 
-    el.innerHTML = '<table><tr><th>Task</th><th>Worker</th><th>State</th><th>Project</th><th>更新</th><th>耗时</th></tr>' +
+    el.innerHTML = '<table><tr><th>Task</th><th>Worker</th><th>State</th><th>Project</th><th>更新</th><th>耗时</th><th>操作</th></tr>' +
       rows +
       '</table>' +
       (ts.length ? '' : '<p class="muted task-empty">当前没有需要显示的任务</p>');
 
-    _updateHiddenTaskUi();
+    el.querySelectorAll('.task-delete-btn').forEach(btn => {
+      btn.onclick = () => _deleteTask(btn.dataset.taskId);
+    });
   } catch (e) {
     const el = document.getElementById('tasks-table');
     if (el) el.innerHTML = '<p class="muted">加载失败</p>';
@@ -141,6 +96,55 @@ function _fmtShort(ts) {
   if (!ts) return '-';
   try { return new Date(ts).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
   catch { return String(ts).slice(5,16); }
+}
+
+async function _deleteTask(taskId) {
+  if (!taskId) return;
+  const ok = confirm(
+    `删除任务 ${taskId}？\n\n` +
+    `删除任务记录不会取消正在运行的 Worker。\n` +
+    `正在运行的任务会继续执行，结束后自动清理记录。`
+  );
+  if (!ok) return;
+  try {
+    const { status, data } = await API.deleteTask(taskId);
+    if (status === 200) {
+      alert(`任务 ${taskId} 已删除。`);
+    } else if (status === 202) {
+      alert(`任务 ${taskId} 仍在运行，已标记为延迟删除。\n任务结束后将自动清理记录。`);
+    } else {
+      alert(`删除失败: ${data.error || '未知错误'}`);
+    }
+    loadTasksTable();
+  } catch (e) {
+    alert(`删除失败: ${e}`);
+  }
+}
+
+async function _batchDeleteFinished() {
+  const finished = _lastTasks.filter(t => TERMINAL_TASK_STATES.has(t.state || t.status || ''));
+  if (!finished.length) {
+    alert('没有已结束的任务可删除。');
+    return;
+  }
+  const ok = confirm(
+    `将删除 ${finished.length} 个已结束任务。\n\n` +
+    `删除任务记录不会取消正在运行的 Worker。\n` +
+    `正在运行的任务会继续执行，结束后自动清理记录。`
+  );
+  if (!ok) return;
+  let deleted = 0, pending = 0, failed = 0;
+  for (const t of finished) {
+    const id = _taskId(t);
+    try {
+      const { status } = await API.deleteTask(id);
+      if (status === 200) deleted++;
+      else if (status === 202) pending++;
+      else failed++;
+    } catch { failed++; }
+  }
+  alert(`删除完成：已删除 ${deleted}，延迟删除 ${pending}，失败 ${failed}。`);
+  loadTasksTable();
 }
 
 function _fmtElapsed(start, end) {

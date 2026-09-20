@@ -1,7 +1,7 @@
 const PAGES = {
   overview: { render: renderOverview, mount: mountOverview },
   tasks: { render: renderTasks, mount: mountTasks },
-  'task-detail': { render: renderTaskDetail, mount: null },
+  'task-detail': { render: renderTaskDetail, mount: mountTaskDetail },
   thinking: { render: renderThinking, mount: mountThinking },
 };
 

@@ -358,6 +358,8 @@ def integrate_loop(
     for task_dir in sorted(tasks_root.iterdir()):
         if not task_dir.is_dir():
             continue
+        if (task_dir / ".delete-requested").exists():
+            continue
         state = get_state(task_dir)
         status = state.get("status") or state.get("state", "")
         if status != APPROVED:

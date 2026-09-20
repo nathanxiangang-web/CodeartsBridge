@@ -57,6 +57,8 @@ def _scan_candidate_tasks(tasks_root: Path) -> list[Task]:
     for task_dir in sorted(tasks_root.iterdir()):
         if not task_dir.is_dir():
             continue
+        if (task_dir / ".delete-requested").exists():
+            continue
         state = get_state(task_dir)
         status = state.get("status") or state.get("state", "")
         if status not in CANDIDATE_STATES:
@@ -108,6 +110,13 @@ def auto_dispatch(
     assignments_dir.mkdir(parents=True, exist_ok=True)
 
     result = AutoDispatchResult(dry_run=dry_run)
+
+    # Finalize deferred deletes before scanning candidates.
+    try:
+        from .task_delete import finalize_pending_deletes
+        finalize_pending_deletes(bridge_root)
+    except Exception:
+        pass
 
     # Scan candidate tasks
     candidate_tasks = _scan_candidate_tasks(tasks_root)

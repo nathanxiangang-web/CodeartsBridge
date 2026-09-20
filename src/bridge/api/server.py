@@ -372,6 +372,18 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
             return self._handle_integrate()
         return self._send_json(404, {"error": f"Unknown endpoint: {resource}"})
 
+    def do_DELETE(self):
+        parts, _ = self._parse_path()
+        if not parts or parts[0] != "api":
+            return self._send_json(404, {"error": "Not found"})
+        if len(parts) < 2:
+            return self._send_json(404, {"error": "Not found"})
+
+        resource = parts[1]
+        if resource == "tasks" and len(parts) >= 3:
+            return self._handle_delete_task(parts[2])
+        return self._send_json(404, {"error": f"Unknown endpoint: {resource}"})
+
     # ── Health ──────────────────────────────────────────────────────────────
 
     def _handle_health(self):
@@ -544,8 +556,13 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     def _handle_list_tasks(self, query: dict):
         from bridge.application.task_service import list_tasks
         from bridge.atomic import read_json_or_none
+        from bridge.task_delete import is_delete_requested
         try:
             tasks = list_tasks(self.bridge_root)
+
+            for t in tasks:
+                task_dir = self.bridge_root / "tasks" / t["taskId"]
+                t["deleteRequested"] = is_delete_requested(task_dir)
 
             state_filter = query.get("state", [None])[0] or query.get("status", [None])[0]
             project_filter = query.get("project", [None])[0]
@@ -585,6 +602,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     def _handle_get_task(self, task_id: str):
         from bridge.application.task_service import get_task_status
         from bridge.core.errors import TaskNotFoundError
+        from bridge.task_delete import is_delete_requested
         from bridge.state import get_state
         try:
             status = get_task_status(self.bridge_root, task_id)
@@ -697,6 +715,7 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                 "changedFiles": changed_files,
                 "diffPatch": diff_patch,
                 "integrationState": state_data.get("integrationState"),
+                "deleteRequested": is_delete_requested(task_dir),
             }
             return self._send_json(200, response)
         except TaskNotFoundError as e:
@@ -976,18 +995,35 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
     # ── Integration ────────────────────────────────────────────────────────
 
     def _handle_integrate(self):
-        from bridge.application.integration_service import integrate_approved_task
+        from bridge.integration import integrate_task
+        from bridge.core.state import get_state
         body = self._read_body()
         task_id = body.get("taskId") or body.get("task_id")
         if not task_id:
             return self._send_json(400, {"error": "taskId required"})
         try:
-            result = integrate_approved_task(self.bridge_root, task_id)
+            result = integrate_task(task_id, self.bridge_root)
+            task_dir = self.bridge_root / "tasks" / task_id
+            new_state = get_state(task_dir).get("state", "")
             return self._send_json(200, {
                 "success": result.success,
                 "taskId": result.task_id,
-                "newState": result.new_state,
+                "newState": new_state,
+                "mergedSha": result.merged_sha,
+                "error": result.error,
             })
+        except Exception as e:
+            return self._send_json(500, {"error": str(e)})
+
+    def _handle_delete_task(self, task_id: str):
+        from bridge.task_delete import request_task_delete
+        try:
+            result = request_task_delete(self.bridge_root, task_id)
+            if result.get("error"):
+                return self._send_json(404, result)
+            if result.get("deleted"):
+                return self._send_json(200, result)
+            return self._send_json(202, result)
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
 

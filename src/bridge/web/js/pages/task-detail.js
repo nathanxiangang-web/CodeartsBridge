@@ -22,6 +22,13 @@ async function renderTaskDetail(id) {
   html += `<div class="detail-row"><span class="k">尝试</span><span class="v">${attempt}</span></div>`;
   html += `<div class="detail-row"><span class="k">退出码</span><span class="v">${exitCode ?? '-'}</span></div>`;
   html += `<div class="detail-row"><span class="k">消息</span><span class="v">${msg}</span></div>`;
+  html += `<div class="detail-row"><span class="k">操作</span><span class="v">`;
+  if (t.deleteRequested) {
+    html += `<span class="muted">删除中（等待任务结束）</span>`;
+  } else {
+    html += `<button type="button" class="ui-btn ui-btn-sm" id="task-detail-delete-btn">删除任务</button>`;
+  }
+  html += `</span></div>`;
   html += '</div>';
 
   const started = t.startedAt || t.runningAt;
@@ -81,6 +88,34 @@ async function renderTaskDetail(id) {
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function mountTaskDetail(id) {
+  const btn = document.getElementById('task-detail-delete-btn');
+  if (!btn) return;
+  btn.onclick = async () => {
+    if (!id) return;
+    const ok = confirm(
+      `删除任务 ${id}？\n\n` +
+      `删除任务记录不会取消正在运行的 Worker。\n` +
+      `正在运行的任务会继续执行，结束后自动清理记录。`
+    );
+    if (!ok) return;
+    try {
+      const { status, data } = await API.deleteTask(id);
+      if (status === 200) {
+        alert(`任务 ${id} 已删除。`);
+        location.hash = '#tasks';
+      } else if (status === 202) {
+        alert(`任务 ${id} 仍在运行，已标记为延迟删除。\n任务结束后将自动清理记录。`);
+        location.hash = '#tasks';
+      } else {
+        alert(`删除失败: ${data.error || '未知错误'}`);
+      }
+    } catch (e) {
+      alert(`删除失败: ${e}`);
+    }
+  };
 }
 
 function fmtTime(ts) {

@@ -442,7 +442,7 @@ class TestImports:
         from bridge.workspace import base, existing, local_worktree, remote_worktree
 
     def test_import_application(self):
-        from bridge.application import task_service, dispatch_service, review_service, integration_service
+        from bridge.application import task_service, dispatch_service, review_service
 
     def test_import_integration(self):
         import bridge.integration

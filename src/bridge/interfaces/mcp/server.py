@@ -294,13 +294,15 @@ class MCPToolRegistry:
         return {"success": result.success, "newState": result.new_state}
 
     def _integration_plan(self, task_id: str):
-        from bridge.application.integration_service import integrate_approved_task
         return {"taskId": task_id, "plan": "integration branch + conflict detection + tests"}
 
     def _integration_execute(self, task_id: str):
-        from bridge.application.integration_service import integrate_approved_task
-        result = integrate_approved_task(self.bridge_root, task_id)
-        return {"success": result.success, "taskId": result.task_id, "newState": result.new_state}
+        from bridge.integration import integrate_task
+        from bridge.core.state import get_state
+        result = integrate_task(task_id, self.bridge_root)
+        task_dir = self.bridge_root / "tasks" / task_id
+        new_state = get_state(task_dir).get("state", "")
+        return {"success": result.success, "taskId": result.task_id, "newState": new_state}
 
 
 class MCPServer:
