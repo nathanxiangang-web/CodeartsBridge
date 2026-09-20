@@ -1,7 +1,7 @@
 # CodeartsBridge AI 收口 / 产品化工作区
 
 > 作用：后续 AI/Coding Agent 的第一入口文档。  
-> 当前基线：`main@59ca2e709cad3e03fdad50cdb53c8d0fd2556314`。  
+> 当前基线：`main@e1db59b`。  
 > 当前阶段已经从“架构收口”转入“收口尾声 + 产品化/UI”。
 
 ## 0. 当前真实主链
@@ -41,14 +41,14 @@ Web UI 不承担执行控制（cancel/retry/review/integrate），但允许“�
 
 ## 2. 当前阶段目标
 
-现在最重要的不是继续改底层，而是：
-
 ```
-P0  清理删除模块留下的 CLI / packaging 死入口
-P1  把 Tasks / Task Detail / Thinking / Overview 做到真正好用
-P2  决定是否把唯一 TaskLoop 收进 bridge serve
-P2  删除 legacy integration 平行路径
-P3  README / deploy / runtime truth 最终同步
+P0  清理 CLI / packaging 死入口              ✅
+P1  Tasks / Task Detail 好用                  ✅
+P1  Thinking / Overview 好用                  ⏳
+P2  删除 legacy integration 平行路径           ✅
+P2  是否把唯一 TaskLoop 收进 bridge serve      ⏳
+08  DELETE API + deferred delete + UI 删除     ✅
+P3  README / deploy / runtime truth 最终同步   ⏳
 ```
 
 详细安排：
@@ -66,7 +66,9 @@ dispatch 主路径统一到 auto_dispatch + scheduler
 Agent JSON PIPE / Watchdog / Recovery / artifact fetch 已实跑
 Issue #38 P0-A/P0-B 已闭环
 supervision / policy / runtime / dispatch / daemon / adaptive / cost 主模块已删除
-PR #35 已合入，但只实现本地隐藏；真正任务删除仍待按 08-TASK-DELETION-SEMANTICS.md 实现
+legacy integration_service.py 已删除，API/MCP 统一用 canonical integrate_task
+DELETE /api/tasks/<taskId> 已实现（08-TASK-DELETION-SEMANTICS）
+UI localStorage 隐藏已替换为真正删除
 Python 3.11 / 3.12 / 3.13 CI 全绿
 ```
 
@@ -87,28 +89,18 @@ bash fallback 可可靠写入 outbox
 
 ## 5. UI 当前真相
 
-PR #35 已进入 main，但其语义只是“隐藏”：
+任务删除已实现（08-TASK-DELETION-SEMANTICS）：
 
 ```
-localStorage: codeartsbridge.hiddenTasks.v1
+DELETE /api/tasks/<taskId>
+  200 {"deleted": true}   — 立即物理删除
+  202 {"pending": true}   — 延迟删除（运行中，marker 已写）
+
+.delete-requested marker → scanners 跳过 → 完成后 finalize 物理删除
+终态任务残留 inflight.json 不阻止删除
 ```
 
-真正需求是“删除任务记录”，且：
-
-```
-Delete != Cancel
-运行中删除不得取消 Agent / CodeArts
-运行中采用 deferred delete
-任务自然结束后再物理清理
-```
-
-完整语义见：
-
-```
-08-TASK-DELETION-SEMANTICS.md
-```
-
-后续实现时可以保留“隐藏”作为独立辅助功能，但 UI 文案必须和“删除”分开。
+UI 不做执行控制（cancel/retry/review/integrate），但允许删除任务记录。
 
 ## 6. 文档阅读顺序
 
