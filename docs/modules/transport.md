@@ -25,7 +25,7 @@ The Worker Agent is a daemon (`bridge-worker-agent`) listening on :8765. No SSH,
 ```python
 def run(
     self, project, worker, task_dir, task_id,
-    mode="auto", timeout_seconds=900, soft_timeout_seconds=0,
+    mode="auto", timeout_seconds=1800, soft_timeout_seconds=1500,
     session_id=None, attempt=0, baseline=None, quiet=False,
     model=None,
 ) -> TransportResult

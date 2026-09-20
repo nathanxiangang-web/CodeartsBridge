@@ -864,13 +864,13 @@ class BridgeAPIHandler(BaseHTTPRequestHandler):
                 ),
                 soft_timeout_minutes=execution.get(
                     "softTimeoutMinutes",
-                    body.get("softTimeoutMinutes", body.get("soft_timeout_minutes", 12)),
+                    body.get("softTimeoutMinutes", body.get("soft_timeout_minutes", 25)),
                 ),
                 hard_timeout_minutes=execution.get(
                     "hardTimeoutMinutes",
                     body.get(
                         "hardTimeoutMinutes",
-                        body.get("timeoutMinutes", body.get("timeout_minutes", 15)),
+                        body.get("timeoutMinutes", body.get("timeout_minutes", 30)),
                     ),
                 ),
             )

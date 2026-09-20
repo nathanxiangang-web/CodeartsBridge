@@ -5,7 +5,7 @@
 ## Worker 规则
 
 1. 每个 Task 有一个主要交付物、一个故障域、可独立测试
-2. 默认 hard timeout 15 分钟
+2. 默认 soft timeout 25 分钟，hard timeout 30 分钟
 3. Required Changes 不超过 5 项
 4. 不允许同时修改多个核心边界
 5. FIX 只能修当前交付物的窄缺陷

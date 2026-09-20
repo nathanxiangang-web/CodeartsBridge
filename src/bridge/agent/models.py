@@ -37,8 +37,8 @@ class JobRequest:
     model: str = ""
     mode: str = "auto"
     prompt: str = ""
-    softTimeoutSeconds: int = 480
-    hardTimeoutSeconds: int = 900
+    softTimeoutSeconds: int = 1500
+    hardTimeoutSeconds: int = 1800
     sessionId: str | None = None
 
     @classmethod
@@ -62,8 +62,8 @@ class JobInfo:
     cliPath: str = "codearts"
     model: str = ""
     mode: str = "auto"
-    softTimeoutSeconds: int = 480
-    hardTimeoutSeconds: int = 900
+    softTimeoutSeconds: int = 1500
+    hardTimeoutSeconds: int = 1800
     sessionId: str | None = None
     prompt: str = ""
 

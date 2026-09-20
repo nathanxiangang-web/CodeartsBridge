@@ -509,8 +509,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("--task-file", default=None)
     p_create.add_argument("--baseline", default=None)
     p_create.add_argument("--target-minutes", type=int, default=10)
-    p_create.add_argument("--soft-timeout-minutes", type=int, default=12)
-    p_create.add_argument("--timeout-minutes", type=int, default=15)
+    p_create.add_argument("--soft-timeout-minutes", type=int, default=25)
+    p_create.add_argument("--timeout-minutes", type=int, default=30)
     p_create.add_argument("--workspace-mode", default=None, choices=["auto", "isolated", "existing", "worktree", "local-worktree", "remote-worktree", "shared-readonly"])
     p_create.add_argument("--depends-on", nargs="*", default=None)
 

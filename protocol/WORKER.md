@@ -49,7 +49,7 @@ Use this standard file-writing procedure:
 
 ## Soft and hard delivery
 
-Every task has target, soft, and hard time limits. The Architect sets them per task complexity; the values in `META.json` are authoritative. Current implementation tasks normally target 10 minutes and use a hard cutoff of 15 minutes, with the soft limit set before the cutoff to reserve delivery time.
+Every task has target, soft, and hard time limits. The Architect sets them per task complexity; the values in `META.json` are authoritative. Current implementation tasks normally target 10 minutes, use a soft checkpoint at 25 minutes, and use a hard cutoff at 30 minutes.
 
 ### Soft delivery
 
@@ -70,7 +70,7 @@ Time limits scale with task complexity. Examples:
 
 - Read and write a test file: target=3 min, soft=4 min, hard=5 min
 - Implement a small function: target=6 min, soft=8 min, hard=10 min
-- Standard implementation module: target=10 min, soft=12 min, hard=15 min
+- Standard implementation module: target=10 min, soft=25 min, hard=30 min
 
 The Architect sets `softTimeoutMinutes` and `hardTimeoutMinutes` in `META.json` for each task. Workers must not assume the defaults; read `META.json` first.
 

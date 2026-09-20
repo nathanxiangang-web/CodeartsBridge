@@ -42,8 +42,8 @@ def create_task(
     baseline: str | None = None,
     workspace: str | None = None,
     target_minutes: int = 10,
-    soft_timeout_minutes: int = 12,
-    hard_timeout_minutes: int = 15,
+    soft_timeout_minutes: int = 25,
+    hard_timeout_minutes: int = 30,
 ) -> dict:
     """Create a new task with v2 META schema."""
     bridge_root = Path(bridge_root)

@@ -77,5 +77,5 @@ def test_task_service_defaults_match_v2_task_model(tmp_path):
     assert meta["priority"] == 50
     assert meta["execution"]["workspace"] == "auto"
     assert meta["execution"]["targetMinutes"] == 10
-    assert meta["execution"]["softTimeoutMinutes"] == 12
-    assert meta["execution"]["hardTimeoutMinutes"] == 15
+    assert meta["execution"]["softTimeoutMinutes"] == 25
+    assert meta["execution"]["hardTimeoutMinutes"] == 30

@@ -346,7 +346,7 @@ bridge create   -p bridge   -t my-task   --task-file /tmp/my-task.md
 常用时间参数：
 
 ```bash
-bridge create   -p bridge   -t my-task   --task-file /tmp/my-task.md   --target-minutes 10   --soft-timeout-minutes 12   --timeout-minutes 15
+bridge create   -p bridge   -t my-task   --task-file /tmp/my-task.md   --target-minutes 10   --soft-timeout-minutes 25   --timeout-minutes 30
 ```
 
 ## 7. 两种运行模式

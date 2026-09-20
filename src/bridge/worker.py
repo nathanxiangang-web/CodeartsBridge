@@ -171,10 +171,10 @@ def _run_worker_inner(
     # Calculate timeouts from META v2 execution config.
     # Top-level fields remain a compatibility fallback for legacy tasks.
     timeout_seconds = int(
-        execution.get("hardTimeoutMinutes", meta.get("hardTimeoutMinutes", 15))
+        execution.get("hardTimeoutMinutes", meta.get("hardTimeoutMinutes", 30))
     ) * 60
     soft_timeout_seconds = int(
-        execution.get("softTimeoutMinutes", meta.get("softTimeoutMinutes", 12))
+        execution.get("softTimeoutMinutes", meta.get("softTimeoutMinutes", 25))
     ) * 60
     mode = effective_project.run_mode or "auto"
     role = meta.get("role", "implement")
@@ -335,4 +335,3 @@ def run_worker(
             logging.getLogger(__name__).exception(
                 "failed to finalize scheduler assignment for %s", task_dir.name
             )
-

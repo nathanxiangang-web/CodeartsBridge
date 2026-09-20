@@ -227,8 +227,8 @@ class TaskExecution:
     excluded_workers: list[str] = field(default_factory=list)
     workspace: str = "auto"
     target_minutes: int = 10
-    soft_timeout_minutes: int = 12
-    hard_timeout_minutes: int = 15
+    soft_timeout_minutes: int = 25
+    hard_timeout_minutes: int = 30
 
     @classmethod
     def from_dict(cls, d: dict | None) -> TaskExecution:
@@ -238,8 +238,8 @@ class TaskExecution:
             excluded_workers=d.get("excludedWorkers", []),
             workspace=d.get("workspace", "auto"),
             target_minutes=d.get("targetMinutes", 10),
-            soft_timeout_minutes=d.get("softTimeoutMinutes", 12),
-            hard_timeout_minutes=d.get("hardTimeoutMinutes", 15),
+            soft_timeout_minutes=d.get("softTimeoutMinutes", 25),
+            hard_timeout_minutes=d.get("hardTimeoutMinutes", 30),
         )
 
     def to_dict(self) -> dict:
@@ -424,7 +424,7 @@ class ResolvedExecutionConfig:
     agent: AgentConfig = field(default_factory=AgentConfig)
     transport: dict = field(default_factory=lambda: {"type": "local"})
     workspace: dict = field(default_factory=lambda: {"type": "existing"})
-    timeouts: dict = field(default_factory=lambda: {"target": 600, "soft": 720, "hard": 900})
+    timeouts: dict = field(default_factory=lambda: {"target": 600, "soft": 1500, "hard": 1800})
 
     def to_dict(self) -> dict:
         return {

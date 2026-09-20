@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from bridge.agent.models import JobInfo, JobState
+from bridge.agent.models import JobInfo, JobRequest, JobState
 from bridge.agent.store import JobStore
 from bridge.agent.runner import Runner
 from bridge.agent.watchdog import Watchdog
@@ -17,6 +17,16 @@ def watchdog(tmp_path):
     store = JobStore(tmp_path / "agent")
     runner = Runner(store)
     return Watchdog(store, runner), store
+
+
+def test_agent_timeout_defaults_are_25_and_30_minutes():
+    request = JobRequest(taskId="defaults")
+    info = JobInfo(jobId="defaults", taskId="defaults")
+
+    assert request.softTimeoutSeconds == 25 * 60
+    assert request.hardTimeoutSeconds == 30 * 60
+    assert info.softTimeoutSeconds == 25 * 60
+    assert info.hardTimeoutSeconds == 30 * 60
 
 
 class TestSoftTimeout:

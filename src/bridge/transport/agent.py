@@ -21,8 +21,8 @@ class AgentTransport(TransportBase):
         task_dir: str | Path,
         task_id: str,
         mode: str = "auto",
-        timeout_seconds: int = 900,
-        soft_timeout_seconds: int = 0,
+        timeout_seconds: int = 1800,
+        soft_timeout_seconds: int = 1500,
         session_id: str | None = None,
         attempt: int = 0,
         baseline: str | None = None,
@@ -272,7 +272,7 @@ class AgentTransport(TransportBase):
             except Exception:
                 pass
 
-    def resume_inflight(self, task_dir: str | Path, timeout_seconds: int = 900) -> TransportResult | None:
+    def resume_inflight(self, task_dir: str | Path, timeout_seconds: int = 1800) -> TransportResult | None:
         """Resume polling an inflight Agent job after Bridge restart.
 
         Returns None if no inflight job exists, or TransportResult if

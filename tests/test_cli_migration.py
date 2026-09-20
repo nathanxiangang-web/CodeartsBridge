@@ -22,6 +22,10 @@ class TestCLIParser:
         args = parser.parse_args(["bootstrap"])
         assert args.command == "bootstrap"
 
+        create_args = parser.parse_args(["create", "-p", "p1", "-t", "t1"])
+        assert create_args.soft_timeout_minutes == 25
+        assert create_args.timeout_minutes == 30
+
     def test_has_serve_command(self):
         from bridge.cli import build_parser
         parser = build_parser()

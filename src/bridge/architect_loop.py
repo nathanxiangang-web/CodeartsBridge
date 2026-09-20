@@ -357,8 +357,8 @@ def _create_fix_task(
             "excludedWorkers": list(original_execution.get("excludedWorkers", [])),
             "workspace": original_execution.get("workspace", "auto"),
             "targetMinutes": int(original_execution.get("targetMinutes", 10)),
-            "softTimeoutMinutes": int(original_execution.get("softTimeoutMinutes", 12)),
-            "hardTimeoutMinutes": int(original_execution.get("hardTimeoutMinutes", 15)),
+            "softTimeoutMinutes": int(original_execution.get("softTimeoutMinutes", 25)),
+            "hardTimeoutMinutes": int(original_execution.get("hardTimeoutMinutes", 30)),
         },
         "review": {
             "required": True,

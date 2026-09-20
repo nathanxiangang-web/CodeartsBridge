@@ -106,7 +106,7 @@ class TestGetTaskDetailFields:
             "workerId": "w1",
             "role": "implement",
             "priority": 50,
-            "execution": {"targetMinutes": 10, "softTimeoutMinutes": 12, "hardTimeoutMinutes": 15},
+            "execution": {"targetMinutes": 10, "softTimeoutMinutes": 25, "hardTimeoutMinutes": 30},
             "review": {"required": True, "independentWorker": True},
         }), encoding="utf-8")
         set_state(task_dir, CREATED)
