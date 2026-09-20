@@ -29,11 +29,14 @@ Task
 
 1. `README.md` — 项目是什么、5 分钟启动
 2. `docs/USAGE.md` — 安装、配置、日常操作、升级、排障
-3. `docs/ai-closeout/NEXT.md` — 当前下一步
+3. `docs/CODEARTS-PINNED-RUNTIME.md` — CodeArts 26.8.12 固定版本与恢复规则
+4. `docs/ai-closeout/NEXT.md` — 当前下一步
 4. `docs/ai-closeout/README.md` — 当前架构约束
 5. `protocol/WORKER.md` — 注入给 Worker/CodeArts 的执行契约
 
 `docs/ai-closeout/01~08` 中有历史审计和收口记录。它们用于理解“为什么这样设计”，不是默认待办清单。
+
+**当前实验室 CodeArts CLI 固定为 26.8.12。不要升级到 26.9.x 或其他未知版本。** 恢复包已经作为 GitHub Release `codearts-cli-26.8.12-pinned` 上传，详见 `docs/CODEARTS-PINNED-RUNTIME.md`。
 
 ## 3. 当前运行方式
 
@@ -76,7 +79,7 @@ Worker 本机必须满足：
 - Python 3.10+
 - 当前项目代码已 checkout
 - 目标 `projectRoot` 在本机存在
-- `codearts --version` 能正常执行
+- `codearts --version` 能正常执行并返回 **26.8.12**
 - Bridge 能访问 `http://<worker>:8765`
 
 ## 4. 当前仓库配置
@@ -177,7 +180,14 @@ Agent 是当前核心运行时，承担：
 
 Issue #38 已修复过“5 分钟 permission hang”和“COMPLETED 早于 archive”的问题。
 
-但当前仍有一个 CodeArts CLI 行为需要区分：
+当前还必须遵守版本固定规则：
+
+- 实验室生产 Worker 使用 **26.8.12 pinned runtime**
+- 26.9.7 在现有账号上会在 Model Queuing 阶段被 package/account gate 拒绝
+- 不要把 26.9.7 的 Access denied 诊断成 Bridge / outbox / write 问题
+- 不要在生产 Worker 执行 `codearts upgrade`
+
+同时仍有一个独立的 CodeArts CLI 行为需要区分：
 
 - `--format json` 下 built-in `write/edit` 可能立即被拒
 - Worker contract 当前允许 shell fallback 写成果
@@ -242,6 +252,7 @@ curl -fsS http://127.0.0.1:8080/api/health
 当前 main 代码
 > AGENTS.md
 > docs/USAGE.md
+> docs/CODEARTS-PINNED-RUNTIME.md
 > docs/ai-closeout/NEXT.md
 > docs/ai-closeout/README.md
 > 历史 roadmap / audit 文档

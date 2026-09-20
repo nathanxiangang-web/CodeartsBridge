@@ -40,7 +40,7 @@ Bridge 主机：
 - Python 3.10+
 - Git
 - CodeArts CLI 已安装并配置
-- `codearts --version` 能在运行 Agent 的用户下成功
+- `codearts --version` 能在运行 Agent 的用户下成功，并且当前必须是 **26.8.12**
 - 目标项目已经 checkout 到 `projects.json` 里的 `projectRoot`
 
 建议所有机器上的 CodeartsBridge 仓库使用同一路径，当前实验室是：
@@ -89,6 +89,8 @@ BRIDGE_INSTALL_SYSTEMD=0 ./deploy/install-bridge.sh
 
 ### 3.2 Worker
 
+当前 Worker CodeArts 运行时是 **固定版本 26.8.12**。不要先安装/升级最新版。若机器已经被升级到 26.9.x，先按 `docs/CODEARTS-PINNED-RUNTIME.md` 恢复 26.8.12。
+
 每台 Worker：
 
 ```bash
@@ -96,6 +98,7 @@ git clone https://github.com/nathanxiangang-web/CodeartsBridge.git
 cd CodeartsBridge
 
 codearts --version
+# expected: 26.8.12
 ./deploy/install-worker-agent.sh
 ```
 
@@ -350,7 +353,38 @@ CodeArts
 
 `COMPLETED` 的语义是：Agent archive 已经完成，可以安全 fetch。
 
-## 10. CodeArts write/edit 当前注意事项
+## 10. CodeArts 固定版本与 write/edit 当前注意事项
+
+### 10.1 固定版本
+
+当前实验室已验证可用版本：
+
+```text
+26.8.12
+```
+
+GitHub Release：
+
+```text
+codearts-cli-26.8.12-pinned
+```
+
+资产：
+
+```text
+codearts-install-26.8.12-linux-x64.tar.gz
+codearts-install-26.8.12-linux-x64.tar.gz.sha256
+```
+
+SHA-256：
+
+```text
+5ab25bff375ba0027757d4cb46f46c22b32cc7df9973ca75d2a86ff8aa3a0b67
+```
+
+26.9.7 在现有实验室账号上会在 Model Queuing 阶段被 package/account gate 拒绝，因此生产 Worker **禁止 `codearts upgrade`**。完整恢复步骤见 `docs/CODEARTS-PINNED-RUNTIME.md`。
+
+### 10.2 built-in write/edit
 
 当前已知：
 
@@ -365,6 +399,10 @@ CodeArts
 但正常项目源码如果长期全部退化成 base64 / `python3 -c` 整文件覆盖，应单独审查 Worker contract，而不是把这种行为当成理想编辑方式。
 
 ## 11. 升级
+
+这里的“升级”默认只指 **CodeartsBridge 自身**，不包括 CodeArts CLI。
+
+CodeArts CLI 当前固定在 26.8.12，除非完成独立测试与真实任务验收，否则不要升级。
 
 Bridge 主机：
 
@@ -455,5 +493,6 @@ python -m bridge.cli doctor
 - `AGENTS.md` — AI / 新维护者第一入口
 - `README.md` — 项目概要与 Quick Start
 - `docs/USAGE.md` — 本文，安装和运行手册
+- `docs/CODEARTS-PINNED-RUNTIME.md` — CodeArts 26.8.12 固定版本、恢复包、升级规则
 - `docs/ai-closeout/NEXT.md` — 当前下一步
 - `protocol/WORKER.md` — Worker 执行契约

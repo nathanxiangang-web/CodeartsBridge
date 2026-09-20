@@ -6,6 +6,7 @@
 AGENTS.md
 README.md
 docs/USAGE.md
+docs/CODEARTS-PINNED-RUNTIME.md
 ```
 
 不要先翻旧 roadmap 再猜运行方式。
@@ -41,6 +42,10 @@ deploy/install-worker-agent.sh
 
 ### P1 — CodeArts built-in write/edit 调查
 
+调查固定基线：**CodeArts CLI 26.8.12 pinned runtime**。
+
+26.9.7 已确认会在现有账号的 Model Queuing 阶段触发 package/account gate；这属于版本/账号兼容问题，不是 write/edit 现象。调查 write/edit 时不要使用 26.9.7 作为基线。
+
 当前事实：
 
 ```text
@@ -59,6 +64,8 @@ shell/python fallback 可以写 outbox
 4. 有证据后再决定是否改 Bridge
 
 不要先重构 Agent/outbox。
+
+生产 Worker 禁止执行 `codearts upgrade`。版本恢复与 Release 信息见 `docs/CODEARTS-PINNED-RUNTIME.md`。
 
 ### P2 — 控制循环和历史资料收尾
 
