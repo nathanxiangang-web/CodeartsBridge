@@ -13,6 +13,8 @@ BRIDGE_INSTALL_SYSTEMD="${BRIDGE_INSTALL_SYSTEMD:-1}"
 SERVICE_NAME="${BRIDGE_AGENT_SERVICE_NAME:-bridge-worker-agent}"
 RUN_USER="${BRIDGE_USER:-${SUDO_USER:-$(id -un)}}"
 AUTH_MODE="${BRIDGE_AGENT_AUTH:-auto}"
+EXPECTED_CODEARTS_VERSION="${BRIDGE_CODEARTS_EXPECTED_VERSION:-}"
+DISABLE_CODEARTS_AUTO_UPDATE="${CODEARTS_DISABLE_AUTO_UPDATE:-true}"
 
 if command -v getent >/dev/null 2>&1; then
   RUN_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6)"
@@ -20,6 +22,7 @@ else
   RUN_HOME="$HOME"
 fi
 RUN_HOME="${RUN_HOME:-$HOME}"
+CODEARTS_ENV_FILE="${BRIDGE_CODEARTS_ENV_FILE:-$RUN_HOME/.config/codeartsbridge/codearts.env}"
 
 echo "=== CodeartsBridge Worker Agent Installer ==="
 echo "repo:     $REPO_DIR"
@@ -55,12 +58,22 @@ if [ -z "$CODEARTS_BIN" ]; then
   exit 1
 fi
 
-if ! "$CODEARTS_BIN" --version >/dev/null 2>&1; then
+if ! CODEARTS_VERSION_OUTPUT="$("$CODEARTS_BIN" --version 2>&1)"; then
   echo "ERROR: CodeArts CLI exists but '--version' failed: $CODEARTS_BIN" >&2
   exit 1
 fi
 
 echo "codearts: $CODEARTS_BIN"
+CODEARTS_VERSION="$(printf '%s\n' "$CODEARTS_VERSION_OUTPUT" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+if [ -z "$CODEARTS_VERSION" ]; then
+  echo "ERROR: Could not parse CodeArts CLI version" >&2
+  exit 1
+fi
+echo "version:  $CODEARTS_VERSION"
+if [ -n "$EXPECTED_CODEARTS_VERSION" ] && [ "$CODEARTS_VERSION" != "$EXPECTED_CODEARTS_VERSION" ]; then
+  echo "ERROR: CodeArts CLI version mismatch: expected $EXPECTED_CODEARTS_VERSION, got $CODEARTS_VERSION" >&2
+  exit 1
+fi
 
 "$PYTHON_BIN" -m venv "$VENV_DIR"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null
@@ -77,6 +90,7 @@ cat >"$CONFIG_DIR/agent.json" <<EOF
 EOF
 
 ENV_FILE="$CONFIG_DIR/agent.env"
+echo "codearts env: $CODEARTS_ENV_FILE (preserved, optional)"
 
 case "$AUTH_MODE" in
   off)
@@ -133,7 +147,10 @@ WorkingDirectory=$REPO_DIR
 Environment=PYTHONUNBUFFERED=1
 Environment=HOME=$RUN_HOME
 Environment=PATH=$RUN_HOME/.local/bin:$RUN_HOME/.codeartsdoer/installers/bin:$RUN_HOME/.codeartsdoer/installers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
+Environment=CODEARTS_DISABLE_AUTO_UPDATE=$DISABLE_CODEARTS_AUTO_UPDATE
 EnvironmentFile=-$ENV_FILE
+EnvironmentFile=-$CODEARTS_ENV_FILE
+UnsetEnvironment=OPENCODE OPENCODE_CHANNEL OPENCODE_CONFIG OPENCODE_CONFIG_FILE OPENCODE_PID OPENCODE_SERVER_PASSWORD OPENCODE_SERVER_USERNAME OPENCODE_SKIP_MIGRATIONS
 ExecStart=$VENV_DIR/bin/python -m bridge.agent.cli --listen 0.0.0.0 --port $AGENT_PORT --root $AGENT_ROOT --config $CONFIG_DIR/agent.json
 Restart=always
 RestartSec=2

@@ -187,12 +187,16 @@ Issue #38 已修复过“5 分钟 permission hang”和“COMPLETED 早于 archi
 - 不要把 26.9.7 的 Access denied 诊断成 Bridge / outbox / write 问题
 - 不要在生产 Worker 执行 `codearts upgrade`
 
-同时仍有一个独立的 CodeArts CLI 行为需要区分：
+CodeArts built-in `write/edit` 已在 26.8.12 固定基线上完成受控排查：
 
-- `--format json` 下 built-in `write/edit` 可能立即被拒
-- Worker contract 当前允许 shell fallback 写成果
-- 这不等于 built-in write 问题已经彻底解决
-- 不要为了这个现象重新设计 Agent / outbox，除非有新的可复现实验证据
+- 当前 CLI 的真实 data path 必须以 `codearts debug paths` 为准
+- 当前实验室生效权限文件位于 `~/.local/share/opencode/storage/permission/global.json`
+- `edit/write/external_directory_write/dotfile` 必须是 `allow`
+- Agent 进程不能继承旧 `OPENCODE_*` 环境
+- 默认 Agent、显式 Build、`--auto` 和 Agent HTTP 真实 Job 均已验证原生 write 成功
+- shell/python fallback 仍是应急路径，但不能代替原生 write 的部署验收
+
+完整证据、核查、修复与回滚见 `docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md`。
 
 ## 8. 修改项目时的硬规则
 

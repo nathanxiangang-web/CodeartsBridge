@@ -209,11 +209,15 @@ curl -fsS http://<bridge-host>:8080/api/health
 
 当前实验室 Worker **固定使用 CodeArts CLI 26.8.12**。26.9.7 在现有账号上会在 Model Queuing 阶段被 package/account gate 拒绝，因此不能当作可升级版本。恢复包、SHA-256 和安装步骤见 [docs/CODEARTS-PINNED-RUNTIME.md](docs/CODEARTS-PINNED-RUNTIME.md)。
 
-这和 built-in write/edit 是两个独立问题：
+这和 built-in write/edit 是两个独立问题。26.8.12 的原生 write 已确认可用；此前拒绝来自错误的生效权限文件和 Agent 遗留 `OPENCODE_*` 环境。部署时运行：
 
-当前 `--format json` 下 built-in `write/edit` 仍可能立即拒绝。Worker contract 允许 shell fallback 写正式成果；这条 fallback 已用于真实 outbox 任务，但 **不代表 built-in write 问题已经彻底解决**。
+```bash
+python3 deploy/codearts-worker-runtime.py audit \
+  --expected-version 26.8.12 \
+  --require-aksk
+```
 
-看到 Worker 用 `python3 -c` 写 outbox 是当前 fallback 行为之一。正常源码编辑若长期全部退化成 base64 / 整文件覆盖，应单独审查，而不是视为理想状态。
+看到 shell/python fallback 不能代替原生 write 验收。完整证据、修复与回滚见 [docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md](docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md)。
 
 ## 常用 CLI
 
@@ -274,6 +278,7 @@ python -m bridge.cli doctor
 - [AGENTS.md](AGENTS.md) — AI / 新维护者第一入口
 - [docs/USAGE.md](docs/USAGE.md) — 当前使用与运维手册
 - [docs/CODEARTS-PINNED-RUNTIME.md](docs/CODEARTS-PINNED-RUNTIME.md) — 固定 CodeArts 26.8.12 与恢复规则
+- [docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md](docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md) — CodeArts write 权限核查与恢复
 - [docs/ai-closeout/NEXT.md](docs/ai-closeout/NEXT.md) — 当前下一步
 - [protocol/WORKER.md](protocol/WORKER.md) — 注入 Worker 的执行契约
 

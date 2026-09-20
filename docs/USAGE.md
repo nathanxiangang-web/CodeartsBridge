@@ -386,17 +386,30 @@ SHA-256：
 
 ### 10.2 built-in write/edit
 
-当前已知：
+26.8.12 的 built-in `write` 已完成受控验证。此前立即拒绝的真实原因是：
 
-- permission hang 已经处理过
-- `--format json` 下 built-in `write/edit` 仍可能立即拒绝
-- Worker contract 允许 shell fallback 写成果
-- 当前 fallback 经真实 outbox 任务验证能工作
-- built-in write 本身仍应视为一个待进一步确认的 CodeArts CLI 行为
+1. 修改了未被 CLI 使用的影子 `global.json`；
+2. 真实 data path 下的 `edit/write/external_directory_write/dotfile` 仍是 `ask`；
+3. 旧 Agent 继承 `OPENCODE_*`，再次指向旧配置。
 
-看到 `python3 -c` 写 outbox 不代表 Agent 出错；这是当前 fallback 路径之一。
+部署后必须执行：
 
-但正常项目源码如果长期全部退化成 base64 / `python3 -c` 整文件覆盖，应单独审查 Worker contract，而不是把这种行为当成理想编辑方式。
+```bash
+python3 deploy/codearts-worker-runtime.py audit \
+  --expected-version 26.8.12 \
+  --require-aksk
+```
+
+需要修复权限时先预览，再显式应用：
+
+```bash
+python3 deploy/codearts-worker-runtime.py fix-permissions
+python3 deploy/codearts-worker-runtime.py fix-permissions --apply
+```
+
+修复工具会先备份真实权限文件，不修改其他权限或凭据。完整调查矩阵、Agent 环境清理、回滚和真实写入验收见 `docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md`。
+
+shell/python fallback 仍可作为任务级应急路径，但不能代替 built-in write 的部署验收。
 
 ## 11. 升级
 

@@ -83,13 +83,13 @@ CodeArts CLI 26.8.12
 
 26.9.7 在现有账号上会在 Model Queuing 阶段被 package/account gate 拒绝，因此不要在生产 Worker 执行 `codearts upgrade`。
 
-## 当前已知未决
+## 已解决的 CodeArts write 配置问题
 
-CodeArts `--format json` 下 built-in `write/edit` 仍可能立即拒绝。
+26.8.12 固定基线上的 built-in write 已通过项目内、项目外、默认 Agent、显式 Build、`--auto` 和 Agent HTTP 真实任务验证。
 
-当前 Worker 会使用 shell fallback 写正式 outbox，所以任务可以交付；但不要把 fallback 误写成“built-in write 已修复”。
+根因是 CLI 真实 data path 下的权限仍为 `ask`，以及旧 Agent 继承 `OPENCODE_*` 指向旧配置。后续部署必须运行 `deploy/codearts-worker-runtime.py audit`；完整报告见 `docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md`。
 
-调查这个问题时，先做可复现实验，不要先重构 Agent/outbox。
+shell fallback 仍是应急路径，不是部署验收标准。不要因此重构 Agent/outbox。
 
 ## UI 边界
 

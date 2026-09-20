@@ -94,10 +94,22 @@ install -m 711 "$tmp_dir/codearts"   ~/.codeartsdoer/installers/codearts
 
 ```text
 ~/.codeartsdoer/cli-data/
+~/.codeartsdoer/codearts-data/
+~/.local/share/opencode/
 ~/.config/codeartsbridge/
 ```
 
 不要把 AK/SK、token、permission 配置提交到仓库。
+
+重新安装后必须从新的登录 shell 执行运行时核查：
+
+```bash
+python3 deploy/codearts-worker-runtime.py audit \
+  --expected-version 26.8.12 \
+  --require-aksk
+```
+
+其中权限真相以 `codearts debug paths` 返回的 data 目录为准，不能只检查 `~/.codeartsdoer/cli-data`。
 
 ## 4. 运行规则
 
@@ -184,15 +196,15 @@ actual != 26.8.12
 A. 26.9.7 package/account routing 问题
 → 任务在模型队列阶段就失败
 
-B. 26.8.12 built-in write/edit 问题
+B. 26.8.12 built-in write/edit 配置问题
 → 模型已经运行
-→ 工具调用时可能立即拒绝
-→ shell/python fallback 可以写正式成果
+→ 错误 data path 下的真实权限仍为 ask
+→ 旧 Agent 还可能继承 OPENCODE_* 指向旧配置
 ```
 
 不要把 A 和 B 混成一个问题。
 
-当前仍需要继续调查 B，但调查必须基于 **26.8.12 pinned runtime**，否则版本变量会污染结论。
+B 已在 26.8.12 pinned runtime 上完成项目内、项目外、默认 Agent、显式 Build、`--auto` 和 Agent HTTP 真实任务验证。修复、回滚和验收见 `docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md`。
 
 ## 8. 给 Coding Agent 的结论
 
