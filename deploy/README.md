@@ -40,7 +40,19 @@ BRIDGE_INSTALL_SYSTEMD=0 ./deploy/install-bridge.sh
 - 安装/重启 `bridge-worker-agent.service`
 - 检查 `/v1/health`
 
-新安装默认可信 LAN、auth off。若已有 `agent.env`，脚本保留现有 token 配置。
+新安装默认可信 LAN、auth off。若已有 `agent.env`，`BRIDGE_AGENT_AUTH=auto` 会保留现有 token 配置。
+
+如果旧安装脚本曾自动生成 token，但当前 `workers.json` 没有对应 token，请明确恢复可信 LAN 模式：
+
+```bash
+BRIDGE_AGENT_AUTH=off ./deploy/install-worker-agent.sh
+```
+
+要显式启用 token：
+
+```bash
+BRIDGE_AGENT_AUTH=token BRIDGE_AGENT_TOKEN='...' ./deploy/install-worker-agent.sh
+```
 
 ## Reference unit
 
