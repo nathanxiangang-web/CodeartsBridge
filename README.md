@@ -2,14 +2,14 @@
 
 Lightweight task control plane for multi-AI software development. Dispatch coding tasks to Worker nodes running CodeArts CLI, stream Agent thinking in real time, review and integrate results.
 
-> **Quick mental model**: A Python service runs on the bridge host. You configure `projects.json` (project paths) and `workers.json` (Worker Agent endpoints), then `bridge serve` starts the HTTP API + read-only Web UI. Tasks are created via CLI and dispatched manually with `bridge dispatch`. Each Worker runs a `bridge-worker-agent` daemon that executes CodeArts CLI and streams events back. The UI is read-only monitoring only.
+> **Quick mental model**: A Python service runs on the bridge host. You configure `projects.json` (project paths) and `workers.json` (Worker Agent endpoints), then `bridge serve` starts the HTTP API + Web UI. Tasks are created via CLI and dispatched to Workers. Each Worker runs a `bridge-worker-agent` daemon that executes CodeArts CLI and streams events back. The UI monitors tasks and can delete task records (but does not control execution).
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────┐
-│          Read-only Web UI (:8080)             │
-│   overview / tasks / thinking (+ task-detail)  │
+│              Web UI (:8080)                   │
+│   overview / tasks / thinking / task-detail    │
 └──────────────────┬───────────────────────────┘
                    │ HTTP API + SSE
 ┌──────────────────┴───────────────────────────┐
@@ -28,20 +28,20 @@ Lightweight task control plane for multi-AI software development. Dispatch codin
 
 | Component | Description |
 |-----------|-------------|
-| **Bridge Server** | HTTP API + read-only Web UI on the bridge host, task dispatch and state management |
+| **Bridge Server** | HTTP API + Web UI on the bridge host, task dispatch and state management |
 | **Agent Server** | Worker daemon (:8765), receives jobs, runs CodeArts CLI, streams events back |
 | **EventStore** | Event store with fcntl.flock concurrency safety and 10MB auto-rotation |
-| **Web UI** | 3 read-only pages (overview / tasks / thinking) plus task-detail, SSE real-time push |
+| **Web UI** | 4 pages (overview / tasks / thinking / task-detail), SSE real-time push, task deletion |
 
 **Workflow**:
 1. `bridge serve` starts HTTP API + Web UI (+ MCP on by default) on the bridge host
 2. Each Worker runs `bridge-worker-agent` (daemon on :8765)
 3. `bridge create` creates a task (Markdown file describing the work)
-4. `bridge dispatch` assigns the task to an enabled Worker and sends it over agent transport
+4. `bridge auto-dispatch` (or `--with-pipeline`) assigns tasks to Workers via agent transport
 5. Worker Agent invokes CodeArts CLI to execute the task
 6. Events (reasoning, tool_use, step) stream back to Bridge in real time
 7. Web UI renders the thinking stream live via SSE
-8. `bridge integrate` cherry-picks DONE tasks into the main branch
+8. Review: `bridge review-pass` → APPROVED → `bridge integrate` → DONE + integratedSha
 
 ## Quick start
 
@@ -59,10 +59,13 @@ pip install -e .
 # 1. Bridge host: start HTTP API + Web UI
 bridge serve --host 0.0.0.0 --port 8080
 
+# Or with autonomous dispatch/review/integrate loop:
+bridge serve --host 0.0.0.0 --port 8080 --with-pipeline
+
 # 2. Each Worker: start Agent Server (trusted LAN, no token needed)
 bridge-worker-agent --listen 0.0.0.0 --port 8765
 
-# 3. Open the read-only UI
+# 3. Open the UI
 open http://<bridge-host>:8080
 ```
 
@@ -72,8 +75,11 @@ open http://<bridge-host>:8080
 # Create a task from a Markdown instruction file
 bridge create -p bridge -t my-task -f task.md
 
-# Dispatch it to an enabled Worker (manual — serve does not auto-dispatch)
-bridge dispatch
+# Auto-dispatch to enabled Workers
+bridge auto-dispatch
+
+# Or run the full pipeline (dispatch + review + integrate)
+bridge pipeline --once
 
 # Watch status
 bridge status
@@ -147,31 +153,33 @@ Agent transport only. The Bridge talks to each Worker over HTTP (`http://<worker
 
 | Command | Description |
 |---------|-------------|
-| `bridge serve` | Start HTTP API + Web UI (+ MCP on by default) |
+| `bridge serve` | Start HTTP API + Web UI (+ MCP). Add `--with-pipeline` for autonomous loop |
 | `bridge create -p <project> -t <task-id> -f <file>` | Create a task |
-| `bridge dispatch` | Dispatch ready tasks to enabled Workers (manual) |
+| `bridge auto-dispatch` | Auto-dispatch ready tasks to enabled Workers |
+| `bridge pipeline` | Run full pipeline (dispatch + review + integrate). `--once` for single cycle |
 | `bridge status` | Show all task states |
 | `bridge review-pass -t <task-id>` | Mark a task review-passed |
 | `bridge review-fix -t <task-id> --task-file <file>` | Return a task for fix |
-| `bridge integrate` | Cherry-pick DONE tasks into main |
+| `bridge integrate` | Cherry-pick APPROVED tasks into main |
 | `bridge cancel -t <task-id>` | Cancel a task |
 | `bridge projects` | List registered projects |
 | `bridge workers` | List registered Workers |
 | `bridge doctor` | Environment and config health check |
 
-`bridge serve` does **not** auto-dispatch. You must run `bridge dispatch` (or an external loop) to move tasks from READY to a Worker.
+Without `--with-pipeline`, `bridge serve` does **not** auto-dispatch. Use `bridge auto-dispatch` or `bridge pipeline` separately.
 
 ## Web UI
 
-Read-only monitoring. Open `http://<bridge-host>:8080` in a browser.
+Open `http://<bridge-host>:8080` in a browser.
 
 | Page | URL hash | Description |
 |------|----------|-------------|
-| Overview | `#overview` | Worker status, task counts |
-| Tasks | `#tasks` | Task list with status filters; click for task-detail |
-| Thinking | `#thinking` | Real-time Agent thinking stream (SSE) |
+| Overview | `#overview` | Worker status, task state counts, elapsed, last event |
+| Tasks | `#tasks` | Task list with 12-state filter, active-first sort, delete action |
+| Task Detail | `#task-detail/<id>` | Outbox preview (RESULT/TESTS/DIFF), commit SHA, timeline, delete |
+| Thinking | `#thinking` | Real-time Agent thinking stream (SSE), live vs retained distinction |
 
-The UI is read-only — it does not create, cancel, retry, or review tasks. Control happens via CLI or the Bridge internal loop.
+**UI boundary**: The UI does not do execution control (cancel/retry/review/integrate). It can delete task records — Delete != Cancel. Running tasks use deferred delete (marker + auto-cleanup after completion).
 
 **Tech stack**: browser-native ES Modules (no build tool, no framework), single `app.css`, SSE real-time events with polling fallback.
 
@@ -185,7 +193,12 @@ The UI is read-only — it does not create, cancel, retry, or review tasks. Cont
 | GET | `/api/tasks` | List all tasks |
 | GET | `/api/tasks/<id>` | Task detail |
 | GET | `/api/tasks/<id>/log` | Task log (event stream) |
+| POST | `/api/tasks` | Create a task |
+| DELETE | `/api/tasks/<id>` | Delete task record (200 immediate / 202 deferred) |
 | POST | `/api/tasks/<id>/cancel` | Cancel a task |
+| POST | `/api/tasks/<id>/review/pass` | Review pass |
+| POST | `/api/tasks/<id>/review/fix` | Review fix |
+| POST | `/api/integrations` | Integrate approved task |
 | GET | `/api/workers` | List Workers |
 | GET | `/api/projects` | List projects |
 | GET | `/api/events` | SSE event stream (real-time push) |
@@ -207,10 +220,13 @@ The UI is read-only — it does not create, cancel, retry, or review tasks. Cont
 ```
 src/bridge/
 ├── cli.py                    # CLI entry
-├── dispatch.py               # Task dispatch
+├── auto_dispatch.py          # Auto-dispatch engine
+├── pipeline.py               # Pipeline orchestrator (dispatch+review+integrate)
+├── task_delete.py            # Task deletion (deferred delete + finalize)
 ├── state.py                  # Task state machine
 ├── worker.py                 # Worker execution
-├── integration.py            # Cherry-pick integration
+├── integration.py            # Cherry-pick integration (canonical)
+├── architect_loop.py         # Architect review loop
 ├── config.py                 # Config loading
 ├── agent/                    # Worker Agent (daemon)
 │   ├── cli.py                # Agent CLI entry
@@ -221,11 +237,16 @@ src/bridge/
 │   └── store.py              # Job store
 ├── transport/
 │   └── agent.py              # Agent transport (HTTP API)
+├── application/              # Application services
+│   ├── task_service.py       # Task CRUD
+│   ├── dispatch_service.py   # Dispatch service
+│   ├── review_service.py     # Review service
+│   └── workers.py            # Worker management
 ├── core/
 │   ├── events.py             # EventStore (flock + rotation)
 │   └── state.py              # State machine
 ├── api/server.py             # HTTP API server
-└── web/                      # Read-only Web UI
+└── web/                      # Web UI
     ├── index.html
     ├── styles/app.css
     └── js/
@@ -266,6 +287,8 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now bridge
 ```
 
+Add `--with-pipeline` to `ExecStart` for autonomous dispatch/review/integrate.
+
 ### systemd — Worker Agent (each Worker)
 
 ```bash
@@ -292,7 +315,7 @@ export PYTHONPATH=src     # if not pip install
 
 ## Closeout docs
 
-- `docs/ai-closeout/` — runtime truth audit, closeout roadmap, delete-or-wire matrix, AI execution rules, real acceptance scenarios. Read these first when working on the bridge.
+- `docs/ai-closeout/` — runtime truth audit, closeout roadmap, productization roadmap, task deletion semantics. Read `NEXT.md` first when working on the bridge.
 
 ## License
 
