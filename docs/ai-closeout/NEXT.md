@@ -40,32 +40,13 @@ deploy/install-worker-agent.sh
 - Overview 显示 Worker 当前任务 / elapsed / last event
 - 继续保持 UI 简洁，不恢复重型控制面
 
-### P1 — CodeArts built-in write/edit 调查
+### 已完成 — CodeArts built-in write/edit 调查
 
-调查固定基线：**CodeArts CLI 26.8.12 pinned runtime**。
+26.8.12 固定基线上的受控矩阵和 Agent HTTP 真实 Job 已通过。根因是生效权限文件路径判断错误，叠加 Agent 遗留 `OPENCODE_*` 环境；Bridge 未显式指定 Build 不是根因。
 
-26.9.7 已确认会在现有账号的 Model Queuing 阶段触发 package/account gate；这属于版本/账号兼容问题，不是 write/edit 现象。调查 write/edit 时不要使用 26.9.7 作为基线。
+以后部署通过 `deploy/codearts-worker-runtime.py audit` 验收，修复与回滚按 `docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md` 执行。不要把 shell/python fallback 当成原生 write 验收结果，也不要重新设计 Agent/outbox。
 
-当前事实：
-
-```text
-permission hang 已消失
---format json 下 built-in write/edit 仍可能立即拒绝
-shell/python fallback 可以写 outbox
-```
-
-这里仍是“未彻底解决”，不要写成已完成。
-
-调查顺序：
-
-1. 先做原生 CodeArts 可复现实验
-2. 确认最终生效 permission / agent / run mode
-3. 区分普通 project path、隐藏目录、external path
-4. 有证据后再决定是否改 Bridge
-
-不要先重构 Agent/outbox。
-
-生产 Worker 禁止执行 `codearts upgrade`。版本恢复与 Release 信息见 `docs/CODEARTS-PINNED-RUNTIME.md`。
+26.9.7 的 Model Queuing package/account gate 仍是独立问题。生产 Worker 禁止执行 `codearts upgrade`；版本恢复与 Release 信息见 `docs/CODEARTS-PINNED-RUNTIME.md`。
 
 ### P2 — 控制循环和历史资料收尾
 
