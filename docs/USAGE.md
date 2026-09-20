@@ -110,7 +110,19 @@ codearts --version
 
 新安装默认是可信 LAN 模式，不自动生成 token。
 
-如果已有 `~/.config/codeartsbridge/agent.env`，安装脚本会保留它。
+如果已有 `~/.config/codeartsbridge/agent.env`，默认 `auto` 模式会保留它。旧安装若留下了 Bridge 未配置的 token，可明确关闭：
+
+```bash
+BRIDGE_AGENT_AUTH=off ./deploy/install-worker-agent.sh
+```
+
+如需 token 模式：
+
+```bash
+BRIDGE_AGENT_AUTH=token BRIDGE_AGENT_TOKEN='...' ./deploy/install-worker-agent.sh
+```
+
+此时 Bridge 侧也必须配置匹配 token；否则 job API 会返回 401。
 
 ## 4. 配置
 
