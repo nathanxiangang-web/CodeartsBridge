@@ -64,7 +64,7 @@ if ! CODEARTS_VERSION_OUTPUT="$("$CODEARTS_BIN" --version 2>&1)"; then
 fi
 
 echo "codearts: $CODEARTS_BIN"
-CODEARTS_VERSION="$(printf '%s\n' "$CODEARTS_VERSION_OUTPUT" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+CODEARTS_VERSION="$(printf '%s\n' "$CODEARTS_VERSION_OUTPUT" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
 if [ -z "$CODEARTS_VERSION" ]; then
   echo "ERROR: Could not parse CodeArts CLI version" >&2
   exit 1

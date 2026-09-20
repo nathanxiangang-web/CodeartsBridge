@@ -99,7 +99,7 @@ cd CodeartsBridge
 
 codearts --version
 # expected: 26.8.12
-./deploy/install-worker-agent.sh
+BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 ./deploy/install-worker-agent.sh
 ```
 
 安装脚本会：
@@ -110,6 +110,8 @@ codearts --version
 4. 创建 `~/.config/codeartsbridge/agent.json`
 5. 安装并启动 `bridge-worker-agent.service`
 6. 检查 `/v1/health`
+
+CodeArts AK/SK 使用独立文件 `~/.config/codeartsbridge/codearts.env`，权限必须是 `600`。该文件不提交仓库，安装器只加载和保留它。生成的 systemd unit 会禁用 CodeArts 自动升级并清除旧 `OPENCODE_*` 环境。
 
 新安装默认是可信 LAN 模式，不自动生成 token。
 

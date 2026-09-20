@@ -42,6 +42,23 @@ BRIDGE_INSTALL_SYSTEMD=0 ./deploy/install-bridge.sh
 
 新安装默认可信 LAN、auth off。若已有 `agent.env`，`BRIDGE_AGENT_AUTH=auto` 会保留现有 token 配置。
 
+CodeArts 凭据与 Agent token 分开保存：
+
+```text
+~/.config/codeartsbridge/agent.env     # BRIDGE_AGENT_TOKEN，可选
+~/.config/codeartsbridge/codearts.env  # CODEARTS_CLI_AK / CODEARTS_CLI_SK
+```
+
+`codearts.env` 必须由运维人员创建并设为 `600`；安装脚本只加载和保留它，不读取或输出凭据值。
+
+当前实验室安装时增加固定版本门禁：
+
+```bash
+BRIDGE_CODEARTS_EXPECTED_VERSION=26.8.12 ./deploy/install-worker-agent.sh
+```
+
+生成的 systemd unit 会禁用 CodeArts 自动升级，并清除可能污染运行时选择的旧 `OPENCODE_*` 环境。
+
 如果旧安装脚本曾自动生成 token，但当前 `workers.json` 没有对应 token，请明确恢复可信 LAN 模式：
 
 ```bash
@@ -53,6 +70,25 @@ BRIDGE_AGENT_AUTH=off ./deploy/install-worker-agent.sh
 ```bash
 BRIDGE_AGENT_AUTH=token BRIDGE_AGENT_TOKEN='...' ./deploy/install-worker-agent.sh
 ```
+
+## CodeArts 运行时核查与修复
+
+部署后只读核查：
+
+```bash
+python3 deploy/codearts-worker-runtime.py audit \
+  --expected-version 26.8.12 \
+  --require-aksk
+```
+
+权限修复默认只预览，必须显式 `--apply`：
+
+```bash
+python3 deploy/codearts-worker-runtime.py fix-permissions
+python3 deploy/codearts-worker-runtime.py fix-permissions --apply
+```
+
+完整根因、备份、回滚和真实 write 验收见 `docs/CODEARTS-WRITE-PERMISSION-RUNBOOK.md`。
 
 ## Reference unit
 
