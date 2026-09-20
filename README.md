@@ -1,321 +1,273 @@
 # CodeartsBridge
 
-Lightweight task control plane for multi-AI software development. Dispatch coding tasks to Worker nodes running CodeArts CLI, stream Agent thinking in real time, review and integrate results.
+多 Worker 软件开发控制平面。Bridge 负责创建/调度任务、实时观察、审查与集成；Worker Agent 在各节点启动本机 CodeArts CLI，并把事件与成果回传给 Bridge。
 
-> **Quick mental model**: A Python service runs on the bridge host. You configure `projects.json` (project paths) and `workers.json` (Worker Agent endpoints), then `bridge serve` starts the HTTP API + Web UI. Tasks are created via CLI and dispatched to Workers. Each Worker runs a `bridge-worker-agent` daemon that executes CodeArts CLI and streams events back. The UI monitors tasks and can delete task records (but does not control execution).
+> **AI / Coding Agent：先读 [AGENTS.md](AGENTS.md)。**
+>
+> **安装、配置、升级、排障：读 [docs/USAGE.md](docs/USAGE.md)。**
 
-## Architecture
+## 当前主链
 
-```
-┌──────────────────────────────────────────────┐
-│              Web UI (:8080)                   │
-│   overview / tasks / thinking / task-detail    │
-└──────────────────┬───────────────────────────┘
-                   │ HTTP API + SSE
-┌──────────────────┴───────────────────────────┐
-│                 Bridge Server                 │
-│  dispatch / state / EventStore / AgentTransport│
-└──┬──────────┬──────────┬──────────┬─────────┘
-   │ Agent    │ Agent    │ Agent    │ Agent
-┌──┴──┐    ┌──┴──┐    ┌──┴──┐    ┌──┴──┐
-│w01  │    │w02  │    │w03  │    │w04  │
-│:8765│    │:8765│    │:8765│    │:8765│
-│codearts│ │codearts│ │codearts│ │codearts│
-└─────┘    └─────┘    └─────┘    └─────┘
+```text
+Task
+→ auto_dispatch + scheduler
+→ Worker Agent
+→ CodeArts CLI
+→ live reasoning/tool events
+→ outbox archive
+→ Bridge fetch
+→ REVIEW_REQUIRED
+→ APPROVED
+→ integration
+→ DONE + integratedSha
 ```
 
-**Core components**:
+正常使用 **Agent transport**。不要从历史文档恢复已经删除的 daemon / policy / supervision / 第二套 runtime。
 
-| Component | Description |
-|-----------|-------------|
-| **Bridge Server** | HTTP API + Web UI on the bridge host, task dispatch and state management |
-| **Agent Server** | Worker daemon (:8765), receives jobs, runs CodeArts CLI, streams events back |
-| **EventStore** | Event store with fcntl.flock concurrency safety and 10MB auto-rotation |
-| **Web UI** | 4 pages (overview / tasks / thinking / task-detail), SSE real-time push, task deletion |
+## 5 分钟启动
 
-**Workflow**:
-1. `bridge serve` starts HTTP API + Web UI (+ MCP on by default) on the bridge host
-2. Each Worker runs `bridge-worker-agent` (daemon on :8765)
-3. `bridge create` creates a task (Markdown file describing the work)
-4. `bridge auto-dispatch` (or `--with-pipeline`) assigns tasks to Workers via agent transport
-5. Worker Agent invokes CodeArts CLI to execute the task
-6. Events (reasoning, tool_use, step) stream back to Bridge in real time
-7. Web UI renders the thinking stream live via SSE
-8. Review: `bridge review-pass` → APPROVED → `bridge integrate` → DONE + integratedSha
-
-## Quick start
-
-### Install
+### 1. Bridge 主机
 
 ```bash
 git clone https://github.com/nathanxiangang-web/CodeartsBridge.git
 cd CodeartsBridge
-pip install -e .
+./deploy/install-bridge.sh
 ```
 
-### Start services
+默认安装并启动：
 
-```bash
-# 1. Bridge host: start HTTP API + Web UI
-bridge serve --host 0.0.0.0 --port 8080
-
-# Or with autonomous dispatch/review/integrate loop:
+```text
+bridge.service
 bridge serve --host 0.0.0.0 --port 8080 --with-pipeline
-
-# 2. Each Worker: start Agent Server (trusted LAN, no token needed)
-bridge-worker-agent --listen 0.0.0.0 --port 8765
-
-# 3. Open the UI
-open http://<bridge-host>:8080
 ```
 
-### Dispatch a task
+UI：
+
+```text
+http://<bridge-host>:8080
+```
+
+### 2. 每台 Worker
+
+Worker 必须先满足：
 
 ```bash
-# Create a task from a Markdown instruction file
-bridge create -p bridge -t my-task -f task.md
-
-# Auto-dispatch to enabled Workers
-bridge auto-dispatch
-
-# Or run the full pipeline (dispatch + review + integrate)
-bridge pipeline --once
-
-# Watch status
-bridge status
+codearts --version
 ```
 
-## Prerequisites
+然后：
 
-| Requirement | Description |
-|-------------|-------------|
-| Python >= 3.10 | On bridge host and all Worker nodes |
-| CodeArts CLI | Installed and AK/SK configured on each Worker |
-| Network reachability | Bridge host can reach each Worker Agent endpoint |
-
-**CodeArts CLI setup** (on each Worker):
 ```bash
-codearts config set-access-key YOUR_AK
-codearts config set-secret-key YOUR_SK
+git clone https://github.com/nathanxiangang-web/CodeartsBridge.git
+cd CodeartsBridge
+./deploy/install-worker-agent.sh
 ```
 
-## Configuration
+默认安装并启动：
 
-Two JSON files in the project root (or `--config-dir`).
+```text
+bridge-worker-agent.service
+Agent HTTP :8765
+```
 
-### projects.json — projects
+新安装默认可信 LAN、auth off；不会自动生成一个 Bridge 不知道的 token。
 
-Minimal form:
+### 3. 配置
+
+`projects.json`：
 
 ```json
 {
   "projects": [
-    {"id": "bridge", "projectRoot": "/home/nathan/bridge-python"}
+    {
+      "id": "bridge",
+      "transport": "agent",
+      "projectRoot": "/home/nathan/bridge-python"
+    }
   ]
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `id` | Project unique identifier |
-| `projectRoot` | Project repository path on the Worker |
-
-### workers.json — Worker endpoints
-
-Minimal form (4 Workers on 178.50/51/52/53):
+`workers.json`：
 
 ```json
 {
   "workers": [
-    {"id": "w01", "endpoint": "http://192.168.178.52:8765", "enabled": true},
-    {"id": "w02", "endpoint": "http://192.168.178.50:8765", "enabled": true},
-    {"id": "w03", "endpoint": "http://192.168.178.53:8765", "enabled": true},
-    {"id": "w04", "endpoint": "http://192.168.178.51:8765", "enabled": true}
+    {
+      "id": "w01",
+      "transport": "agent",
+      "endpoint": "http://192.168.178.52:8765",
+      "enabled": true
+    }
   ]
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `id` | Worker unique identifier |
-| `endpoint` | Agent Server HTTP endpoint |
-| `enabled` | Whether this Worker receives dispatches |
+`projectRoot` 是 **Worker 本机** 项目路径。每台 Worker 都必须存在这个目录。
 
-### Authentication
+当前仓库里的 `workers.json` 配置了 4 个实验室 Worker；不要在代码里硬编码这些地址。
 
-No token auth. The Agent Server runs on a trusted LAN. When no token is configured, the Agent prints `auth off — trusted LAN` and accepts all requests. Token auth is available via `--token` or `BRIDGE_AGENT_TOKEN` if needed, but the normal deployment does not use it.
+### 4. 创建任务
 
-## Transport
+```bash
+cat >/tmp/task.md <<'EOF'
+# Objective
+Fix the target bug.
 
-Agent transport only. The Bridge talks to each Worker over HTTP (`http://<worker-ip>:8765`). There is no SSH, local, or remote-worktree transport in normal use.
+# Required Changes
+- Make the scoped code change.
+- Add/update focused tests.
 
-## CLI commands
+# Acceptance Criteria
+- Focused tests pass.
+- No unrelated changes.
+EOF
 
-| Command | Description |
-|---------|-------------|
-| `bridge serve` | Start HTTP API + Web UI (+ MCP). Add `--with-pipeline` for autonomous loop |
-| `bridge create -p <project> -t <task-id> -f <file>` | Create a task |
-| `bridge auto-dispatch` | Auto-dispatch ready tasks to enabled Workers |
-| `bridge pipeline` | Run full pipeline (dispatch + review + integrate). `--once` for single cycle |
-| `bridge status` | Show all task states |
-| `bridge review-pass -t <task-id>` | Mark a task review-passed |
-| `bridge review-fix -t <task-id> --task-file <file>` | Return a task for fix |
-| `bridge integrate` | Cherry-pick APPROVED tasks into main |
-| `bridge cancel -t <task-id>` | Cancel a task |
-| `bridge projects` | List registered projects |
-| `bridge workers` | List registered Workers |
-| `bridge doctor` | Environment and config health check |
+bridge create -p bridge -t my-task --task-file /tmp/task.md
+```
 
-Without `--with-pipeline`, `bridge serve` does **not** auto-dispatch. Use `bridge auto-dispatch` or `bridge pipeline` separately.
+如果 Bridge 以 `--with-pipeline` 运行，任务会进入自动 dispatch/review/integrate 主循环。
+
+手动模式：
+
+```bash
+bridge auto-dispatch
+bridge status
+bridge review-pass -t my-task
+bridge integrate --task-id my-task
+```
+
+## 运行方式
+
+### 推荐：自治服务
+
+```bash
+bridge serve --host 0.0.0.0 --port 8080 --with-pipeline
+```
+
+### 只启动 API/UI
+
+```bash
+bridge serve --host 0.0.0.0 --port 8080
+```
+
+此时需要手动：
+
+```bash
+bridge auto-dispatch
+# 或
+bridge pipeline --once
+```
 
 ## Web UI
 
-Open `http://<bridge-host>:8080` in a browser.
+| 页面 | 用途 |
+|---|---|
+| Overview | Worker online/busy、任务计数、运行信息 |
+| Tasks | 任务筛选、状态、时间、删除任务记录 |
+| Task Detail | outbox、RESULT/TESTS/DIFF、commit、事件时间线 |
+| Thinking | 实时 Agent thinking 与历史输出 |
 
-| Page | URL hash | Description |
-|------|----------|-------------|
-| Overview | `#overview` | Worker status, task state counts, elapsed, last event |
-| Tasks | `#tasks` | Task list with 12-state filter, active-first sort, delete action |
-| Task Detail | `#task-detail/<id>` | Outbox preview (RESULT/TESTS/DIFF), commit SHA, timeline, delete |
-| Thinking | `#thinking` | Real-time Agent thinking stream (SSE), live vs retained distinction |
+任务删除语义：
 
-**UI boundary**: The UI does not do execution control (cancel/retry/review/integrate). It can delete task records — Delete != Cancel. Running tasks use deferred delete (marker + auto-cleanup after completion).
-
-**Tech stack**: browser-native ES Modules (no build tool, no framework), single `app.css`, SSE real-time events with polling fallback.
-
-## HTTP API
-
-### Bridge Server API
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health check |
-| GET | `/api/tasks` | List all tasks |
-| GET | `/api/tasks/<id>` | Task detail |
-| GET | `/api/tasks/<id>/log` | Task log (event stream) |
-| POST | `/api/tasks` | Create a task |
-| DELETE | `/api/tasks/<id>` | Delete task record (200 immediate / 202 deferred) |
-| POST | `/api/tasks/<id>/cancel` | Cancel a task |
-| POST | `/api/tasks/<id>/review/pass` | Review pass |
-| POST | `/api/tasks/<id>/review/fix` | Review fix |
-| POST | `/api/integrations` | Integrate approved task |
-| GET | `/api/workers` | List Workers |
-| GET | `/api/projects` | List projects |
-| GET | `/api/events` | SSE event stream (real-time push) |
-
-### Agent Server API (Worker :8765)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/health` | Agent health |
-| POST | `/v1/jobs` | Create and start a job |
-| GET | `/v1/jobs/<id>` | Job status |
-| GET | `/v1/jobs/<id>/events?cursor=N` | Event stream (incremental cursor) |
-| POST | `/v1/jobs/<id>/cancel` | Cancel a job |
-| GET | `/v1/jobs/<id>/artifacts` | List artifacts |
-| GET | `/v1/jobs/<id>/files/<category>/<name>` | Download a file |
-
-## Project structure
-
-```
-src/bridge/
-├── cli.py                    # CLI entry
-├── auto_dispatch.py          # Auto-dispatch engine
-├── pipeline.py               # Pipeline orchestrator (dispatch+review+integrate)
-├── task_delete.py            # Task deletion (deferred delete + finalize)
-├── state.py                  # Task state machine
-├── worker.py                 # Worker execution
-├── integration.py            # Cherry-pick integration (canonical)
-├── architect_loop.py         # Architect review loop
-├── config.py                 # Config loading
-├── agent/                    # Worker Agent (daemon)
-│   ├── cli.py                # Agent CLI entry
-│   ├── server.py             # HTTP Server (:8765)
-│   ├── runner.py             # CodeArts runner
-│   ├── watchdog.py           # Process watchdog
-│   ├── recovery.py           # Inflight recovery
-│   └── store.py              # Job store
-├── transport/
-│   └── agent.py              # Agent transport (HTTP API)
-├── application/              # Application services
-│   ├── task_service.py       # Task CRUD
-│   ├── dispatch_service.py   # Dispatch service
-│   ├── review_service.py     # Review service
-│   └── workers.py            # Worker management
-├── core/
-│   ├── events.py             # EventStore (flock + rotation)
-│   └── state.py              # State machine
-├── api/server.py             # HTTP API server
-└── web/                      # Web UI
-    ├── index.html
-    ├── styles/app.css
-    └── js/
-        ├── api.js
-        ├── events.js
-        ├── app.js
-        └── pages/
-            ├── overview.js
-            ├── tasks.js
-            ├── task-detail.js
-            └── thinking.js
+```text
+Delete != Cancel
 ```
 
-## Deployment
+删除正在运行的任务记录不会取消 Agent / CodeArts；运行继续，Bridge 在安全时机 deferred cleanup。
 
-### systemd — Bridge Server (bridge host)
+## Worker / Agent
+
+Agent 负责：
+
+- 启动 CodeArts CLI
+- stdout/stderr JSON pipe
+- watchdog / timeout
+- restart recovery
+- live events
+- outbox archive
+- artifact fetch
+
+Agent 健康检查：
 
 ```bash
-sudo cat > /etc/systemd/system/bridge.service << 'EOF'
-[Unit]
-Description=CodeartsBridge Server
-After=network.target
-
-[Service]
-Type=simple
-User=nathan
-WorkingDirectory=/home/nathan/bridge-python
-Environment=PYTHONPATH=/home/nathan/bridge-python/src
-ExecStart=/usr/bin/python3 -m bridge.cli serve --host 0.0.0.0 --port 8080
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now bridge
+curl -fsS http://<worker>:8765/v1/health
 ```
 
-Add `--with-pipeline` to `ExecStart` for autonomous dispatch/review/integrate.
-
-### systemd — Worker Agent (each Worker)
+Bridge 健康检查：
 
 ```bash
-sudo cp deploy/bridge-worker-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now bridge-worker-agent
+curl -fsS http://<bridge-host>:8080/api/health
 ```
 
-### Worker Agent install script
+## CodeArts write/edit 当前说明
+
+当前 `--format json` 下 built-in `write/edit` 仍可能立即拒绝。Worker contract 允许 shell fallback 写正式成果；这条 fallback 已用于真实 outbox 任务，但 **不代表 built-in write 问题已经彻底解决**。
+
+看到 Worker 用 `python3 -c` 写 outbox 是当前 fallback 行为之一。正常源码编辑若长期全部退化成 base64 / 整文件覆盖，应单独审查，而不是视为理想状态。
+
+## 常用 CLI
+
+| 命令 | 作用 |
+|---|---|
+| `bridge bootstrap` | 初始化 runtime/task 目录 |
+| `bridge doctor` | 检查配置与环境 |
+| `bridge status` | 查看任务 |
+| `bridge create ...` | 创建任务 |
+| `bridge auto-dispatch` | 自动派发 READY 任务 |
+| `bridge pipeline` | review/dispatch/integrate 循环 |
+| `bridge serve` | API/UI/MCP；可加 `--with-pipeline` |
+| `bridge review-pass -t ID` | 审查通过 |
+| `bridge review-fix -t ID --fix-file FILE` | 请求修复 |
+| `bridge integrate --task-id ID` | 集成 APPROVED 任务 |
+| `bridge cancel -t ID` | 取消任务执行 |
+| `bridge workers` | 查看 Worker |
+| `bridge projects` | 查看 Project |
+
+完整参数以：
 
 ```bash
-./deploy/install-worker-agent.sh
+bridge --help
+bridge <command> --help
 ```
 
-This creates the `~/.codex-glm-bridge/agent` data directory and installs the systemd service. No token is generated — the Agent runs with `auth off` on a trusted LAN.
+为准。
 
-## Development
+## 安装/升级脚本
+
+```text
+deploy/install-bridge.sh
+deploy/install-worker-agent.sh
+```
+
+升级：
 
 ```bash
-pip install -e ".[dev]"
-pytest
-export PYTHONPATH=src     # if not pip install
+git pull --ff-only
+./deploy/install-bridge.sh        # Bridge 主机
+./deploy/install-worker-agent.sh  # Worker
 ```
 
-## Closeout docs
+部署目录说明见 [deploy/README.md](deploy/README.md)。
 
-- `docs/ai-closeout/` — runtime truth audit, closeout roadmap, productization roadmap, task deletion semantics. Read `NEXT.md` first when working on the bridge.
+## 开发验证
+
+```bash
+python -m pytest -q
+python -m bridge.cli --help
+python -m bridge.cli doctor
+```
+
+修改 Agent / transport / lifecycle 后，必须额外跑真实 task，不能只靠单元测试。
+
+## 文档入口
+
+- [AGENTS.md](AGENTS.md) — AI / 新维护者第一入口
+- [docs/USAGE.md](docs/USAGE.md) — 当前使用与运维手册
+- [docs/ai-closeout/NEXT.md](docs/ai-closeout/NEXT.md) — 当前下一步
+- [protocol/WORKER.md](protocol/WORKER.md) — 注入 Worker 的执行契约
+
+历史设计/收口文档仍保留用于追溯，但与当前 main 冲突时，以代码、`AGENTS.md`、`docs/USAGE.md` 为准。
 
 ## License
 

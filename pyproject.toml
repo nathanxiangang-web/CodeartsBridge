@@ -11,7 +11,7 @@ license = { text = "MIT" }
 
 [project.scripts]
 bridge = "bridge.cli:main"
-
+bridge-worker-agent = "bridge.agent.cli:main"
 show-progress = "bridge.progress:show_progress_main"
 watch-tasks = "bridge.progress:watch_tasks_main"
 
