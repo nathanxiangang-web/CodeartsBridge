@@ -77,7 +77,7 @@ Agent outbox archive lifecycle
 Review -> APPROVED -> real Integration -> DONE
 dispatch 统一到 auto_dispatch + scheduler
 supervision / policy / runtime / daemon / dispatch / adaptive / cost 主模块删除
-PR #35 task display clear
+PR #35 task display clear（仅隐藏，不代表删除功能完成）
 ```
 
 CodeArts `--format json` 下 built-in write/edit 的立即拒绝视为 CLI 限制；当前 bash fallback 是已验证路径，不再围绕它重构 Agent。
