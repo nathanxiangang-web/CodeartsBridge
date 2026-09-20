@@ -31,8 +31,8 @@ Task
 2. `docs/USAGE.md` — 安装、配置、日常操作、升级、排障
 3. `docs/CODEARTS-PINNED-RUNTIME.md` — CodeArts 26.8.12 固定版本与恢复规则
 4. `docs/ai-closeout/NEXT.md` — 当前下一步
-4. `docs/ai-closeout/README.md` — 当前架构约束
-5. `protocol/WORKER.md` — 注入给 Worker/CodeArts 的执行契约
+5. `docs/ai-closeout/README.md` — 当前架构约束
+6. `protocol/WORKER.md` — 注入给 Worker/CodeArts 的执行契约
 
 `docs/ai-closeout/01~08` 中有历史审计和收口记录。它们用于理解“为什么这样设计”，不是默认待办清单。
 
@@ -187,12 +187,14 @@ Issue #38 已修复过“5 分钟 permission hang”和“COMPLETED 早于 archi
 - 不要把 26.9.7 的 Access denied 诊断成 Bridge / outbox / write 问题
 - 不要在生产 Worker 执行 `codearts upgrade`
 
-同时仍有一个独立的 CodeArts CLI 行为需要区分：
+built-in `write/edit` 的旧阻塞已在 26.8.12 固定运行时上完成实机验证并解除：
 
-- `--format json` 下 built-in `write/edit` 可能立即被拒
-- Worker contract 当前允许 shell fallback 写成果
-- 这不等于 built-in write 问题已经彻底解决
-- 不要为了这个现象重新设计 Agent / outbox，除非有新的可复现实验证据
+- 非交互权限已调整为允许写入授权项目路径
+- 多 Worker 真实任务已走到 `REVIEW_REQUIRED`
+- `src/bridge/codearts.py` 已删除临时 `WRITE_STRATEGY_DIRECTIVE`
+- 当前默认应直接使用 CodeArts built-in `write/edit`，不再把 shell/python fallback 当常规写法
+
+如果后续某台 Worker 再出现 editor refusal，先按单机权限/路径回归处理，不要据此重新设计 Agent / outbox。
 
 ## 8. 修改项目时的硬规则
 
