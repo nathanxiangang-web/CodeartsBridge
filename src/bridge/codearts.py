@@ -53,6 +53,21 @@ THINK_LANGUAGE_DIRECTIVE = (
     "non-ASCII console output may be corrupted."
 )
 
+WRITE_STRATEGY_DIRECTIVE = (
+    "File-writing strategy (follow in priority order): "
+    "1) Always read the target file before modifying it. "
+    "2) Try the built-in 'edit' tool for small localized changes and the built-in 'write' tool "
+    "for creating new files. "
+    "3) If the built-in editor is rejected (non-interactive mode auto-rejects write/edit), "
+    "fall back to the shell: "
+    "for small changes use python3 -c with targeted string replacement, NOT a full file rewrite; "
+    "for new files use python3 -c to write the complete content; "
+    "for complex modifications to existing source, write a Python patch script to /tmp that "
+    "loads the file, applies targeted transformations, and writes it back, then run and verify it. "
+    "4) NEVER rewrite an entire existing source file when only a few lines change — prefer "
+    "targeted edits over full rewrites."
+)
+
 
 def find_codearts_cli() -> str | None:
     """Find CodeArts CLI, preferring Huawei's per-user install directory."""
@@ -125,8 +140,7 @@ def build_worker_core_prompt(
         base += f" {remote_directive}"
     base += (
         f" Write the formal deliverables to '{outbox_path}'; do not return them only in chat. "
-        f"If the built-in editor refuses to write to the outbox, use the current system shell "
-        f"to write the files there. {directive}"
+        f"{WRITE_STRATEGY_DIRECTIVE} {directive}"
     )
     return base
 
