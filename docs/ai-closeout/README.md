@@ -24,7 +24,7 @@
 
 Issue #38 已解决并关闭。Agent 是当前核心 Worker runtime，不再作为删除候选。
 
-Web UI 仍保持 read-only。
+Web UI 不承担执行控制（cancel/retry/review/integrate），但允许“删除任务记录”这一项管理动作。Delete 与 Cancel 必须分离。
 
 ## 1. AI 开工前必须遵守
 
@@ -66,7 +66,7 @@ dispatch 主路径统一到 auto_dispatch + scheduler
 Agent JSON PIPE / Watchdog / Recovery / artifact fetch 已实跑
 Issue #38 P0-A/P0-B 已闭环
 supervision / policy / runtime / dispatch / daemon / adaptive / cost 主模块已删除
-PR #35 已合入，Tasks 页支持本地隐藏已结束任务
+PR #35 已合入，但只实现本地隐藏；真正任务删除仍待按 08-TASK-DELETION-SEMANTICS.md 实现
 Python 3.11 / 3.12 / 3.13 CI 全绿
 ```
 
@@ -87,28 +87,35 @@ bash fallback 可可靠写入 outbox
 
 ## 5. UI 当前真相
 
-PR #35 已进入 main：
-
-```
-清除已结束
-恢复隐藏 (N)
-```
-
-它只操作：
+PR #35 已进入 main，但其语义只是“隐藏”：
 
 ```
 localStorage: codeartsbridge.hiddenTasks.v1
 ```
 
-不会删除 task，不会修改 state，不会向后端发写请求。
+真正需求是“删除任务记录”，且：
 
-如果现场 UI 没出现按钮，优先检查部署 checkout / 实际静态文件版本。
+```
+Delete != Cancel
+运行中删除不得取消 Agent / CodeArts
+运行中采用 deferred delete
+任务自然结束后再物理清理
+```
+
+完整语义见：
+
+```
+08-TASK-DELETION-SEMANTICS.md
+```
+
+后续实现时可以保留“隐藏”作为独立辅助功能，但 UI 文案必须和“删除”分开。
 
 ## 6. 文档阅读顺序
 
 ```
 NEXT.md
 07-PRODUCTIZATION-ROADMAP.md
+08-TASK-DELETION-SEMANTICS.md
 05-REAL-ACCEPTANCE.md
 06-AGENT-RUNTIME-TRUTH.md   # 作为问题历史与约束参考，不再是待办
 01-RUNTIME-TRUTH.md         # 历史审计，不代表当前完整状态
