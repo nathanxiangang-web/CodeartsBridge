@@ -386,17 +386,14 @@ SHA-256：
 
 ### 10.2 built-in write/edit
 
-当前已知：
+当前 26.8.12 固定运行时已确认：
 
-- permission hang 已经处理过
-- `--format json` 下 built-in `write/edit` 仍可能立即拒绝
-- Worker contract 允许 shell fallback 写成果
-- 当前 fallback 经真实 outbox 任务验证能工作
-- built-in write 本身仍应视为一个待进一步确认的 CodeArts CLI 行为
+- permission hang 已处理
+- 授权项目路径上的 built-in `write/edit` 可以在 `--format json` 非交互任务中正常工作
+- 多 Worker 真实写入任务已走到 `REVIEW_REQUIRED`
+- 临时 `WRITE_STRATEGY_DIRECTIVE` 已删除，正常执行路径重新回到 built-in editor
 
-看到 `python3 -c` 写 outbox 不代表 Agent 出错；这是当前 fallback 路径之一。
-
-但正常项目源码如果长期全部退化成 base64 / `python3 -c` 整文件覆盖，应单独审查 Worker contract，而不是把这种行为当成理想编辑方式。
+因此，长期出现 `python3 -c` / base64 整文件写入不再是预期常态。若再次出现 editor refusal，优先检查该 Worker 的 CodeArts 权限、目标路径和固定版本是否漂移；shell/python 仅作为异常兜底。
 
 ## 11. 升级
 

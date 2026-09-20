@@ -209,11 +209,11 @@ curl -fsS http://<bridge-host>:8080/api/health
 
 当前实验室 Worker **固定使用 CodeArts CLI 26.8.12**。26.9.7 在现有账号上会在 Model Queuing 阶段被 package/account gate 拒绝，因此不能当作可升级版本。恢复包、SHA-256 和安装步骤见 [docs/CODEARTS-PINNED-RUNTIME.md](docs/CODEARTS-PINNED-RUNTIME.md)。
 
-这和 built-in write/edit 是两个独立问题：
+26.9.7 的 package/account gate 与 built-in write/edit 是两个独立问题。
 
-当前 `--format json` 下 built-in `write/edit` 仍可能立即拒绝。Worker contract 允许 shell fallback 写正式成果；这条 fallback 已用于真实 outbox 任务，但 **不代表 built-in write 问题已经彻底解决**。
+当前 **26.8.12 固定运行时上的 built-in `write/edit` 已完成实机验证并恢复正常**。此前为绕过 auto-reject 增加的 `WRITE_STRATEGY_DIRECTIVE` 已从 `src/bridge/codearts.py` 删除；正常任务应优先直接使用 CodeArts 自带 `write/edit`。
 
-看到 Worker 用 `python3 -c` 写 outbox 是当前 fallback 行为之一。正常源码编辑若长期全部退化成 base64 / 整文件覆盖，应单独审查，而不是视为理想状态。
+shell/python 写入只保留为异常情况下的兜底，不再视为标准执行路径。
 
 ## 常用 CLI
 

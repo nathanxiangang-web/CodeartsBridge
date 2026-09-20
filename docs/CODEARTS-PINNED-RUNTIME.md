@@ -176,23 +176,24 @@ actual != 26.8.12
 6. 验证账号兼容、事件流、outbox、artifact。
 7. 全部通过后才修改本文件的 pinned version。
 
-## 7. 与 built-in write/edit 问题的关系
+## 7. 与 built-in write/edit 的关系
 
-必须分开：
+必须继续区分两条问题线：
 
 ```text
 A. 26.9.7 package/account routing 问题
 → 任务在模型队列阶段就失败
+→ 当前仍未解决，生产环境继续禁升
 
 B. 26.8.12 built-in write/edit 问题
-→ 模型已经运行
-→ 工具调用时可能立即拒绝
-→ shell/python fallback 可以写正式成果
+→ 已在固定运行时上完成权限修正和多 Worker 实机验证
+→ built-in write/edit 当前可直接使用
+→ 临时 WRITE_STRATEGY_DIRECTIVE 已移除
 ```
 
-不要把 A 和 B 混成一个问题。
+因此现在的结论是：**版本继续固定在 26.8.12，但 write/edit 不再列为当前未决问题。**
 
-当前仍需要继续调查 B，但调查必须基于 **26.8.12 pinned runtime**，否则版本变量会污染结论。
+后续若单机再次发生 write/edit refusal，应先按 Worker 配置/权限/路径回归处理，不要把它与 26.9.7 的套餐鉴权问题混在一起。
 
 ## 8. 给 Coding Agent 的结论
 
