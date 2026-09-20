@@ -351,6 +351,22 @@ def cmd_serve(args) -> int:
 
     print(f"\nPress Ctrl+C to stop.")
 
+    # Optional in-process pipeline loop
+    pipeline_thread = None
+    if args.with_pipeline:
+        from .pipeline import run_pipeline, PipelineConfig
+        pipeline_config = PipelineConfig(interval=args.pipeline_interval)
+
+        def _run_pipeline():
+            try:
+                run_pipeline(root, pipeline_config)
+            except Exception as e:
+                print(f"Pipeline thread error: {e}")
+
+        pipeline_thread = threading.Thread(target=_run_pipeline, daemon=True)
+        pipeline_thread.start()
+        print(f"  Pipeline: in-process (interval={args.pipeline_interval}s)")
+
     def _shutdown(*_):
         api_server.stop()
         if mcp_thread:
@@ -529,6 +545,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--host", default="0.0.0.0")
     p_serve.add_argument("--port", type=int, default=8080)
     p_serve.add_argument("--no-mcp", action="store_true", help="Disable MCP server")
+    p_serve.add_argument("--with-pipeline", action="store_true", help="Run dispatch/review/integrate loop in-process")
+    p_serve.add_argument("--pipeline-interval", type=int, default=10, help="Pipeline cycle interval in seconds")
 
     sub.add_parser("projects", help="List registered projects")
     sub.add_parser("workers", help="List registered workers")
