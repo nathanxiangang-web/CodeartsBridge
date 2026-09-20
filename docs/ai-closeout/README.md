@@ -83,13 +83,13 @@ CodeArts CLI 26.8.12
 
 26.9.7 在现有账号上会在 Model Queuing 阶段被 package/account gate 拒绝，因此不要在生产 Worker 执行 `codearts upgrade`。
 
-## 当前已知未决
+## CodeArts editor 当前状态
 
-CodeArts `--format json` 下 built-in `write/edit` 仍可能立即拒绝。
+26.8.12 固定运行时上的 built-in `write/edit` 已完成权限修正和多 Worker 实机验证；临时 `WRITE_STRATEGY_DIRECTIVE` 已删除，built-in editor 重新成为正常执行路径。
 
-当前 Worker 会使用 shell fallback 写正式 outbox，所以任务可以交付；但不要把 fallback 误写成“built-in write 已修复”。
+shell/python 写入只应作为异常兜底。若 editor refusal 回归，先检查单机 CodeArts 权限、目标路径和版本漂移，不要重新设计 Agent/outbox。
 
-调查这个问题时，先做可复现实验，不要先重构 Agent/outbox。
+仍未解决的是 **26.9.7 的 package/account routing**，它发生在 Model Queuing 阶段，与 editor 问题无关。
 
 ## UI 边界
 
