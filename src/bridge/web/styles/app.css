@@ -100,4 +100,7 @@ tr:hover{background:var(--bg3)}
 .mbadge-failed{background:rgba(248,81,73,.2);color:var(--red)}
 .mbadge-review{background:rgba(188,140,255,.2);color:var(--purple)}
 .mbadge-queued{background:rgba(88,166,255,.2);color:var(--blue)}
-.mbadge-idle{background:var(--bg3);color:var(--text2)}
+.mbadge-idle{background:var(--bg3);color:var(--text2)}.outbox-list{display:flex;flex-direction:column;gap:4px}
+.outbox-item{display:flex;gap:8px;align-items:baseline}
+.outbox-name{color:var(--blue);font-family:"JetBrains Mono","Consolas",monospace;font-size:13px}
+.outbox-content{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:12px;overflow-x:auto;font-size:13px;line-height:1.6;max-height:400px;overflow-y:auto}
