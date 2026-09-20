@@ -26,14 +26,23 @@ async function renderOverview() {
   const online = workers.filter(w => w.online !== false);
   html += `<div class="card stat"><div class="num">${online.length}/${workers.length}</div><div class="label">Workers 在线</div></div>`;
 
-  const running = tasks.filter(t => (t.state||t.status) === 'RUNNING' || (t.state||t.status) === 'STARTING').length;
-  const review = tasks.filter(t => (t.state||t.status) === 'REVIEW_REQUIRED').length;
-  const failed = tasks.filter(t => (t.state||t.status) === 'FAILED').length;
+  const states = {};
+  for (const t of tasks) { const s = t.state || t.status || '?'; states[s] = (states[s]||0) + 1; }
+  const running = (states.RUNNING||0) + (states.STARTING||0);
+  const review = states.REVIEW_REQUIRED || 0;
+  const failed = states.FAILED || 0;
+  const assistance = states.ASSISTANCE_REQUIRED || 0;
+  const approved = states.APPROVED || 0;
   html += `<div class="card stat"><div class="num">${running}</div><div class="label">运行中</div></div>`;
   html += `<div class="card stat"><div class="num">${review}</div><div class="label">待审查</div></div>`;
   html += `</div>`;
 
+  html += `<div class="grid grid-4">`;
   html += `<div class="card stat"><div class="num" style="color:var(--red)">${failed}</div><div class="label">失败</div></div>`;
+  html += `<div class="card stat"><div class="num" style="color:var(--red)">${assistance}</div><div class="label">需协助</div></div>`;
+  html += `<div class="card stat"><div class="num" style="color:var(--green)">${approved}</div><div class="label">已批准</div></div>`;
+  html += `<div class="card stat"><div class="num">${tasks.length}</div><div class="label">总任务</div></div>`;
+  html += `</div>`;
 
   html += '<div class="grid grid-2"><div class="card"><h3>Workers</h3><div id="ov-workers">加载中...</div></div>';
   html += '<div class="card"><h3>最近任务</h3><div id="ov-tasks">加载中...</div></div></div>';
@@ -53,17 +62,24 @@ async function _refreshOverview() {
 
   const el = document.getElementById('ov-workers');
   if (el) el.innerHTML = workers.map(w => {
-    const current = Array.isArray(w.currentTasks) && w.currentTasks.length
-      ? (w.currentTasks[0].taskId || '')
-      : (w.currentTask || '');
-    const st = w.online === false ? 'OFFLINE' : (current ? 'RUNNING' : 'IDLE');
-    const cls = st === 'OFFLINE' ? 'badge-offline' : (st === 'RUNNING' ? 'badge-running' : 'badge-idle');
-    return `<div class="worker-row"><span class="badge ${cls}">${st}</span><span>${w.id||w.workerId||'?'}</span><span class="muted">${current}</span></div>`;
+    const ct = Array.isArray(w.currentTasks) && w.currentTasks.length ? w.currentTasks[0] : null;
+    const current = ct ? (ct.taskId || '') : (w.currentTask || '');
+    const st = w.online === false ? 'OFFLINE' : (current ? 'BUSY' : 'IDLE');
+    const cls = st === 'OFFLINE' ? 'badge-offline' : (st === 'BUSY' ? 'badge-running' : 'badge-idle');
+    const elapsedStr = ct && ct.startedAt ? elapsed(ct.startedAt) : '';
+    const lastEvt = ct && ct.lastHeartbeat ? new Date(ct.lastHeartbeat).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+    return `<div class="worker-row"><span class="badge ${cls}">${st}</span><span>${w.id||w.workerId||'?'}</span><span class="muted">${current}</span><span class="muted" style="font-size:11px">${elapsedStr}</span><span class="muted" style="font-size:11px">${lastEvt}</span></div>`;
   }).join('') || '<p class="muted">无 Worker</p>';
 
   const el2 = document.getElementById('ov-tasks');
   if (el2) {
-    const recent = tasks.slice(0, 10);
+    const ACTIVE = new Set(['RUNNING','STARTING','QUEUED','REVIEW_REQUIRED','APPROVED','INTEGRATING','INTEGRATED','ASSISTANCE_REQUIRED']);
+    const sorted = tasks.slice().sort((a,b) => {
+      const aA = ACTIVE.has(a.state||a.status||''), bA = ACTIVE.has(b.state||b.status||'');
+      if (aA !== bA) return aA ? -1 : 1;
+      return (b.updatedAt||b.createdAt||'').localeCompare(a.updatedAt||a.createdAt||'');
+    });
+    const recent = sorted.slice(0, 10);
     el2.innerHTML = '<table><tr><th>Task</th><th>Worker</th><th>State</th></tr>' +
       recent.map(t => `<tr><td><a href="#task-detail/${t.taskId||t.id}">${t.taskId||t.id||'?'}</a></td><td>${t.workerId||t.assignedWorkerId||'-'}</td><td>${stateBadge(t.state||t.status)}</td></tr>`).join('') +
       '</table>';

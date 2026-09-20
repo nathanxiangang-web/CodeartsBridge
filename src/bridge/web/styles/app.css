@@ -89,6 +89,7 @@ tr:hover{background:var(--bg3)}
 .monitor-timer{color:var(--yellow);font-family:monospace;font-size:11px}
 .monitor-log{flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 8px;font-family:"SF Mono",Consolas,"Liberation Mono",monospace;font-size:11px;line-height:1.5;min-width:0;min-height:0;overscroll-behavior:contain}
 .log-line{padding:1px 0;white-space:pre-wrap;word-break:break-all}
+.log-retained{opacity:0.45;border-top:1px dashed var(--border)}
 .log-info{color:var(--text)}
 .log-tool{color:var(--blue)}
 .log-ok{color:var(--green)}

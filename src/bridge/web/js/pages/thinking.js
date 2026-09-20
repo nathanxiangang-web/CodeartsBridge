@@ -80,7 +80,7 @@ var tc=log.toolCount||0;
 var rc=log.reasoningCount||0;
 var ms=mapState(state);
 var taskChanged=slotData[i]&&slotData[i].tid!==tid;
-if(taskChanged)logEl.innerHTML='';
+if(taskChanged){logEl.innerHTML='';logEl.classList.remove('log-retained');}
 slotData[i]={host:host,state:state,ms:ms,tid:tid,rc:rc,tc:tc,startTime:log.startTime||0,elapsed:log.elapsed||0};
 var elapsed=ms==='thinking'&&log.startTime>0?Math.floor((Date.now()-log.startTime)/1000):(log.elapsed||0);
 hdr.innerHTML='<span class="monitor-host">'+esc(host)+'</span> '+badge(state)+' <span class="monitor-timer">⏱'+fmtElapsed(elapsed)+'</span> <span class="muted" style="font-size:10px">思考'+rc+' 工具'+tc+'</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="'+esc(wid)+'">'+esc(tid)+'</span>';
@@ -119,8 +119,8 @@ logEl.innerHTML='<div class="log-line muted">等待 Worker 事件...</div>';
 logEl.innerHTML='<div class="log-line log-info">回显读取失败：'+esc(e&&e.message?e.message:String(e))+'</div>';
 }
 }else{
-if(slotData[i]){var lastTid=slotData[i].tid||'';slotData[i].ms='done';hdr.innerHTML='<span class="monitor-host">'+esc(host)+'</span> <span class="muted" style="font-size:11px">空闲</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="'+esc(wid)+'">'+esc(lastTid)+'</span>';}
-else{hdr.innerHTML='<span class="monitor-host">'+esc(host)+'</span> <span class="muted" style="font-size:11px">空闲</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="'+esc(wid)+'"></span>';logEl.innerHTML='';}
+if(slotData[i]){var lastTid=slotData[i].tid||'';slotData[i].ms='done';hdr.innerHTML='<span class="monitor-host">'+esc(host)+'</span> <span class="mbadge mbadge-done">已结束</span> <span class="muted" style="font-size:10px">历史保留</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="'+esc(wid)+'">'+esc(lastTid)+'</span>';logEl.classList.add('log-retained');}
+else{hdr.innerHTML='<span class="monitor-host">'+esc(host)+'</span> <span class="muted" style="font-size:11px">空闲</span> <span class="monitor-tid muted" style="font-size:10px" data-worker="'+esc(wid)+'"></span>';logEl.innerHTML='';logEl.classList.remove('log-retained');}
 }
 }
 }catch(e){}

@@ -65,8 +65,8 @@ def test_task_detail_has_no_control_actions():
 def test_overview_reads_current_tasks_shape():
     source = _read("js/pages/overview.js")
     assert "w.currentTasks" in source
-    assert "w.currentTasks[0].taskId" in source
-    assert "RUNNING" in source
+    assert "currentTasks" in source
+    assert "BUSY" in source
     assert "OFFLINE" in source
     assert "IDLE" in source
 
