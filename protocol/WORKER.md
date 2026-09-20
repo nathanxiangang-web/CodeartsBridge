@@ -20,31 +20,17 @@ Do not ask the Architect to approve ordinary engineering steps one by one. The d
 8. Treat one task as one bounded engineering unit. Do not silently expand it into adjacent modules, deployment, live integration, or unrelated cleanup.
 9. If the task cannot be completed within its stated soft limit, the context becomes too large, or the remaining work crosses a new component boundary, stop the current implementation loop at a safe checkpoint. Preserve working changes and write `CHECKPOINT.md` plus `ASSISTANCE_REQUEST.md` in the current task outbox.
 10. Do not treat a checkpoint as failure. Report completed scope, exact remaining scope, current tests, and the smallest suggested follow-up task. Never keep consuming context merely to appear complete.
-11. A built-in editor refusal is not a user rejection when the task explicitly authorizes the target repository path. After verifying the exact in-scope path, use one quoted system-shell write as the standard fallback and inspect the diff immediately. Stop and write the checkpoint only after two independent shell/path/permission failures, or when the target is outside task scope. Do not spend the remaining task time building ad hoc file-splicing scripts.
+11. Use the built-in `read`, `edit`, and `write` tools as the normal path for files inside the authorized project scope. A single editor refusal is a runtime anomaly, not a reason to switch the entire task to shell-based file generation. Re-check the exact target path and task scope first. Use a narrow shell/python write only as an exceptional fallback when the built-in editor genuinely fails, inspect the diff immediately, and do not build ad hoc file-splicing machinery.
 
-## File writing method (mandatory — avoids bash parser bugs)
+## File writing method
 
-**The bash tool cannot reliably parse: heredocs (`<<'EOF'`), double-quoted strings containing `()`, triple quotes (`'''`/`"""`), or nested quoting.** All of these trigger "failed to parse target path" errors and waste task time.
+1. Read the target before editing an existing file.
+2. Prefer built-in `edit` for localized changes and built-in `write` for new files.
+3. Keep edits scoped; do not rewrite a whole source file for a small change.
+4. If the built-in editor fails on an authorized in-scope path, verify the path/permission once and use the smallest shell/python fallback needed to finish the task.
+5. Always inspect the resulting diff or file content immediately after a fallback write.
 
-**CRITICAL: Always use SINGLE QUOTES to wrap the `python3 -c` argument.** Single quotes make everything literal — bash will not parse `()`, `$`, `""`, etc. inside single quotes. Double quotes WILL fail.
-
-Use this standard file-writing procedure:
-
-1. **Preferred: use the built-in Write/edit tool** if the path is authorized.
-2. **Fallback for small files** — python with SINGLE-quoted -c argument:
-   ```
-   python3 -c 'open("/path/to/file","w").write("file content here")'
-   ```
-   Note: outer quotes are SINGLE, inner quotes are DOUBLE. This is the only reliable form.
-3. **Fallback for large files or content with quotes/special chars** — base64 with SINGLE-quoted -c:
-   ```
-   python3 -c 'import base64; open("/path/to/file","wb").write(base64.b64decode("BASE64_CONTENT"))'
-   ```
-   Generate base64 locally first, then paste into the command.
-4. **For multi-file writes**, repeat the python3 -c command per file.
-5. **Always inspect the result immediately**: `python3 -c 'print(open("/path/to/file").read()[:200])'`.
-
-**Summary: `python3 -c '...'` with single outer quotes. Never use double outer quotes. Never use heredoc.**
+The previous mandatory `python3 -c` / base64 strategy was a workaround for the old non-interactive editor permission failure. It is no longer the default execution path on the pinned 26.8.12 runtime.
 12. Protect the deliverable before using remaining time for broad checks. After the required focused tests pass, commit the scoped work and write `RESULT.md`, `DIFF.stat`, `TESTS.md`, and `DIFF.patch`. Run a full repository suite, optional build, or extra lint only after that checkpoint exists; update `TESTS.md` if those later checks finish.
 
 ## Soft and hard delivery
