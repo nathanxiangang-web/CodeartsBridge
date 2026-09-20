@@ -1,70 +1,91 @@
-# NEXT — 下一位 AI 直接从这里开工
-
-审计基线：`main@e1db59b`
-
-项目已完成核心收口，不再继续大改 Agent / Scheduler / Lifecycle。
+# NEXT — 下一位 AI 从这里开工
 
 先读：
 
-```
-docs/ai-closeout/07-PRODUCTIZATION-ROADMAP.md
-docs/ai-closeout/08-TASK-DELETION-SEMANTICS.md
+```text
+AGENTS.md
+README.md
+docs/USAGE.md
 ```
 
-## 已完成（本轮）
+不要先翻旧 roadmap 再猜运行方式。
 
+## 当前已完成
+
+```text
+核心 Agent 执行链
+artifact archive/fetch
+dispatch/scheduler 主路径
+review -> APPROVED -> integration -> DONE
+Task 真删除 + deferred delete
+Tasks / Task Detail 第一轮 UI
+CLI / packaging 旧死亡入口清理
+legacy integration_service 删除
+README / 安装脚本 / 运维入口统一
 ```
-P0  CLI / packaging 死入口清理 + CLI contract regression
-P1  Tasks 页面：12 状态筛选 + 活跃优先排序 + 时间列 + 删除按钮
-P1  Task Detail：outbox 预览 + RESULT/TESTS/DIFF + commitSha + 时间线 + 删除按钮
-P2  删除 application/integration_service.py，API/MCP 改用 canonical integrate_task
-08  DELETE /api/tasks/<taskId>：200 立即删除 / 202 延迟删除
-08  .delete-requested marker：scanners 跳过，auto_dispatch 每轮 finalize
-08  UI：一键删除已结束 + 逐行删除，替换 localStorage 隐藏
-08  终态任务残留 inflight.json 不阻止删除
+
+当前安装入口：
+
+```text
+deploy/install-bridge.sh
+deploy/install-worker-agent.sh
 ```
 
 ## 当前优先级
 
-### P1 剩余：Thinking + Overview
+### P1 — Thinking / Overview
 
-```
-1. Thinking：明确区分 live 与 retained history
-2. Overview：Worker 当前任务 / elapsed / last event
-```
+- Thinking 明确区分 live 与 retained history
+- Overview 显示 Worker 当前任务 / elapsed / last event
+- 继续保持 UI 简洁，不恢复重型控制面
 
-### P2 剩余：控制循环收口
+### P1 — CodeArts built-in write/edit 调查
 
-```
-1. 是否把唯一 TaskLoop 并入 bridge serve
-2. 确认 auto_dispatch / integrate_loop / architect_loop 三个循环的触发与协调
-```
+当前事实：
 
-### P3：文档与部署真相同步
-
-```
-1. README 更新为当前真实行为
-2. deploy 指引与 systemd 服务一致
-3. runtime truth 最终确认
+```text
+permission hang 已消失
+--format json 下 built-in write/edit 仍可能立即拒绝
+shell/python fallback 可以写 outbox
 ```
 
-## 已完成，不要重复
+这里仍是“未彻底解决”，不要写成已完成。
 
-```
-Issue #38
-Agent outbox archive lifecycle
-Review -> APPROVED -> real Integration -> DONE
-dispatch 统一到 auto_dispatch + scheduler
-supervision / policy / runtime / daemon / dispatch / adaptive / cost 主模块删除
-PR #35 task display clear（localStorage 隐藏已替换为真正删除）
-legacy integration_service.py 已删除
-DELETE /api/tasks/<taskId> 已实现
+调查顺序：
+
+1. 先做原生 CodeArts 可复现实验
+2. 确认最终生效 permission / agent / run mode
+3. 区分普通 project path、隐藏目录、external path
+4. 有证据后再决定是否改 Bridge
+
+不要先重构 Agent/outbox。
+
+### P2 — 控制循环和历史资料收尾
+
+- 验证 `bridge serve --with-pipeline` 长期运行稳定性
+- 继续清理误导当前架构的历史说明
+- 真实 Scenario A/B/G 再跑一轮
+
+## 不要恢复
+
+```text
+bridge-daemon
+supervision
+policy gate
+第二套 runtime supervisor
+adaptive scheduler
+cost layer
+旧 dispatch.py
 ```
 
-CodeArts `--format json` 下 built-in write/edit 的立即拒绝视为 CLI 限制；当前 bash fallback 是已验证路径，不再围绕它重构 Agent。
+## 验收习惯
 
-完整工作安排见：
+代码修改至少：
 
+```bash
+python -m pytest -q
+python -m bridge.cli --help
+python -m bridge.cli doctor
 ```
-docs/ai-closeout/07-PRODUCTIZATION-ROADMAP.md
-```
+
+涉及真实 Agent/transport/lifecycle 时，再跑真实 task。
